@@ -279,6 +279,27 @@ export function HospitalDashboardPage() {
     return () => window.removeEventListener("isalu_navigate_desk", handleNavEvent);
   }, [currentUser]);
 
+  useEffect(() => {
+    const handle401AuthError = (e: any) => {
+      const msg = e.detail?.message || "Session Expired: Your security token has expired. Please log in again.";
+      setToastAlert({
+        title: "Session Expired 🔐",
+        description: msg,
+        type: "danger",
+      });
+      setLoginError(msg);
+      setIsAuthenticated(false);
+      setCurrentUser(null);
+      sessionStorage.removeItem("isalu_staff_authenticated");
+      sessionStorage.removeItem("isalu_staff_user");
+      sessionStorage.removeItem("isalu_staff_jwt");
+      localStorage.removeItem("isalu_auth_tokens");
+    };
+
+    window.addEventListener("isalu_auth_401", handle401AuthError);
+    return () => window.removeEventListener("isalu_auth_401", handle401AuthError);
+  }, []);
+
   // Manual-Dismiss Toast Alert State
   const [toastAlert, setToastAlert] = useState<{
     title: string;

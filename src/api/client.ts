@@ -7,18 +7,99 @@
 const API_HOSTNAME = typeof window !== "undefined" && window.location.hostname ? window.location.hostname : "127.0.0.1";
 const API_BASE_URL = `http://${API_HOSTNAME}:8000/api`;
 
+/**
+ * Helper to retrieve active JWT token from sessionStorage or localStorage
+ */
+export function getStoredAuthToken(): string | null {
+  if (typeof window === "undefined") return null;
+
+  // 1. Check direct string token stored in sessionStorage / localStorage
+  const directJwt =
+    sessionStorage.getItem("isalu_staff_jwt") ||
+    localStorage.getItem("isalu_staff_jwt") ||
+    localStorage.getItem("isalu_access_token");
+
+  if (directJwt && typeof directJwt === "string" && directJwt.trim() && !directJwt.startsWith("{")) {
+    return directJwt.trim();
+  }
+
+  // 2. Check JSON objects in localStorage / sessionStorage
+  const tokenSources = [
+    localStorage.getItem("isalu_auth_tokens"),
+    sessionStorage.getItem("isalu_auth_tokens"),
+    localStorage.getItem("isalu_staff_session"),
+    sessionStorage.getItem("isalu_staff_session"),
+    sessionStorage.getItem("isalu_staff_user_profile"),
+  ];
+
+  for (const src of tokenSources) {
+    if (src) {
+      try {
+        const parsed = JSON.parse(src);
+        const token =
+          parsed.tokens?.access ||
+          parsed.access ||
+          parsed.token ||
+          parsed.access_token;
+        if (token && typeof token === "string" && token.trim()) {
+          return token.trim();
+        }
+      } catch {}
+    }
+  }
+
+  return null;
+}
+
 async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promise<T | null> {
   try {
+    let authHeader: Record<string, string> = {};
+    const token = getStoredAuthToken();
+
+    if (token) {
+      authHeader = { "Authorization": `Bearer ${token}` };
+    }
+
     const response = await fetch(`${API_BASE_URL}${endpoint}`, {
       headers: {
         "Content-Type": "application/json",
         "Accept": "application/json",
+        ...authHeader,
         ...options.headers,
       },
       ...options,
     });
 
     if (!response.ok) {
+      // 401 Unauthorized / Token Expired handling
+      if (response.status === 401) {
+        console.error(`[401 Unauthorized] Session expired for endpoint: ${endpoint}`);
+
+        // Purge expired tokens
+        if (typeof window !== "undefined") {
+          sessionStorage.removeItem("isalu_staff_jwt");
+          sessionStorage.removeItem("isalu_staff_authenticated");
+          localStorage.removeItem("isalu_auth_tokens");
+          localStorage.removeItem("isalu_access_token");
+
+          // Dispatch event to surface 401 to UI
+          window.dispatchEvent(
+            new CustomEvent("isalu_auth_401", {
+              detail: {
+                endpoint,
+                message: "Session Expired: Your security token has expired. Please log in again to perform staff actions.",
+              },
+            })
+          );
+        }
+
+        return {
+          error: "Session Expired: Please log in again to authorize this action.",
+          status: 401,
+          isAuthError: true,
+        } as unknown as T;
+      }
+
       console.warn(`API Warning [${response.status}] at ${endpoint}`);
       return null;
     }
@@ -178,10 +259,14 @@ export async function getAnalyticsSummaryAPI(): Promise<any | null> {
 
 // 8. Staff Authentication API
 export async function loginStaffAPI(username: string, password: string): Promise<any | null> {
-  return apiRequest<any>("/auth/staff-login/", {
+  const res = await apiRequest<any>("/auth/staff-login/", {
     method: "POST",
     body: JSON.stringify({ username, password }),
   });
+  if (res && res.tokens) {
+    localStorage.setItem("isalu_auth_tokens", JSON.stringify(res.tokens));
+  }
+  return res;
 }
 
 // 9. Departments API
