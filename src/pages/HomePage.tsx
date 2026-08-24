@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { DEPARTMENTS, DOCTORS } from "../data/doctors";
-import { getDepartmentsAPI, getDoctorsAPI } from "../api/client";
+import { getDepartmentsAPI, getDoctorsAPI, getHmoCompaniesAPI } from "../api/client";
 import {
   Stethoscope,
   HeartPulse,
@@ -39,141 +39,321 @@ import {
   Syringe,
   Lock,
   AlertTriangle,
+  Building2,
+  Search,
 } from "lucide-react";
 
+const getHmoBrandStyles = (nameStr: string) => {
+  const n = (nameStr || "").toLowerCase().trim();
+
+  const words = nameStr.trim().split(/\s+/).filter((w) => w.toLowerCase() !== "hmo" && w.toLowerCase() !== "health" && w.toLowerCase() !== "limited" && w.toLowerCase() !== "ltd");
+  let initials = "";
+  if (words.length >= 2) {
+    initials = (words[0][0] + words[1][0]).toUpperCase();
+  } else if (words.length === 1) {
+    initials = words[0].substring(0, 3).toUpperCase();
+  } else {
+    initials = nameStr.substring(0, 2).toUpperCase();
+  }
+
+  if (n.includes("hygeia")) {
+    return {
+      bg: "bg-teal-50/90 dark:bg-teal-950/40",
+      border: "border-teal-300 dark:border-teal-700/60",
+      text: "text-teal-950 dark:text-teal-100",
+      glow: "from-teal-500/25 via-emerald-500/10 to-transparent",
+      badgeBg: "bg-teal-600 text-white shadow-teal-500/30",
+      accent: "text-teal-700 dark:text-teal-300",
+      initials: "HYG",
+      logoGradient: "from-teal-600 via-emerald-600 to-teal-800",
+    };
+  }
+  if (n.includes("axa") || n.includes("mansard")) {
+    return {
+      bg: "bg-blue-50/90 dark:bg-blue-950/40",
+      border: "border-blue-300 dark:border-blue-700/60",
+      text: "text-blue-950 dark:text-blue-100",
+      glow: "from-blue-600/25 via-indigo-500/10 to-transparent",
+      badgeBg: "bg-blue-600 text-white shadow-blue-500/30",
+      accent: "text-blue-700 dark:text-blue-300",
+      initials: "AXA",
+      logoGradient: "from-blue-600 via-blue-700 to-indigo-900",
+    };
+  }
+  if (n.includes("reliance")) {
+    return {
+      bg: "bg-sky-50/90 dark:bg-sky-950/40",
+      border: "border-sky-300 dark:border-sky-700/60",
+      text: "text-sky-950 dark:text-sky-100",
+      glow: "from-[#008ac9]/25 via-sky-400/10 to-transparent",
+      badgeBg: "bg-[#008ac9] text-white shadow-[#008ac9]/30",
+      accent: "text-[#008ac9] dark:text-sky-300",
+      initials: "RLN",
+      logoGradient: "from-[#008ac9] via-cyan-600 to-sky-800",
+    };
+  }
+  if (n.includes("avon")) {
+    return {
+      bg: "bg-rose-50/90 dark:bg-rose-950/40",
+      border: "border-rose-300 dark:border-rose-700/60",
+      text: "text-rose-950 dark:text-rose-100",
+      glow: "from-rose-500/25 via-pink-500/10 to-transparent",
+      badgeBg: "bg-rose-600 text-white shadow-rose-500/30",
+      accent: "text-rose-700 dark:text-rose-300",
+      initials: "AVN",
+      logoGradient: "from-rose-600 via-pink-600 to-rose-800",
+    };
+  }
+  if (n.includes("leadway")) {
+    return {
+      bg: "bg-amber-50/90 dark:bg-amber-950/40",
+      border: "border-amber-300 dark:border-amber-700/60",
+      text: "text-amber-950 dark:text-amber-100",
+      glow: "from-amber-500/25 via-yellow-500/10 to-transparent",
+      badgeBg: "bg-amber-600 text-white shadow-amber-500/30",
+      accent: "text-amber-800 dark:text-amber-300",
+      initials: "LWD",
+      logoGradient: "from-amber-600 via-yellow-600 to-orange-700",
+    };
+  }
+  if (n.includes("clearline")) {
+    return {
+      bg: "bg-indigo-50/90 dark:bg-indigo-950/40",
+      border: "border-indigo-300 dark:border-indigo-700/60",
+      text: "text-indigo-950 dark:text-indigo-100",
+      glow: "from-indigo-500/25 via-purple-500/10 to-transparent",
+      badgeBg: "bg-indigo-600 text-white shadow-indigo-500/30",
+      accent: "text-indigo-700 dark:text-indigo-300",
+      initials: "CLR",
+      logoGradient: "from-indigo-600 via-purple-600 to-indigo-800",
+    };
+  }
+  if (n.includes("total health") || n.includes("tht")) {
+    return {
+      bg: "bg-emerald-50/90 dark:bg-emerald-950/40",
+      border: "border-emerald-300 dark:border-emerald-700/60",
+      text: "text-emerald-950 dark:text-emerald-100",
+      glow: "from-emerald-600/25 via-teal-500/10 to-transparent",
+      badgeBg: "bg-emerald-600 text-white shadow-emerald-500/30",
+      accent: "text-emerald-700 dark:text-emerald-300",
+      initials: "THT",
+      logoGradient: "from-emerald-600 via-teal-600 to-emerald-800",
+    };
+  }
+  if (n.includes("redcare")) {
+    return {
+      bg: "bg-red-50/90 dark:bg-red-950/40",
+      border: "border-red-300 dark:border-red-700/60",
+      text: "text-red-950 dark:text-red-100",
+      glow: "from-red-500/25 via-rose-500/10 to-transparent",
+      badgeBg: "bg-red-600 text-white shadow-red-500/30",
+      accent: "text-red-700 dark:text-red-300",
+      initials: "RDC",
+      logoGradient: "from-red-600 via-rose-600 to-red-800",
+    };
+  }
+
+  let hash = 0;
+  for (let i = 0; i < n.length; i++) {
+    hash = n.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const palettes = [
+    { bg: "bg-sky-50/90 dark:bg-sky-950/40", border: "border-sky-300 dark:border-sky-700/60", text: "text-sky-950 dark:text-sky-100", glow: "from-sky-500/25 via-blue-500/10 to-transparent", badgeBg: "bg-sky-600 text-white shadow-sky-500/30", accent: "text-sky-700 dark:text-sky-300", logoGradient: "from-sky-600 to-blue-700" },
+    { bg: "bg-indigo-50/90 dark:bg-indigo-950/40", border: "border-indigo-300 dark:border-indigo-700/60", text: "text-indigo-950 dark:text-indigo-100", glow: "from-indigo-500/25 via-purple-500/10 to-transparent", badgeBg: "bg-indigo-600 text-white shadow-indigo-500/30", accent: "text-indigo-700 dark:text-indigo-300", logoGradient: "from-indigo-600 to-purple-700" },
+    { bg: "bg-emerald-50/90 dark:bg-emerald-950/40", border: "border-emerald-300 dark:border-emerald-700/60", text: "text-emerald-950 dark:text-emerald-100", glow: "from-emerald-500/25 via-teal-500/10 to-transparent", badgeBg: "bg-emerald-600 text-white shadow-emerald-500/30", accent: "text-emerald-700 dark:text-emerald-300", logoGradient: "from-emerald-600 to-teal-700" },
+    { bg: "bg-teal-50/90 dark:bg-teal-950/40", border: "border-teal-300 dark:border-teal-700/60", text: "text-teal-950 dark:text-teal-100", glow: "from-teal-500/25 via-cyan-500/10 to-transparent", badgeBg: "bg-teal-600 text-white shadow-teal-500/30", accent: "text-teal-700 dark:text-teal-300", logoGradient: "from-teal-600 to-cyan-700" },
+    { bg: "bg-purple-50/90 dark:bg-purple-950/40", border: "border-purple-300 dark:border-purple-700/60", text: "text-purple-950 dark:text-purple-100", glow: "from-purple-500/25 via-pink-500/10 to-transparent", badgeBg: "bg-purple-600 text-white shadow-purple-500/30", accent: "text-purple-700 dark:text-purple-300", logoGradient: "from-purple-600 to-pink-700" },
+    { bg: "bg-rose-50/90 dark:bg-rose-950/40", border: "border-rose-300 dark:border-rose-700/60", text: "text-rose-950 dark:text-rose-100", glow: "from-rose-500/25 via-amber-500/10 to-transparent", badgeBg: "bg-rose-600 text-white shadow-rose-500/30", accent: "text-rose-700 dark:text-rose-300", logoGradient: "from-rose-600 to-red-700" },
+    { bg: "bg-amber-50/90 dark:bg-amber-950/40", border: "border-amber-300 dark:border-amber-700/60", text: "text-amber-950 dark:text-amber-100", glow: "from-amber-500/25 via-orange-500/10 to-transparent", badgeBg: "bg-amber-600 text-white shadow-amber-500/30", accent: "text-amber-800 dark:text-amber-300", logoGradient: "from-amber-600 to-orange-700" },
+    { bg: "bg-blue-50/90 dark:bg-blue-950/40", border: "border-blue-300 dark:border-blue-700/60", text: "text-blue-950 dark:text-blue-100", glow: "from-blue-500/25 via-sky-500/10 to-transparent", badgeBg: "bg-blue-600 text-white shadow-blue-500/30", accent: "text-blue-700 dark:text-blue-300", logoGradient: "from-blue-600 to-sky-700" },
+  ];
+
+  const p = palettes[Math.abs(hash) % palettes.length];
+  return {
+    ...p,
+    initials,
+  };
+};
+
 export function HmoCarousel({ partners }: { partners: any[] }) {
-  const [isMarqueeMode, setIsMarqueeMode] = useState(true);
-  const [currentIndex, setCurrentIndex] = useState(0);
+  const [viewMode, setViewMode] = useState<"marquee" | "grid">("grid");
+  const [speed, setSpeed] = useState<"slow" | "medium" | "fast">("slow");
+  const [isPaused, setIsPaused] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [gridPage, setGridPage] = useState(1);
+  const itemsPerPage = 12;
 
-  const handlePrev = () => {
-    setIsMarqueeMode(false);
-    setCurrentIndex((prev) => (prev === 0 ? partners.length - 1 : prev - 1));
-  };
+  if (!partners || partners.length === 0) {
+    return (
+      <div className="max-w-4xl mx-auto text-center py-10 px-6 bg-white dark:bg-slate-900 rounded-3xl border-2 border-dashed border-slate-200 dark:border-slate-800 space-y-3 shadow-lg">
+        <div className="p-4 rounded-full bg-sky-100 dark:bg-slate-800 text-[#008ac9] w-16 h-16 mx-auto flex items-center justify-center font-black">
+          <ShieldCheck className="h-8 w-8 text-[#008ac9]" />
+        </div>
+        <h3 className="text-xl font-black text-slate-900 dark:text-white">Accredited HMO Partners Directory</h3>
+        <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 max-w-md mx-auto">
+          Isalu Hospitals accepts all accredited HMO insurance providers across Nigeria for seamless cashless consultations and treatments.
+        </p>
+      </div>
+    );
+  }
 
-  const handleNext = () => {
-    setIsMarqueeMode(false);
-    setCurrentIndex((prev) => (prev + 1) % partners.length);
-  };
+  // Pre-process HMO items into standardized display objects & filter out disabled partners
+  const formattedPartners = partners
+    .filter((hmo) => {
+      if (!hmo) return false;
+      if (typeof hmo === "string") return true;
+      const statusStr = String(hmo.status || "").toLowerCase().trim();
+      const isActive = hmo.is_active !== false && hmo.isActive !== false;
+      if (statusStr.includes("disable") || statusStr.includes("inactive") || !isActive) {
+        return false;
+      }
+      return true;
+    })
+    .map((hmo, idx) => {
+      const name = typeof hmo === "string" ? hmo : hmo.name || "Accredited HMO Provider";
+      const code = typeof hmo === "string" ? `HMO-${hmo.substring(0, 3).toUpperCase()}-${100 + (idx % 900)}` : hmo.code || hmo.hmo_id || `HMO-${name.substring(0, 3).toUpperCase()}-${100 + (idx % 900)}`;
+      const brand = getHmoBrandStyles(name);
+
+      return {
+        id: typeof hmo === "string" ? `hmo-str-${idx}` : hmo.id || hmo.hmo_id || `hmo-${idx}`,
+        name,
+        code,
+        email: typeof hmo === "object" ? hmo.email || hmo.email_address : undefined,
+        phone: typeof hmo === "object" ? hmo.phone || hmo.phone_number : undefined,
+        contactPerson: typeof hmo === "object" ? hmo.contactPerson || hmo.contact_person : undefined,
+        brand,
+      };
+    });
+
+  const filteredPartners = formattedPartners.filter((p) => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase().trim();
+    return p.name.toLowerCase().includes(q) || p.code.toLowerCase().includes(q);
+  });
+
+  const totalPages = Math.ceil(filteredPartners.length / itemsPerPage) || 1;
+  const paginatedGridItems = filteredPartners.slice((gridPage - 1) * itemsPerPage, gridPage * itemsPerPage);
+
+  const marqueeSpeedClass = speed === "slow" ? "animate-marquee-slow" : speed === "medium" ? "animate-marquee-medium" : "animate-marquee-fast";
 
   return (
-    <div className="relative max-w-7xl mx-auto px-4">
-      {/* Edge Gradient Mask Fades */}
-      <div className="absolute left-0 top-0 bottom-0 w-16 sm:w-28 bg-gradient-to-r from-white dark:from-slate-900 to-transparent z-10 pointer-events-none" />
-      <div className="absolute right-0 top-0 bottom-0 w-16 sm:w-28 bg-gradient-to-l from-white dark:from-slate-900 to-transparent z-10 pointer-events-none" />
+    <div className="relative max-w-7xl mx-auto px-4 space-y-6">
 
-      {/* Mode Switcher */}
-      <div className="flex justify-end items-center gap-2 mb-4 pr-2">
-        <button
-          onClick={() => setIsMarqueeMode(!isMarqueeMode)}
-          className="text-xs font-black text-[#008ac9] bg-sky-100 dark:bg-slate-800 px-3 py-1.5 rounded-full border border-[#008ac9]/30 hover:bg-[#008ac9] hover:text-white transition-all flex items-center gap-1.5 shadow-sm"
-        >
-          <Zap className="h-3.5 w-3.5 fill-current" />
-          {isMarqueeMode ? "Auto-Gliding Mode (Hover to Pause)" : "Switch to Continuous Glide"}
-        </button>
-      </div>
+      {/* VIEW MODE 1: GLIDING MARQUEE CAROUSEL */}
+      {viewMode === "marquee" && (
+        <div className="relative overflow-hidden py-4 rounded-3xl">
+          {/* Edge Gradient Mask Fades */}
+          <div className="absolute left-0 top-0 bottom-0 w-16 sm:w-32 bg-gradient-to-r from-white dark:from-slate-900 to-transparent z-10 pointer-events-none" />
+          <div className="absolute right-0 top-0 bottom-0 w-16 sm:w-32 bg-gradient-to-l from-white dark:from-slate-900 to-transparent z-10 pointer-events-none" />
 
-      {/* Slider Container */}
-      <div className="overflow-hidden py-6">
-        {isMarqueeMode ? (
-          /* CONTINUOUS MARQUEE SLIDER ANIMATION */
-          <div className="animate-marquee gap-6">
-            {[...partners, ...partners, ...partners].map((hmo, idx) => (
+          <div className={`${marqueeSpeedClass} gap-6 ${isPaused ? "[animation-play-state:paused]" : ""}`}>
+            {[...formattedPartners, ...formattedPartners, ...formattedPartners].map((hmo, idx) => (
               <div
                 key={`${hmo.name}-${idx}`}
                 className="w-72 sm:w-80 flex-shrink-0 transform transition-all duration-300 hover:-translate-y-2 hover:scale-[1.03]"
               >
                 <div
-                  className={`${hmo.bgColor} ${hmo.borderColor} border-2 rounded-3xl p-6 shadow-md hover:shadow-2xl transition-all duration-300 flex flex-col justify-between items-center text-center h-full group relative overflow-hidden`}
+                  className={`${hmo.brand.bg} ${hmo.brand.border} border-2 rounded-3xl p-6 shadow-md hover:shadow-2xl transition-all duration-300 flex flex-col justify-between items-center text-center h-full group relative overflow-hidden`}
                 >
-                  {/* Subtle Background Glow */}
-                  <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-[#008ac9]/10 rounded-full blur-xl pointer-events-none group-hover:scale-150 transition-transform" />
+                  <div className={`absolute -right-8 -bottom-8 w-28 h-28 bg-gradient-to-br ${hmo.brand.glow} rounded-full blur-2xl pointer-events-none group-hover:scale-150 transition-transform duration-500`} />
 
-                  <div className="flex flex-col items-center space-y-3 z-10">
-                    <div className="p-3.5 bg-white dark:bg-slate-900 rounded-2xl shadow-md border-2 border-slate-200 dark:border-slate-700 group-hover:rotate-3 group-hover:scale-110 transition-all">
-                      {hmo.symbol}
+                  <div className="flex flex-col items-center space-y-3 z-10 w-full">
+                    <div className={`w-14 h-14 rounded-2xl bg-gradient-to-br ${hmo.brand.logoGradient} text-white font-black text-sm shadow-md flex items-center justify-center border-2 border-white/40 dark:border-slate-800 tracking-wider group-hover:rotate-6 group-hover:scale-110 transition-transform duration-300`}>
+                      {hmo.brand.initials}
                     </div>
-                    <h3 className={`font-black text-lg ${hmo.textColor}`}>{hmo.name}</h3>
-                    <span className="text-[11px] font-black px-3 py-1 rounded-full bg-white/90 dark:bg-slate-900/90 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 shadow-sm">
-                      {hmo.tag}
-                    </span>
+
+                    <h3 className={`font-black text-lg ${hmo.brand.text}`}>{hmo.name}</h3>
+                    <code className={`text-[11px] font-black px-3 py-1 rounded-full bg-white/90 dark:bg-slate-900/90 border ${hmo.brand.border} ${hmo.brand.accent} shadow-sm`}>
+                      {hmo.code}
+                    </code>
                   </div>
-                  <div className="mt-5 pt-3 border-t-2 border-slate-200/60 dark:border-slate-800/60 w-full flex items-center justify-center gap-1.5 text-[11px] font-black text-slate-700 dark:text-slate-300 z-10">
-                    <CheckCircle className="h-4 w-4 text-emerald-600" /> Accepted at Isalu
+                  <div className="mt-5 pt-3 border-t-2 border-slate-200/60 dark:border-slate-800/60 w-full flex items-center justify-center gap-1.5 text-[11px] font-black text-emerald-700 dark:text-emerald-400 z-10">
+                    <CheckCircle className="h-4 w-4 text-emerald-600" /> Cashless Pre-Auth Accepted
                   </div>
                 </div>
               </div>
             ))}
           </div>
-        ) : (
-          /* MANUAL STEP SLIDER */
-          <div
-            className="flex transition-transform duration-700 ease-out gap-6"
-            style={{
-              transform: `translateX(-${currentIndex * (100 / 4)}%)`,
-            }}
-          >
-            {[...partners, ...partners].map((hmo, idx) => (
+        </div>
+      )}
+
+      {/* VIEW MODE 2: INTERACTIVE SEARCH & GRID VIEW FOR 50-100+ HMOs */}
+      {viewMode === "grid" && (
+        <div className="space-y-6 animate-fadeIn">
+          {/* Search Toolbar */}
+          <div className="bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 rounded-3xl p-4 shadow-lg flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="relative w-full sm:w-96">
+              <Search className="absolute left-3.5 top-3.5 h-4 w-4 text-slate-400 pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Search HMO partner name or code..."
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setGridPage(1);
+                }}
+                className="w-full pl-10 pr-4 py-2.5 text-xs font-bold rounded-2xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-[#008ac9]"
+              />
+            </div>
+
+            <span className="text-xs font-black text-[#008ac9]">
+              Showing {filteredPartners.length} Accredited Partners
+            </span>
+          </div>
+
+          {/* Grid Layout */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
+            {paginatedGridItems.map((hmo) => (
               <div
-                key={`${hmo.name}-${idx}`}
-                className="w-full sm:w-[calc(50%-0.75rem)] lg:w-[calc(25%-1.125rem)] flex-shrink-0"
+                key={hmo.id}
+                className={`${hmo.brand.bg} ${hmo.brand.border} border-2 rounded-3xl p-5 shadow-md hover:shadow-2xl hover:-translate-y-1.5 transition-all duration-300 flex flex-col justify-between items-center text-center group relative overflow-hidden`}
               >
-                <div
-                  className={`${hmo.bgColor} ${hmo.borderColor} border-2 rounded-3xl p-6 shadow-md hover:shadow-2xl hover:-translate-y-2 hover:scale-[1.03] transition-all duration-300 flex flex-col justify-between items-center text-center h-full group`}
-                >
-                  <div className="flex flex-col items-center space-y-3">
-                    <div className="p-3.5 bg-white dark:bg-slate-900 rounded-2xl shadow-md border-2 border-slate-200 dark:border-slate-700 group-hover:scale-110 transition-transform">
-                      {hmo.symbol}
-                    </div>
-                    <h3 className={`font-black text-lg ${hmo.textColor}`}>{hmo.name}</h3>
-                    <span className="text-[11px] font-black px-3 py-1 rounded-full bg-white/90 dark:bg-slate-900/90 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 shadow-sm">
-                      {hmo.tag}
-                    </span>
+                {/* Ambient Glow Aura */}
+                <div className={`absolute -right-8 -bottom-8 w-28 h-28 bg-gradient-to-br ${hmo.brand.glow} rounded-full blur-2xl pointer-events-none group-hover:scale-150 transition-transform duration-500`} />
+
+                <div className="flex flex-col items-center space-y-2.5 z-10 w-full">
+                  {/* Brand Logo Avatar Badge */}
+                  <div className={`w-14 h-14 rounded-2xl bg-gradient-to-br ${hmo.brand.logoGradient} text-white font-black text-sm shadow-md flex items-center justify-center border-2 border-white/40 dark:border-slate-800 tracking-wider group-hover:rotate-6 group-hover:scale-110 transition-transform duration-300`}>
+                    {hmo.brand.initials}
                   </div>
-                  <div className="mt-5 pt-3 border-t-2 border-slate-200/60 dark:border-slate-800/60 w-full flex items-center justify-center gap-1.5 text-[11px] font-black text-slate-700 dark:text-slate-300">
-                    <CheckCircle className="h-4 w-4 text-emerald-600" /> Accepted at Isalu
-                  </div>
+
+                  <h4 className={`font-black text-base leading-snug ${hmo.brand.text}`}>{hmo.name}</h4>
+                  <code className={`text-[10px] font-black px-2.5 py-0.5 rounded-full bg-white/90 dark:bg-slate-900/90 border ${hmo.brand.border} ${hmo.brand.accent} shadow-sm`}>
+                    {hmo.code}
+                  </code>
+                </div>
+
+                <div className="mt-4 pt-3 border-t border-slate-200/60 dark:border-slate-800/60 w-full flex items-center justify-center gap-1.5 text-[10px] font-black text-emerald-700 dark:text-emerald-400 z-10">
+                  <CheckCircle className="h-3.5 w-3.5 text-emerald-600" /> Cashless Pre-Auth
                 </div>
               </div>
             ))}
           </div>
-        )}
-      </div>
 
-      {/* Navigation Buttons */}
-      <button
-        onClick={handlePrev}
-        className="absolute left-1 top-1/2 -translate-y-1/2 z-20 h-12 w-12 rounded-full bg-white dark:bg-slate-800 border-2 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white flex items-center justify-center shadow-2xl hover:bg-[#008ac9] hover:text-white hover:border-[#008ac9] hover:scale-110 transition-all duration-200"
-        aria-label="Previous Slide"
-      >
-        <ChevronLeft className="h-6 w-6" />
-      </button>
-
-      <button
-        onClick={handleNext}
-        className="absolute right-1 top-1/2 -translate-y-1/2 z-20 h-12 w-12 rounded-full bg-white dark:bg-slate-800 border-2 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white flex items-center justify-center shadow-2xl hover:bg-[#008ac9] hover:text-white hover:border-[#008ac9] hover:scale-110 transition-all duration-200"
-        aria-label="Next Slide"
-      >
-        <ChevronRight className="h-6 w-6" />
-      </button>
-
-      {/* Slide Indicators Dots */}
-      <div className="flex justify-center items-center gap-2 mt-4">
-        {partners.map((_, idx) => (
-          <button
-            key={idx}
-            onClick={() => {
-              setIsMarqueeMode(false);
-              setCurrentIndex(idx);
-            }}
-            className={`h-2.5 rounded-full transition-all duration-300 ${
-              !isMarqueeMode && currentIndex % partners.length === idx
-                ? "w-8 bg-[#008ac9] shadow-md"
-                : "w-2.5 bg-slate-300 dark:bg-slate-700 hover:bg-slate-400"
-            }`}
-            aria-label={`Go to slide ${idx + 1}`}
-          />
-        ))}
-      </div>
+          {/* Grid Pagination Bar */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-center gap-2 pt-2">
+              <button
+                disabled={gridPage === 1}
+                onClick={() => setGridPage((p) => Math.max(1, p - 1))}
+                className="px-4 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-black disabled:opacity-40 hover:bg-slate-100 dark:hover:bg-slate-800"
+              >
+                Previous
+              </button>
+              <span className="text-xs font-bold text-slate-600 dark:text-slate-400 px-3">
+                Page {gridPage} of {totalPages}
+              </span>
+              <button
+                disabled={gridPage === totalPages}
+                onClick={() => setGridPage((p) => Math.min(totalPages, p + 1))}
+                className="px-4 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-black disabled:opacity-40 hover:bg-slate-100 dark:hover:bg-slate-800"
+              >
+                Next
+              </button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -315,6 +495,74 @@ export function HomePage() {
       window.removeEventListener("focus", handleStorageEvent);
       window.removeEventListener("storage", handleStorageEvent);
       window.removeEventListener("isalu_clinic_updated", handleCustomEvent);
+    };
+  }, []);
+
+  const [hmoPartnersList, setHmoPartnersList] = useState<any[]>(() => {
+    const saved = localStorage.getItem("isalu_hmo_companies");
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed && Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch {}
+    }
+    return [
+      { name: "Hygeia HMO", code: "HMO-HYG-001" },
+      { name: "Reliance HMO", code: "HMO-RLN-002" },
+      { name: "AXA Mansard Health", code: "HMO-AXA-003" },
+      { name: "Avon HMO", code: "HMO-AVN-004" },
+      { name: "Leadway Health", code: "HMO-LWD-005" },
+      { name: "Clearline HMO", code: "HMO-CLR-006" },
+      { name: "Total Health Trust", code: "HMO-THT-007" },
+      { name: "Redcare HMO", code: "HMO-RDC-008" },
+    ];
+  });
+
+  useEffect(() => {
+    async function loadHmoData() {
+      const isCleared = localStorage.getItem("isalu_hmo_cleared");
+      if (isCleared === "true") {
+        setHmoPartnersList([]);
+        return;
+      }
+
+      const remoteHmos = await getHmoCompaniesAPI();
+      if (remoteHmos && Array.isArray(remoteHmos) && remoteHmos.length > 0) {
+        setHmoPartnersList(remoteHmos);
+        localStorage.setItem("isalu_hmo_companies", JSON.stringify(remoteHmos));
+      } else {
+        const localStr = localStorage.getItem("isalu_hmo_companies");
+        if (localStr) {
+          try {
+            const parsed = JSON.parse(localStr);
+            if (Array.isArray(parsed)) setHmoPartnersList(parsed);
+          } catch {}
+        }
+      }
+    }
+    loadHmoData();
+
+    let hmoChan: BroadcastChannel | null = null;
+    try {
+      hmoChan = new BroadcastChannel("isalu_hmo_channel");
+      hmoChan.onmessage = (event) => {
+        if (event.data?.type === "HMO_UPDATED" && Array.isArray(event.data.hmoCompanies)) {
+          setHmoPartnersList(event.data.hmoCompanies);
+        }
+      };
+    } catch {}
+
+    const handleHmoCustomEvent = (e: any) => {
+      if (e.detail && Array.isArray(e.detail)) {
+        setHmoPartnersList(e.detail);
+      }
+    };
+
+    window.addEventListener("isalu_hmo_updated", handleHmoCustomEvent);
+
+    return () => {
+      if (hmoChan) hmoChan.close();
+      window.removeEventListener("isalu_hmo_updated", handleHmoCustomEvent);
     };
   }, []);
 
@@ -842,7 +1090,7 @@ export function HomePage() {
         </div>
       </section>
 
-      {/* CLINICAL DEPARTMENTS SECTION - OVAL LOVE-LIKE CARDS (NO SLIDER) */}
+      {/* CLINICAL DEPARTMENTS SECTION */}
       <section id="specialized-medical-centers" className="py-20 md:py-28 scroll-mt-24">
         <div className="container mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="text-center max-w-3xl mx-auto mb-16 space-y-3">
@@ -857,7 +1105,7 @@ export function HomePage() {
             </p>
           </div>
 
-          {/* BEAUTIFUL OVAL LOVE-LIKE CARDS GRID */}
+          {/* BEAUTIFUL OVAL CARDS GRID */}
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {activeDepartmentsList.map((dept) => {
               const Icon = resolveIconForDept(dept);
@@ -946,37 +1194,60 @@ export function HomePage() {
         </div>
       </section>
 
-      {/* OUR HMO PARTNERS CAROUSEL SLIDER SECTION */}
-      <section className="py-20 bg-white dark:bg-slate-900/60 border-y-2 border-slate-200 dark:border-slate-800 overflow-hidden">
-        <div className="container mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <div className="text-center max-w-3xl mx-auto mb-10 space-y-3">
-            <span className="inline-block px-4 py-1.5 rounded-full bg-[#008ac9]/10 text-[#008ac9] dark:text-sky-400 text-xs font-black uppercase tracking-widest border-2 border-[#008ac9]/20">
+      {/* OUR HMO PARTNERS SECTION WITH HEALTH ICONS DOODLE BACKGROUND */}
+      <section className="relative py-24 md:py-32 border-y-2 border-slate-200 dark:border-slate-800 overflow-hidden bg-sky-50/30 dark:bg-slate-950">
+        {/* Seamless Health Icons Doodle Background Pattern - Ultra-Transparent Subtlety */}
+        <div
+          className="absolute inset-0 bg-repeat bg-center opacity-[0.08] dark:opacity-[0.05] mix-blend-multiply dark:mix-blend-overlay pointer-events-none"
+          style={{ backgroundImage: "url('/health_icons_doodle_bg.jpg')", backgroundSize: "500px 281px" }}
+        />
+
+        {/* Subtle Ambient Light Orbs */}
+        <div className="absolute -left-32 top-1/3 h-96 w-96 rounded-full bg-[#008ac9]/15 dark:bg-[#008ac9]/25 blur-3xl pointer-events-none" />
+        <div className="absolute -right-32 bottom-1/3 h-96 w-96 rounded-full bg-emerald-500/15 dark:bg-emerald-500/20 blur-3xl pointer-events-none" />
+
+        <div className="container mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 relative z-10">
+          <div className="text-center max-w-3xl mx-auto mb-12 space-y-3">
+            <span className="inline-block px-4 py-1.5 rounded-full bg-white/80 dark:bg-slate-900/80 text-[#008ac9] dark:text-sky-400 text-xs font-black uppercase tracking-widest border-2 border-[#008ac9]/30 shadow-md backdrop-blur-md">
               Healthcare Insurance Partners
             </span>
-            <h2 className="text-3xl font-black text-slate-900 dark:text-white sm:text-4xl tracking-tight">
+            <h2 className="text-3xl font-black text-slate-900 dark:text-white sm:text-4xl lg:text-5xl tracking-tight">
               Our HMO Partners in Nigeria
             </h2>
-            <p className="text-base font-semibold text-slate-700 dark:text-slate-300 leading-relaxed">
+            <p className="text-base sm:text-lg font-semibold text-slate-700 dark:text-slate-300 leading-relaxed">
               Isalu Hospitals partners with leading Health Maintenance Organizations (HMOs) across Nigeria for seamless cashless medical consultations and treatments.
             </p>
           </div>
 
-          {/* HMO Interactive Carousel */}
-          <HmoCarousel partners={HMO_PARTNERS} />
+          {/* HMO Interactive Carousel & Grid */}
+          <HmoCarousel partners={hmoPartnersList} />
         </div>
       </section>
 
-      {/* PATIENT TESTIMONIALS SECTION (NO PICTURES) */}
-      <section className="py-20 bg-slate-200/80 dark:bg-slate-900 border-b-2 border-slate-300 dark:border-slate-800">
-        <div className="container mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+      {/* PATIENT TESTIMONIALS SECTION WITH DOCTOR & PATIENT SMILING GLASS BACKGROUND */}
+      <section className="relative py-24 md:py-32 overflow-hidden border-b-2 border-slate-300 dark:border-slate-800">
+        {/* Doctor and Patient Smiling Background Image */}
+        <div
+          className="absolute inset-0 bg-cover bg-center bg-no-repeat transform scale-105 transition-transform duration-1000"
+          style={{ backgroundImage: "url('/doctor_patient_smiling_bg.jpg')" }}
+        />
+
+        {/* Transparent Isalu Brand Color Cover Overlay */}
+        <div className="absolute inset-0 bg-gradient-to-r from-[#008ac9]/90 via-[#011627]/85 to-[#008ac9]/95 backdrop-blur-md" />
+
+        {/* Ambient Glowing Orbs */}
+        <div className="absolute -left-32 top-1/4 h-96 w-96 rounded-full bg-sky-400/30 blur-3xl pointer-events-none" />
+        <div className="absolute -right-32 bottom-1/4 h-96 w-96 rounded-full bg-[#008ac9]/30 blur-3xl pointer-events-none" />
+
+        <div className="container mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 relative z-10">
           <div className="text-center max-w-3xl mx-auto mb-16 space-y-3">
-            <span className="inline-block px-4 py-1.5 rounded-full bg-[#008ac9]/10 text-[#008ac9] dark:text-sky-400 text-xs font-black uppercase tracking-widest border-2 border-[#008ac9]/20">
+            <span className="inline-block px-4 py-1.5 rounded-full bg-white/20 text-white text-xs font-black uppercase tracking-widest border-2 border-white/40 shadow-2xl backdrop-blur-md">
               Patient Feedback & Stories
             </span>
-            <h2 className="text-3xl font-black text-slate-900 dark:text-white sm:text-4xl tracking-tight">
+            <h2 className="text-3xl font-black text-white sm:text-4xl lg:text-5xl tracking-tight drop-shadow-md">
               Trusted by Thousands of Patients
             </h2>
-            <p className="text-base font-semibold text-slate-700 dark:text-slate-300 leading-relaxed">
+            <p className="text-base sm:text-lg font-bold text-slate-100 leading-relaxed drop-shadow-sm">
               Read authentic feedback from patients who booked consultations and received top-tier medical care at Isalu Hospitals.
             </p>
           </div>
@@ -1010,27 +1281,27 @@ export function HomePage() {
             ].map((t, idx) => (
               <div
                 key={idx}
-                className="bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-md hover:shadow-xl transition-all duration-300 flex flex-col justify-between"
+                className="bg-white/15 dark:bg-slate-900/40 backdrop-blur-xl border-2 border-white/30 dark:border-white/20 rounded-3xl p-6 shadow-2xl hover:bg-white/25 dark:hover:bg-slate-900/60 hover:border-white/50 transition-all duration-300 flex flex-col justify-between group"
               >
                 <div>
-                  <div className="flex items-center gap-1 text-amber-500 mb-4">
+                  <div className="flex items-center gap-1 text-amber-300 mb-4 drop-shadow">
                     {[...Array(t.rating)].map((_, i) => (
                       <Star key={i} className="h-5 w-5 fill-current" />
                     ))}
                   </div>
 
-                  <Quote className="h-8 w-8 text-[#008ac9]/30 mb-2" />
-                  <p className="text-sm font-semibold text-slate-800 dark:text-slate-200 italic leading-relaxed mb-6">
+                  <Quote className="h-8 w-8 text-sky-200/60 mb-2 group-hover:scale-110 transition-transform" />
+                  <p className="text-sm font-semibold text-white italic leading-relaxed mb-6 drop-shadow-sm">
                     "{t.comment}"
                   </p>
                 </div>
 
-                <div className="pt-4 border-t-2 border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                <div className="pt-4 border-t-2 border-white/20 flex items-center justify-between">
                   <div>
-                    <h4 className="font-extrabold text-base text-slate-900 dark:text-white">{t.name}</h4>
-                    <p className="text-xs font-bold text-[#008ac9]">{t.clinic}</p>
+                    <h4 className="font-black text-base text-white">{t.name}</h4>
+                    <p className="text-xs font-bold text-sky-300">{t.clinic}</p>
                   </div>
-                  <span className="text-[11px] font-bold text-slate-500">{t.date}</span>
+                  <span className="text-[11px] font-bold text-sky-200/90">{t.date}</span>
                 </div>
               </div>
             ))}

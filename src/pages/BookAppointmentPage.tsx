@@ -41,6 +41,7 @@ import {
   Lock,
   XCircle,
   CheckCircle2,
+  Share2,
 } from "lucide-react";
 import { SpecialistAvatar } from "../components/SpecialistAvatar";
 import { IsaluLogo } from "../components/IsaluLogo";
@@ -144,6 +145,7 @@ export function BookAppointmentPage() {
   const [patientPhone, setPatientPhone] = useState<string>("");
   const [patientEmail, setPatientEmail] = useState<string>("");
   const [reason, setReason] = useState<string>("");
+  const [copiedShare, setCopiedShare] = useState<boolean>(false);
 
   const [patientType, setPatientType] = useState<"Private Self-Pay" | "HMO Insurance">("Private Self-Pay");
   const [hmoName, setHmoName] = useState<string>("Hygeia HMO");
@@ -242,31 +244,134 @@ export function BookAppointmentPage() {
   }, [selectedDoctorId]);
 
   const matchesDept = (doc: any, deptId: string) => {
-    if (!deptId) return false;
-    const docDept = doc.departmentId || doc.department_id || doc.department || "";
-    if (docDept && (docDept === deptId || docDept.toLowerCase() === deptId.toLowerCase())) return true;
+    if (!deptId || deptId === "all") return true;
 
-    const deptObj = DEPARTMENTS.find((d) => d.id === deptId);
-    const deptNameLower = deptObj ? deptObj.name.toLowerCase() : deptId.toLowerCase();
-    const docSpecialtyLower = (doc.specialty || "").toLowerCase();
+    const targetId = String(deptId).toLowerCase().trim();
+    const docDeptId = String(doc.departmentId || doc.department_id || doc.department || "").toLowerCase().trim();
 
-    const isDocNeuro = docSpecialtyLower.includes("neuro");
-    const isDocUro = docSpecialtyLower.includes("urol") && !isDocNeuro;
+    // 1. Direct Department ID exact match (primary source of truth)
+    if (docDeptId) {
+      const cleanDocDeptId = docDeptId.replace(/[^a-z0-9]/g, "");
+      const cleanTargetId = targetId.replace(/[^a-z0-9]/g, "");
+      if (cleanDocDeptId === cleanTargetId) {
+        return true;
+      }
+    }
 
-    const isDeptNeuro = deptId.toLowerCase().includes("neuro") || deptNameLower.includes("neuro");
-    const isDeptUro = (deptId.toLowerCase().includes("urol") || deptNameLower.includes("urol")) && !isDeptNeuro;
+    // 2. Lookup Department Object
+    const deptObj = departmentsList.find((d: any) => {
+      const id = String(d.id || d.dept_id || "").toLowerCase().trim();
+      const name = String(d.name || "").toLowerCase().trim();
+      return id === targetId || name === targetId;
+    }) || DEPARTMENTS.find((d) => d.id.toLowerCase() === targetId || d.name.toLowerCase() === targetId);
 
-    if (isDeptUro) return isDocUro;
-    if (isDeptNeuro) return isDocNeuro;
+    const deptName = deptObj ? String(deptObj.name).toLowerCase().trim() : targetId;
+    const docSpec = String(doc.specialty || "").toLowerCase().trim();
 
-    return (
-      docSpecialtyLower.includes(deptId.toLowerCase()) ||
-      docSpecialtyLower.includes(deptNameLower) ||
-      deptNameLower.includes(docSpecialtyLower)
-    );
+    // 3. SPECIFIC CLINIC DISAMBIGUATION (Check specific sub-specialties BEFORE general surgery)
+
+    // ENT & Head/Neck Surgery
+    const isTargetEnt = targetId.includes("ent") || deptName.includes("ent") || deptName.includes("ear") || deptName.includes("throat");
+    if (isTargetEnt) {
+      return docSpec.includes("ent") || docSpec.includes("ear") || docSpec.includes("throat") || docSpec.includes("neck") || docSpec.includes("laryngo") || docDeptId === "ent";
+    }
+
+    // Gastroenterology
+    const isTargetGastro = targetId.includes("gastro") || deptName.includes("gastro") || deptName.includes("digest");
+    if (isTargetGastro) {
+      return docSpec.includes("gastro") || docSpec.includes("gut") || docSpec.includes("endos") || docSpec.includes("liver") || docDeptId === "gastroenterology";
+    }
+
+    // Orthopedics / Orthopedic Surgery
+    const isTargetOrtho = targetId.includes("ortho") || deptName.includes("ortho") || deptName.includes("bone");
+    if (isTargetOrtho) {
+      return docSpec.includes("ortho") || docSpec.includes("bone") || docSpec.includes("joint") || docDeptId === "orthopedics";
+    }
+
+    // Paediatric Surgery
+    const isTargetPaedSurg = targetId.includes("paediatric-surgery") || targetId.includes("pediatric-surgery");
+    if (isTargetPaedSurg) {
+      return (docSpec.includes("paed") || docSpec.includes("pediat")) && docSpec.includes("surg");
+    }
+
+    // Paediatrics / Child Health
+    const isTargetPaed = targetId.includes("pedia") || targetId.includes("paedia") || deptName.includes("child") || deptName.includes("paediat");
+    if (isTargetPaed) {
+      return docSpec.includes("pedia") || docSpec.includes("paedia") || docSpec.includes("child") || docDeptId === "pediatrics" || docDeptId === "paediatrics";
+    }
+
+    // General Surgery (STRICTLY General Surgery, not ENT or Orthopedics)
+    const isTargetGeneralSurgery = targetId === "general-surgery" || targetId === "surgery" || deptName === "general surgery";
+    if (isTargetGeneralSurgery) {
+      return docSpec.includes("general surgery") || docSpec.includes("surgical") || (docSpec.includes("surg") && !docSpec.includes("ent") && !docSpec.includes("ortho") && !docSpec.includes("pedia") && !docSpec.includes("neuro"));
+    }
+
+    // General Physician
+    const isTargetPhysician = targetId === "general-physician" || (deptName.includes("physician") && !deptName.includes("chest"));
+    if (isTargetPhysician) {
+      return (docSpec.includes("physician") || docSpec.includes("general med") || docSpec.includes("primary care")) && !docSpec.includes("chest") && !docSpec.includes("pulmon") && !docSpec.includes("surg");
+    }
+
+    // Neurology vs Urology
+    const isTargetNeuro = targetId.includes("neuro") || deptName.includes("neuro");
+    if (isTargetNeuro) {
+      return docSpec.includes("neuro") || docSpec.includes("brain") || docDeptId === "neurology";
+    }
+
+    const isTargetUro = targetId.includes("urol") || deptName.includes("urol");
+    if (isTargetUro) {
+      return (docSpec.includes("urol") || docSpec.includes("urinary")) && !docSpec.includes("neuro");
+    }
+
+    // Cardiology
+    const isTargetCardio = targetId.includes("cardio") || deptName.includes("cardio") || deptName.includes("heart");
+    if (isTargetCardio) {
+      return docSpec.includes("cardio") || docSpec.includes("heart") || docDeptId === "cardiology";
+    }
+
+    // Obstetrics & Gynaecology
+    const isTargetObgyn = targetId.includes("gynae") || targetId.includes("obgyn") || deptName.includes("gynaec") || deptName.includes("women");
+    if (isTargetObgyn) {
+      return docSpec.includes("gynae") || docSpec.includes("obgyn") || docSpec.includes("gynaec") || docSpec.includes("women") || docDeptId === "gynaecology";
+    }
+
+    // Chest Physician / Pulmonology
+    const isTargetPulmo = targetId.includes("pulmon") || deptName.includes("chest") || deptName.includes("lung");
+    if (isTargetPulmo) {
+      return docSpec.includes("pulmon") || docSpec.includes("chest") || docSpec.includes("lung") || docDeptId === "pulmonology";
+    }
+
+    // Nephrology
+    const isTargetNephro = targetId.includes("nephro") || deptName.includes("kidney") || deptName.includes("renal");
+    if (isTargetNephro) {
+      return docSpec.includes("nephro") || docSpec.includes("kidney") || docSpec.includes("renal") || docDeptId === "nephrology";
+    }
+
+    // Haematology
+    const isTargetHaemat = targetId.includes("haemat") || targetId.includes("hemat") || deptName.includes("blood");
+    if (isTargetHaemat) {
+      return docSpec.includes("haemat") || docSpec.includes("hemat") || docSpec.includes("blood") || docDeptId === "haematology";
+    }
+
+    // Endocrinology
+    const isTargetEndo = targetId.includes("endocrin") || deptName.includes("hormon") || deptName.includes("diabetes");
+    if (isTargetEndo) {
+      return docSpec.includes("endocrin") || docSpec.includes("hormon") || docSpec.includes("diabetes") || docDeptId === "endocrinology";
+    }
+
+    // Dermatology
+    const isTargetDerma = targetId.includes("derma") || deptName.includes("skin");
+    if (isTargetDerma) {
+      return docSpec.includes("derma") || docSpec.includes("skin") || docDeptId === "dermatology";
+    }
+
+    // Fallback: Exact match only
+    return docSpec === deptName || docSpec === targetId;
   };
 
-  const selectedDeptObj = DEPARTMENTS.find(
+  const selectedDeptObj = departmentsList.find(
+    (d: any) => String(d.id || d.dept_id).toLowerCase().trim() === String(selectedDept).toLowerCase().trim() || String(d.name).toLowerCase().trim() === String(selectedDept).toLowerCase().trim()
+  ) || DEPARTMENTS.find(
     (d) => d.id === selectedDept || d.name.toLowerCase() === selectedDept.toLowerCase()
   );
 
@@ -452,12 +557,25 @@ export function BookAppointmentPage() {
   };
 
   const filteredDoctors = allDoctors.filter((doc) => {
-    const activeStatus = !doc.status || doc.status === "Active" || !doc.status.includes("Disabled");
-    if (!activeStatus) return false;
+    // 1. Doctor Status check (Must not be disabled or inactive)
+    const isDocDisabled =
+      doc.status === "Disabled" ||
+      doc.status === "Inactive" ||
+      String(doc.status || "").toLowerCase().includes("disable") ||
+      (doc as any).is_active === false;
 
+    if (isDocDisabled) return false;
+
+    // 2. Active Duty Schedule check (Must have an active schedule roster set)
+    const effectiveDays = getDoctorEffectiveAvailableDays(doc);
+    const hasActiveSchedule = effectiveDays && effectiveDays.length > 0;
+    if (!hasActiveSchedule) return false;
+
+    // 3. Department / Clinic match
     const matchesDepartment = selectedDept ? matchesDept(doc, selectedDept) : true;
     if (!matchesDepartment) return false;
 
+    // 4. Patient Category Acceptance check
     const acceptedTypes = (doc as any).acceptedPatientTypes || (doc as any).accepted_patient_types || ["Private Self-Pay", "HMO Insurance"];
     return acceptedTypes.includes(patientType);
   });
@@ -848,8 +966,8 @@ export function BookAppointmentPage() {
     link.click();
   };
 
-  const downloadTicketAsPdf = (booking: any) => {
-    if (!booking) return;
+  const buildTicketPdfDoc = (booking: any) => {
+    if (!booking) return null;
 
     const doc = new jsPDF({
       orientation: "portrait",
@@ -1005,7 +1123,44 @@ export function BookAppointmentPage() {
     doc.setFont("helvetica", "bold");
     doc.text("No. 46, Ijaiye Road (beside Tastee Fried Chicken), Ogba, Ikeja, Lagos  |  Hotline: +234 (0) 800-ISALU-CARE", 105, 287, { align: "center" });
 
-    // Save PDF File Natively
+    return doc;
+  };
+
+  const shareTicketAsPdf = async (booking: any) => {
+    if (!booking) return;
+
+    const doc = buildTicketPdfDoc(booking);
+    if (!doc) return;
+
+    const refCode = booking.refCode || booking.ref_code || booking.id || "000000";
+    const fileName = `Isalu_Appointment_Ticket_${refCode}.pdf`;
+    const pdfBlob = doc.output("blob");
+    const pdfFile = new File([pdfBlob], fileName, { type: "application/pdf" });
+
+    if (navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
+      try {
+        await navigator.share({
+          files: [pdfFile],
+          title: `Isalu Hospitals Ticket - ${refCode}`,
+          text: `Official Isalu Hospitals Appointment Ticket (${refCode})`,
+        });
+        return;
+      } catch (err: any) {
+        if (err.name === "AbortError") return;
+      }
+    }
+
+    // Fallback if direct PDF sharing is unsupported on this browser
+    doc.save(fileName);
+    setCopiedShare(true);
+    setTimeout(() => setCopiedShare(false), 4000);
+  };
+
+  const downloadTicketAsPdf = (booking: any) => {
+    if (!booking) return;
+    const doc = buildTicketPdfDoc(booking);
+    if (!doc) return;
+
     doc.save(`Isalu_Appointment_Ticket_${booking.refCode}.pdf`);
   };
 
@@ -1232,7 +1387,19 @@ export function BookAppointmentPage() {
                       {showHmoSuggestions && hmoSearchQuery.trim().length >= 2 && (
                         <div className="absolute z-30 left-0 right-0 mt-1 bg-white dark:bg-slate-900 border-2 border-[#008ac9] rounded-2xl shadow-xl max-h-52 overflow-y-auto p-1.5 animate-fadeIn">
                           {(() => {
-                            const matches = NIGERIAN_HMO_PROVIDERS.filter((provider) =>
+                            const savedHmoStr = localStorage.getItem("isalu_hmo_companies");
+                            let allHmoNames = NIGERIAN_HMO_PROVIDERS;
+                            if (savedHmoStr) {
+                              try {
+                                const parsed = JSON.parse(savedHmoStr);
+                                if (Array.isArray(parsed) && parsed.length > 0) {
+                                  const dynamicNames = parsed.map((h: any) => (typeof h === "string" ? h : h.name)).filter(Boolean);
+                                  allHmoNames = Array.from(new Set([...dynamicNames, ...NIGERIAN_HMO_PROVIDERS]));
+                                }
+                              } catch {}
+                            }
+
+                            const matches = allHmoNames.filter((provider) =>
                               provider.toLowerCase().includes(hmoSearchQuery.trim().toLowerCase())
                             );
                             if (matches.length === 0) {
@@ -1433,7 +1600,8 @@ export function BookAppointmentPage() {
                     Available {patientType} Specialists {selectedDeptObj ? `in ${selectedDeptObj.name}` : ""}
                   </h3>
                 </div>
-                <span className="text-xs font-bold text-[#008ac9] bg-sky-100 dark:bg-slate-800 px-3 py-1 rounded-full border border-[#008ac9]/30">
+
+                <span className="text-xs font-bold text-[#008ac9] bg-sky-100 dark:bg-slate-800 px-3 py-1.5 rounded-full border border-[#008ac9]/30 shrink-0">
                   {filteredDoctors.length} Doctor{filteredDoctors.length === 1 ? "" : "s"} Available
                 </span>
               </div>
@@ -1904,6 +2072,14 @@ export function BookAppointmentPage() {
                 className="flex-1 py-3.5 px-4 bg-slate-900 hover:bg-slate-800 text-white font-black text-xs sm:text-sm rounded-2xl text-center shadow-lg transition-all flex items-center justify-center gap-2 border border-slate-700"
               >
                 <FileText className="h-4 w-4 text-sky-400" /> Download PDF
+              </button>
+
+              <button
+                type="button"
+                onClick={() => shareTicketAsPdf(bookingConfirmed)}
+                className="flex-1 py-3.5 px-4 bg-sky-600 hover:bg-sky-700 text-white font-black text-xs sm:text-sm rounded-2xl text-center shadow-lg transition-all flex items-center justify-center gap-2 border border-sky-500"
+              >
+                <Share2 className="h-4 w-4" /> {copiedShare ? "PDF Generated!" : "Share PDF"}
               </button>
 
               <Link

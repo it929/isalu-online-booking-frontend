@@ -21,6 +21,7 @@ import {
   RefreshCw,
   Plus,
   BadgeCheck,
+  ChevronLeft,
   ChevronRight,
   Filter,
   LogOut,
@@ -41,6 +42,7 @@ import {
   EyeOff,
   LayoutDashboard,
   ExternalLink,
+  Upload,
 } from "lucide-react";
 import {
   getBookingsAPI,
@@ -62,6 +64,7 @@ import {
   payCashdeskBookingAPI,
   createHmoCompanyAPI,
   updateHmoCompanyAPI,
+  deleteHmoCompanyAPI,
   createSystemUserAPI,
   updateSystemUserAPI,
   loginStaffAPI,
@@ -535,6 +538,43 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
     ];
   });
 
+  const [userSearchQuery, setUserSearchQuery] = useState("");
+  const [userRoleFilter, setUserRoleFilter] = useState("all");
+  const [userStatusFilter, setUserStatusFilter] = useState("all");
+
+  const [hmoOrgSearchQuery, setHmoOrgSearchQuery] = useState("");
+  const [hmoOrgCurrentPage, setHmoOrgCurrentPage] = useState(1);
+  const [hmoOrgItemsPerPage, setHmoOrgItemsPerPage] = useState(10);
+
+  const broadcastUserChange = (updatedList: any[]) => {
+    try {
+      localStorage.setItem("isalu_system_users", JSON.stringify(updatedList));
+
+      const channel = new BroadcastChannel("isalu_user_channel");
+      channel.postMessage({ type: "USERS_UPDATED", users: updatedList });
+      channel.close();
+    } catch {}
+
+    window.dispatchEvent(new CustomEvent("isalu_users_updated", { detail: updatedList }));
+    window.dispatchEvent(new Event("storage"));
+  };
+
+  const loadUsers = async () => {
+    const localStr = localStorage.getItem("isalu_system_users");
+    let localParsed: any[] = [];
+    if (localStr) {
+      try { localParsed = JSON.parse(localStr); } catch {}
+    }
+
+    const remote = await getSystemUsersAPI();
+    if (remote && Array.isArray(remote)) {
+      setSystemUsers(remote);
+      localStorage.setItem("isalu_system_users", JSON.stringify(remote));
+    } else if (localParsed.length > 0) {
+      setSystemUsers(localParsed);
+    }
+  };
+
   const [showAddUserModal, setShowAddUserModal] = useState(false);
   const [newUserName, setNewUserName] = useState("");
   const [newUserEmail, setNewUserEmail] = useState("");
@@ -589,7 +629,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
       : systemUsers.map((u) => ((u.id === targetId || u.user_id === targetId) ? { ...u, ...updatedData } : u));
 
     setSystemUsers(updated);
-    localStorage.setItem("isalu_system_users", JSON.stringify(updated));
+    broadcastUserChange(updated);
 
     setEditingUser(null);
     setToastAlert({
@@ -632,7 +672,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
     const updated = remoteUsers && remoteUsers.length > 0 ? remoteUsers : [createdRecord, ...systemUsers];
 
     setSystemUsers(updated);
-    localStorage.setItem("isalu_system_users", JSON.stringify(updated));
+    broadcastUserChange(updated);
 
     setNewUserName("");
     setNewUserEmail("");
@@ -648,28 +688,78 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
     });
   };
 
+  const DEFAULT_HMO_COMPANIES = [
+    { id: "hmo-1", name: "Hygeia HMO", code: "HMO-HYG-001", email: "preauth@hygeiahmo.com", phone: "+234 700 494 342", contactPerson: "Mrs. Victoria Adeleke", status: "Active Partner" },
+    { id: "hmo-2", name: "Reliance HMO", code: "HMO-RLN-002", email: "claims@reliancehmo.com", phone: "+234 1 700 1555", contactPerson: "Mr. Chukwuma Eze", status: "Active Partner" },
+    { id: "hmo-3", name: "AXA Mansard Health", code: "HMO-AXA-003", email: "hmo@axamansard.com", phone: "+234 1 448 5433", contactPerson: "Dr. Funke Akindele", status: "Active Partner" },
+    { id: "hmo-4", name: "Avon HMO", code: "HMO-AVN-004", email: "preauth@avonhmo.com", phone: "+234 700 286 6466", contactPerson: "Mr. Segun Oladipo", status: "Active Partner" },
+    { id: "hmo-5", name: "Leadway Health", code: "HMO-LWD-005", email: "medical@leadwayhealth.com", phone: "+234 1 280 2060", contactPerson: "Mrs. Blessing Okafor", status: "Active Partner" },
+    { id: "hmo-6", name: "Clearline HMO", code: "HMO-CLR-006", email: "desk@clearlinehmo.com", phone: "+234 1 462 8111", contactPerson: "Mr. Ibrahim Bello", status: "Active Partner" },
+    { id: "hmo-7", name: "Total Health Trust", code: "HMO-THT-007", email: "authorizations@totalhealthtrust.com", phone: "+234 700 868 2543", contactPerson: "Dr. Kemi Balogun", status: "Active Partner" },
+    { id: "hmo-8", name: "Redcare HMO", code: "HMO-RDC-008", email: "info@redcarehmo.com", phone: "+234 1 700 7332", contactPerson: "Mr. Tunde Lawal", status: "Active Partner" },
+  ];
+
+  const mergeHmoData = (defaultList: any[], localList: any[], remoteList: any[]) => {
+    const mergedMap = new Map<string, any>();
+
+    (defaultList || []).forEach((h) => {
+      const key = (h.name || h.id || "").toLowerCase().trim();
+      if (key) mergedMap.set(key, { ...h });
+    });
+
+    (localList || []).forEach((h) => {
+      const nameStr = typeof h === "string" ? h : h.name;
+      const key = (nameStr || h.id || "").toLowerCase().trim();
+      if (key) {
+        const existing = mergedMap.get(key) || {};
+        const obj = typeof h === "string" ? { id: `hmo-${key}`, name: h } : h;
+        mergedMap.set(key, { ...existing, ...obj });
+      }
+    });
+
+    (remoteList || []).forEach((r) => {
+      const key = (r.name || r.hmo_id || r.id || "").toLowerCase().trim();
+      if (key) {
+        const existing = mergedMap.get(key) || {};
+        mergedMap.set(key, {
+          ...existing,
+          ...r,
+          id: r.id || r.hmo_id || existing.id,
+          name: r.name || existing.name,
+          code: r.code || existing.code,
+          email: r.email || existing.email,
+          phone: r.phone || existing.phone,
+          contactPerson: r.contactPerson || r.contact_person || existing.contactPerson || "Pre-Auth Desk Officer",
+          status: r.status || existing.status || "Active Partner",
+        });
+      }
+    });
+
+    return Array.from(mergedMap.values());
+  };
+
   // HMO Provider Companies List State
   const [hmoCompanies, setHmoCompanies] = useState<any[]>(() => {
+    const isCleared = localStorage.getItem("isalu_hmo_cleared");
+    if (isCleared === "true") return [];
+
     const saved = localStorage.getItem("isalu_hmo_companies");
     if (saved) {
       try {
-        return JSON.parse(saved);
+        const parsed = JSON.parse(saved);
+        if (parsed && Array.isArray(parsed)) {
+          return parsed;
+        }
       } catch {}
     }
-    return [
-      { id: "hmo-1", name: "Hygeia HMO", code: "HMO-HYG-001", email: "preauth@hygeiahmo.com", phone: "+234 700 494 342", contactPerson: "Mrs. Victoria Adeleke", status: "Active Partner" },
-      { id: "hmo-2", name: "Reliance HMO", code: "HMO-RLN-002", email: "claims@reliancehmo.com", phone: "+234 1 700 1555", contactPerson: "Mr. Chukwuma Eze", status: "Active Partner" },
-      { id: "hmo-3", name: "AXA Mansard Health", code: "HMO-AXA-003", email: "hmo@axamansard.com", phone: "+234 1 448 5433", contactPerson: "Dr. Funke Akindele", status: "Active Partner" },
-      { id: "hmo-4", name: "Avon HMO", code: "HMO-AVN-004", email: "preauth@avonhmo.com", phone: "+234 700 286 6466", contactPerson: "Mr. Segun Oladipo", status: "Active Partner" },
-      { id: "hmo-5", name: "Leadway Health", code: "HMO-LWD-005", email: "medical@leadwayhealth.com", phone: "+234 1 280 2060", contactPerson: "Mrs. Blessing Okafor", status: "Active Partner" },
-      { id: "hmo-6", name: "Clearline HMO", code: "HMO-CLR-006", email: "desk@clearlinehmo.com", phone: "+234 1 462 8111", contactPerson: "Mr. Ibrahim Bello", status: "Active Partner" },
-      { id: "hmo-7", name: "Total Health Trust", code: "HMO-THT-007", email: "authorizations@totalhealthtrust.com", phone: "+234 700 868 2543", contactPerson: "Dr. Kemi Balogun", status: "Active Partner" },
-      { id: "hmo-8", name: "Redcare HMO", code: "HMO-RDC-008", email: "info@redcarehmo.com", phone: "+234 1 700 7332", contactPerson: "Mr. Tunde Lawal", status: "Active Partner" },
-    ];
+    return DEFAULT_HMO_COMPANIES;
   });
 
-  // Create HMO Provider Company Form State
+  // Create & Edit HMO Provider Company Form State
   const [showCreateHmoModal, setShowCreateHmoModal] = useState(false);
+  const [showEditHmoModal, setShowEditHmoModal] = useState(false);
+  const [editingHmoItem, setEditingHmoItem] = useState<any | null>(null);
+
   const [hmoCompanyName, setHmoCompanyName] = useState("");
   const [hmoCompanyCode, setHmoCompanyCode] = useState("");
   const [hmoCompanyEmail, setHmoCompanyEmail] = useState("");
@@ -678,6 +768,88 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
   const [hmoCompanyPlanTier, setHmoCompanyPlanTier] = useState("Corporate / Standard / Executive");
   const [hmoCompanyStatus, setHmoCompanyStatus] = useState("Active Partner");
   const [hmoFormError, setHmoFormError] = useState("");
+
+  const isAdminUser = (user: any): boolean => {
+    if (!user || !user.role) return false;
+    const roleStr = (user.role || "").toLowerCase().trim();
+    const emailStr = (user.email || user.name || "").toLowerCase().trim();
+    return (
+      roleStr.includes("admin") ||
+      roleStr.includes("administrator") ||
+      roleStr.includes("chief") ||
+      emailStr.includes("admin")
+    );
+  };
+
+  const handleOpenEditHmoModal = (hmo: any) => {
+    if (!isAdminUser(currentUser)) {
+      setToastAlert({
+        title: "Admin Authorized Action Only 🔒",
+        description: "Only Administrator accounts are permitted to edit HMO partner records.",
+        type: "warning",
+      });
+      return;
+    }
+    setEditingHmoItem(hmo);
+    setHmoCompanyName(hmo.name || "");
+    setHmoCompanyCode(hmo.code || "");
+    setHmoCompanyEmail(hmo.email || hmo.email_address || "");
+    setHmoCompanyPhone(hmo.phone || hmo.phone_number || "");
+    setHmoCompanyContact(hmo.contactPerson || hmo.contact_person || "");
+    setHmoCompanyStatus(hmo.status || "Active Partner");
+    setHmoFormError("");
+    setShowEditHmoModal(true);
+  };
+
+  const handleSaveEditHmoCompany = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingHmoItem) return;
+
+    if (!hmoCompanyName.trim() || !hmoCompanyEmail.trim() || !hmoCompanyPhone.trim()) {
+      setHmoFormError("Please fill out HMO Company Name, Desk Email, and Helpline Phone.");
+      return;
+    }
+
+    const targetId = editingHmoItem.id || editingHmoItem.hmo_id;
+
+    const updatedData = {
+      ...editingHmoItem,
+      id: targetId,
+      hmo_id: targetId,
+      name: hmoCompanyName.trim(),
+      code: hmoCompanyCode.trim() || `HMO-${hmoCompanyName.substring(0, 3).toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`,
+      email: hmoCompanyEmail.trim(),
+      phone: hmoCompanyPhone.trim(),
+      contactPerson: hmoCompanyContact.trim() || "Pre-Auth Desk Officer",
+      contact_person: hmoCompanyContact.trim() || "Pre-Auth Desk Officer",
+      status: hmoCompanyStatus,
+    };
+
+    try {
+      if (targetId) {
+        await updateHmoCompanyAPI(targetId, updatedData);
+      }
+    } catch {}
+
+    const updatedList = hmoCompanies.map((item) => {
+      const itemId = item.id || item.hmo_id;
+      if ((itemId && itemId === targetId) || item.name.toLowerCase() === editingHmoItem.name.toLowerCase()) {
+        return updatedData;
+      }
+      return item;
+    });
+
+    setHmoCompanies(updatedList);
+    broadcastHmoChange(updatedList);
+    setShowEditHmoModal(false);
+    setEditingHmoItem(null);
+
+    setToastAlert({
+      title: "HMO Provider Details Updated ✓",
+      description: `Updated partnership details for ${updatedData.name}.`,
+      type: "success",
+    });
+  };
 
   const handleCreateHmoCompany = (e: React.FormEvent) => {
     e.preventDefault();
@@ -700,7 +872,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
     createHmoCompanyAPI(newCompany);
     const updatedCompanies = [newCompany, ...hmoCompanies];
     setHmoCompanies(updatedCompanies);
-    localStorage.setItem("isalu_hmo_companies", JSON.stringify(updatedCompanies));
+    broadcastHmoChange(updatedCompanies);
 
     // Reset Form
     setHmoCompanyName("");
@@ -715,6 +887,168 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
       title: "HMO Provider Registered!",
       description: `Accredited provider ${newCompany.name} has been saved.`,
       type: "success",
+    });
+  };
+
+  const broadcastHmoChange = (updatedList: any[]) => {
+    try {
+      localStorage.setItem("isalu_hmo_companies", JSON.stringify(updatedList));
+
+      const channel = new BroadcastChannel("isalu_hmo_channel");
+      channel.postMessage({ type: "HMO_UPDATED", hmoCompanies: updatedList });
+      channel.close();
+    } catch {}
+
+    window.dispatchEvent(new CustomEvent("isalu_hmo_updated", { detail: updatedList }));
+    window.dispatchEvent(new Event("storage"));
+  };
+
+  const handleDownloadHmoCsvTemplate = () => {
+    const csvHeader = "HMO Name,Registration Code,Pre-Auth Email,Helpline Phone,Contact Person\n";
+    const sampleRows = [
+      "Hygeia HMO,HMO-HYG-001,preauth@hygeiahmo.com,+234 700 494 342,Mrs. Victoria Adeleke",
+      "Reliance HMO,HMO-RLN-002,claims@reliancehmo.com,+234 1 700 1555,Mr. Chukwuma Eze",
+      "AXA Mansard Health,HMO-AXA-003,hmo@axamansard.com,+234 1 448 5433,Dr. Funke Akindele",
+      "Avon HMO,HMO-AVN-004,preauth@avonhmo.com,+234 700 286 6466,Mr. Segun Oladipo",
+      "Anchor HMO,HMO-ANC-009,info@anchorhmo.com,+234 800 262 467,Dr. Sarah Okafor",
+      "Metrohealth HMO,HMO-MTR-010,preauth@metrohealthhmo.com,+234 700 638 764,Mr. James Obi",
+    ].join("\n");
+
+    const blob = new Blob([csvHeader + sampleRows], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", "isalu_hmo_import_template.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleUploadHmoCsv = async (file: File) => {
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      const text = (e.target?.result as string) || "";
+      const lines = text.split(/\r\n|\n/);
+      const newHmos: any[] = [];
+
+      for (let idx = 0; idx < lines.length; idx++) {
+        const line = lines[idx];
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+
+        if (idx === 0 && (trimmed.toLowerCase().includes("hmo name") || trimmed.toLowerCase().includes("registration code"))) {
+          continue;
+        }
+
+        const cols = trimmed.split(",").map((c) => c.replace(/^["']|["']$/g, "").trim());
+        const name = cols[0];
+        if (!name) continue;
+
+        const code = cols[1] || `HMO-${name.substring(0, 3).toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`;
+        const email = cols[2] || `preauth@${name.toLowerCase().replace(/[^a-z0-9]/g, "")}.com`;
+        const phone = cols[3] || "+234 700 000 0000";
+        const contactPerson = cols[4] || "Desk Officer";
+
+        const hmoObj = {
+          id: `hmo-${Date.now()}-${idx}-${Math.floor(Math.random() * 1000)}`,
+          name,
+          code,
+          email,
+          phone,
+          contactPerson,
+          contact_person: contactPerson,
+          status: "Active Partner",
+        };
+
+        try {
+          const apiRes = await createHmoCompanyAPI(hmoObj);
+          newHmos.push(apiRes || hmoObj);
+        } catch {
+          newHmos.push(hmoObj);
+        }
+      }
+
+      if (newHmos.length === 0) {
+        setToastAlert({
+          title: "No HMO Records Found",
+          description: "Please check your CSV file formatting and try again.",
+          type: "warning",
+        });
+        return;
+      }
+
+      localStorage.removeItem("isalu_hmo_cleared");
+      const remoteHmos = await getHmoCompaniesAPI();
+      const masterList = remoteHmos && Array.isArray(remoteHmos) && remoteHmos.length > 0 ? remoteHmos : newHmos;
+
+      setHmoCompanies(masterList);
+      broadcastHmoChange(masterList);
+
+      setToastAlert({
+        title: "HMO CSV Import Saved & Published! ✓",
+        description: `Successfully saved ${newHmos.length} HMO partner companies to database API. Live on homepage slider and booking forms.`,
+        type: "success",
+      });
+    };
+
+    reader.readAsText(file);
+  };
+
+  const isSuperAdminOnly = (user: any): boolean => {
+    if (!user || !user.role) return false;
+    const roleStr = (user.role || "").toLowerCase().trim();
+    const emailStr = (user.email || user.name || "").toLowerCase().trim();
+    return (
+      roleStr === "super administrator" ||
+      roleStr === "super admin" ||
+      (roleStr.includes("super") && roleStr.includes("admin")) ||
+      emailStr === "admin@isaluhospitals.com" ||
+      emailStr === "admin"
+    );
+  };
+
+  const handleClearAllHmoCompanies = () => {
+    if (!isSuperAdminOnly(currentUser)) {
+      setToastAlert({
+        title: "Super Admin Authorized Action Only 🔒",
+        description: "Only Super Administrator accounts are permitted to clear all HMO partner records. Hospital Admins and staff officers are restricted.",
+        type: "warning",
+      });
+      return;
+    }
+
+    setConfirmModalConfig({
+      isOpen: true,
+      title: "Clear All Accredited HMO Partner Records",
+      message: "Are you sure you want to clear all HMO partner records? This will delete all current HMO companies from the database so you can upload a fresh CSV file.",
+      confirmText: "Yes, Clear All HMOs",
+      cancelText: "Cancel",
+      variant: "danger",
+      onConfirm: async () => {
+        try {
+          const allHmos = await getHmoCompaniesAPI();
+          if (allHmos && Array.isArray(allHmos)) {
+            for (const hmo of allHmos) {
+              const targetId = hmo.id || hmo.hmo_id;
+              if (targetId) {
+                await deleteHmoCompanyAPI(targetId);
+              }
+            }
+          }
+        } catch {}
+
+        localStorage.setItem("isalu_hmo_cleared", "true");
+        localStorage.setItem("isalu_hmo_companies", JSON.stringify([]));
+        setHmoCompanies([]);
+        broadcastHmoChange([]);
+        setToastAlert({
+          title: "All HMO Records Cleared ✓",
+          description: "HMO directory is now completely clear (0 records). You can now upload your fresh CSV file of 65 HMOs.",
+          type: "info",
+        });
+      },
     });
   };
 
@@ -740,24 +1074,71 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
     }));
   });
 
+  const mergeClinicsData = (defaultDepts: any[], localList: any[], remoteList: any[]) => {
+    const mergedMap = new Map<string, any>();
+
+    (defaultDepts || []).forEach((d) => {
+      const key = (d.id || d.dept_id || d.name || "").toLowerCase().trim();
+      if (key) {
+        mergedMap.set(key, {
+          id: d.id,
+          dept_id: d.id,
+          name: d.name.includes("Clinic") || d.name.includes("Department") || d.name.includes("Care") ? d.name : `${d.name} Clinic`,
+          description: d.description || "Specialized clinical consultation services.",
+          iconName: d.iconName || d.icon_name || "Building2",
+          icon_name: d.iconName || d.icon_name || "Building2",
+          doctorCount: d.doctorCount || d.doctor_count || 2,
+          doctor_count: d.doctorCount || d.doctor_count || 2,
+          status: d.status || "Active",
+          location: d.location || "Main Hospital Complex - Suite Wing",
+        });
+      }
+    });
+
+    (localList || []).forEach((l) => {
+      const key = (l.id || l.dept_id || l.name || "").toLowerCase().trim();
+      if (key) {
+        const existing = mergedMap.get(key) || {};
+        mergedMap.set(key, { ...existing, ...l });
+      }
+    });
+
+    (remoteList || []).forEach((r) => {
+      const key = (r.id || r.dept_id || r.deptId || r.name || "").toLowerCase().trim();
+      if (key) {
+        const existing = mergedMap.get(key) || {};
+        mergedMap.set(key, {
+          ...existing,
+          ...r,
+          id: r.id || r.dept_id || existing.id,
+          dept_id: r.dept_id || r.id || existing.dept_id,
+          name: r.name || existing.name,
+          description: r.description || existing.description,
+          iconName: r.icon_name || r.iconName || existing.iconName || "Building2",
+          icon_name: r.icon_name || r.iconName || existing.icon_name || "Building2",
+          doctorCount: r.doctor_count ?? r.doctorCount ?? existing.doctorCount ?? 0,
+          doctor_count: r.doctor_count ?? r.doctorCount ?? existing.doctor_count ?? 0,
+          status: r.status || existing.status || "Active",
+          location: r.location || existing.location || "Main Hospital Complex - Suite Wing",
+        });
+      }
+    });
+
+    return Array.from(mergedMap.values());
+  };
+
   const loadClinics = async () => {
-    const remote = await getDepartmentsAPI();
-    if (remote && remote.length > 0) {
-      const formatted = remote.map((d: any) => ({
-        id: d.dept_id || d.id,
-        dept_id: d.dept_id || d.id,
-        name: d.name,
-        description: d.description || "Specialized clinical consultation services.",
-        iconName: d.icon_name || d.iconName || "Building2",
-        icon_name: d.icon_name || d.iconName || "Building2",
-        doctorCount: d.doctor_count ?? d.doctorCount ?? 0,
-        doctor_count: d.doctor_count ?? d.doctorCount ?? 0,
-        status: d.status || "Active",
-        location: d.location || "Main Hospital Complex - Suite Wing",
-      }));
-      setClinics(formatted);
-      localStorage.setItem("isalu_clinics_list", JSON.stringify(formatted));
+    const localStr = localStorage.getItem("isalu_clinics_list") || localStorage.getItem("isalu_hospital_departments");
+    let localParsed: any[] = [];
+    if (localStr) {
+      try { localParsed = JSON.parse(localStr); } catch {}
     }
+
+    const remote = await getDepartmentsAPI();
+    const merged = mergeClinicsData(DEPARTMENTS, localParsed, remote || []);
+    setClinics(merged);
+    localStorage.setItem("isalu_clinics_list", JSON.stringify(merged));
+    localStorage.setItem("isalu_hospital_departments", JSON.stringify(merged));
   };
 
   useEffect(() => {
@@ -848,7 +1229,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
     const res = await createDepartmentAPI(newClinic);
     const createdRecord = res || newClinic;
 
-    const updated = [createdRecord, ...clinics];
+    const updated = mergeClinicsData(DEPARTMENTS, [createdRecord, ...clinics], []);
     setClinics(updated);
     broadcastClinicChange(updated);
 
@@ -1012,6 +1393,46 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
   const [docDirectoryStatusFilter, setDocDirectoryStatusFilter] = useState("all");
   const [docDirectoryDeptFilter, setDocDirectoryDeptFilter] = useState("all");
 
+  // List Pagination States
+  const [helpdeskCurrentPage, setHelpdeskCurrentPage] = useState(1);
+  const [helpdeskItemsPerPage, setHelpdeskItemsPerPage] = useState(5);
+
+  const [cashdeskCurrentPage, setCashdeskCurrentPage] = useState(1);
+  const [cashdeskItemsPerPage, setCashdeskItemsPerPage] = useState(5);
+
+  const [hmoCurrentPage, setHmoCurrentPage] = useState(1);
+  const [hmoItemsPerPage, setHmoItemsPerPage] = useState(5);
+
+  const [allPatientsCurrentPage, setAllPatientsCurrentPage] = useState(1);
+  const [allPatientsItemsPerPage, setAllPatientsItemsPerPage] = useState(5);
+
+  const [checkedInCurrentPage, setCheckedInCurrentPage] = useState(1);
+  const [checkedInItemsPerPage, setCheckedInItemsPerPage] = useState(5);
+
+  const [hmoEnrolleesCurrentPage, setHmoEnrolleesCurrentPage] = useState(1);
+  const [hmoEnrolleesItemsPerPage, setHmoEnrolleesItemsPerPage] = useState(5);
+
+  const [privatePatientsCurrentPage, setPrivatePatientsCurrentPage] = useState(1);
+  const [privatePatientsItemsPerPage, setPrivatePatientsItemsPerPage] = useState(5);
+
+  const [docDirCurrentPage, setDocDirCurrentPage] = useState(1);
+  const [docDirItemsPerPage, setDocDirItemsPerPage] = useState(5);
+
+  const [usersDirCurrentPage, setUsersDirCurrentPage] = useState(1);
+  const [usersDirItemsPerPage, setUsersDirItemsPerPage] = useState(5);
+
+  useEffect(() => {
+    setHelpdeskCurrentPage(1);
+    setCashdeskCurrentPage(1);
+    setHmoCurrentPage(1);
+    setAllPatientsCurrentPage(1);
+    setCheckedInCurrentPage(1);
+    setHmoEnrolleesCurrentPage(1);
+    setPrivatePatientsCurrentPage(1);
+    setDocDirCurrentPage(1);
+    setUsersDirCurrentPage(1);
+  }, [searchQuery, statusFilter, hmoProviderFilter, docDirectorySearch, docDirectoryStatusFilter, docDirectoryDeptFilter]);
+
   // Specialist Timetables & Shift Roster Search, Filter & Pagination State
   const [schedSearchQuery, setSchedSearchQuery] = useState("");
   const [schedStatusFilter, setSchedStatusFilter] = useState("all");
@@ -1021,14 +1442,22 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
   const [schedItemsPerPage, setSchedItemsPerPage] = useState(5);
 
   const filteredSchedules = specialistSchedules.filter((sched) => {
-    const docName = (sched.doctorName || "").toLowerCase();
-    const spec = (sched.specialty || "").toLowerCase();
+    const docName = (sched.doctorName || sched.doctor_name || "").toLowerCase();
+    const spec = (sched.specialty || sched.doctorSpecialty || "").toLowerCase();
     const rm = (sched.room || "").toLowerCase();
-    const shift = (sched.shiftTime || "").toLowerCase();
-    const daysStr = (sched.dutyDays || []).join(" ").toLowerCase();
+    const shift = (sched.shiftTime || sched.shift_time || "").toLowerCase();
+    const rawDays = sched.dutyDays || sched.duty_days || sched.availableDays || sched.available_days || [];
+    const daysArr: string[] = Array.isArray(rawDays) ? rawDays : [String(rawDays)];
+    const daysStr = daysArr.join(" ").toLowerCase();
     const q = schedSearchQuery.toLowerCase().trim();
 
-    const matchesSearch = !q || docName.includes(q) || spec.includes(q) || rm.includes(q) || shift.includes(q) || daysStr.includes(q);
+    const matchesSearch =
+      !q ||
+      docName.includes(q) ||
+      spec.includes(q) ||
+      rm.includes(q) ||
+      shift.includes(q) ||
+      daysStr.includes(q);
 
     let matchesStatus = true;
     if (schedStatusFilter === "active") {
@@ -1044,7 +1473,14 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
 
     let matchesDay = true;
     if (schedDayFilter !== "all") {
-      matchesDay = (sched.dutyDays || []).some((d: string) => d.toLowerCase().includes(schedDayFilter.toLowerCase()));
+      const targetDay = schedDayFilter.toLowerCase();
+      const targetShort = targetDay.substring(0, 3); // e.g. "mon", "tue", "wed", "thu", "fri", "sat", "sun"
+
+      matchesDay = daysArr.some((d: any) => {
+        if (!d) return false;
+        const itemLower = String(d).toLowerCase();
+        return itemLower.includes(targetDay) || itemLower.includes(targetShort);
+      });
     }
 
     return matchesSearch && matchesStatus && matchesDept && matchesDay;
@@ -2029,7 +2465,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
           : systemUsers.map((u) => ((u.id === targetId || u.user_id === targetId) ? { ...u, status: newStatus } : u));
 
         setSystemUsers(updated);
-        localStorage.setItem("isalu_system_users", JSON.stringify(updated));
+        broadcastUserChange(updated);
 
         setToastAlert({
           title: isDisabling ? "Account Disabled 🚫" : "Account Re-Enabled ✓",
@@ -2888,6 +3324,7 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
     const hmoApprovedCount = bookings.filter((b) => b.paymentType === "HMO Insurance" && b.hmoStatus === "Approved").length;
     const pendingCashCount = bookings.filter((b) => b.paymentType === "Private Self-Pay" && b.paymentStatus !== "Cleared").length;
     const clearedPaymentCount = bookings.filter((b) => b.paymentStatus === "Cleared").length;
+    const paidOrApprovedCount = bookings.filter((b) => (b.hmoStatus === "Approved" || b.hmo_status === "Approved" || b.paymentStatus === "Cleared" || b.payment_status === "Cleared") && b.status !== "Completed" && b.status !== "Cancelled").length;
 
     const privateSelfPayCount = bookings.filter((b) => b.paymentType === "Private Self-Pay" || !b.paymentType || b.paymentType.includes("Self-Pay")).length;
     const hmoEnrolleeCount = bookings.filter((b) => b.paymentType === "HMO Insurance").length;
@@ -3133,7 +3570,9 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
     }
   };
 
-  // Load bookings from localStorage (No auto-mock seeding)
+  const [isRefreshingData, setIsRefreshingData] = useState(false);
+
+  // Load bookings from localStorage
   const loadBookings = () => {
     const raw = localStorage.getItem("isalu_bookings") || localStorage.getItem("medicare_bookings") || "[]";
     let parsed: any[] = [];
@@ -3143,6 +3582,58 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
       parsed = [];
     }
     setBookings(parsed || []);
+  };
+
+  const handleManualRefresh = async () => {
+    setIsRefreshingData(true);
+    loadBookings();
+    try {
+      const remoteBookings = await getBookingsAPI();
+      if (remoteBookings && Array.isArray(remoteBookings)) {
+        const localStr = localStorage.getItem("isalu_bookings") || localStorage.getItem("medicare_bookings");
+        let localBookings: any[] = [];
+        if (localStr) {
+          try { localBookings = JSON.parse(localStr); } catch {}
+        }
+        const mergedMap = new Map<string, any>();
+        remoteBookings.forEach((remoteB: any) => {
+          const code = remoteB.refCode || remoteB.ref_code;
+          if (code) {
+            const localB = localBookings.find((lb: any) => (lb.refCode || lb.ref_code) === code);
+            const merged = { ...(localB || {}), ...remoteB };
+            merged.refCode = remoteB.refCode || remoteB.ref_code || localB?.refCode;
+            merged.patientName = remoteB.patientName || remoteB.patient_name || localB?.patientName;
+            merged.status = remoteB.status || localB?.status || "Booked";
+            merged.hmoStatus = remoteB.hmoStatus || remoteB.hmo_status || localB?.hmoStatus;
+            merged.hmo_status = remoteB.hmo_status || remoteB.hmoStatus || localB?.hmo_status;
+            merged.paymentStatus = remoteB.paymentStatus || remoteB.payment_status || localB?.paymentStatus;
+            merged.payment_status = remoteB.payment_status || remoteB.paymentStatus || localB?.payment_status;
+            merged.paymentType = remoteB.paymentType || remoteB.payment_type || localB?.paymentType;
+            mergedMap.set(code, merged);
+          }
+        });
+        localBookings.forEach((localB: any) => {
+          const code = localB.refCode || localB.ref_code;
+          if (code && !mergedMap.has(code)) {
+            mergedMap.set(code, localB);
+          }
+        });
+        const combined = Array.from(mergedMap.values());
+        setBookings(combined);
+        localStorage.setItem("isalu_bookings", JSON.stringify(combined));
+      }
+    } catch (err) {
+      console.warn("Manual refresh error:", err);
+    } finally {
+      setTimeout(() => {
+        setIsRefreshingData(false);
+        setToastAlert({
+          title: "Dashboard Synchronized ✓",
+          description: "Latest hospital queue, patient tickets, and server records refreshed successfully.",
+          type: "success",
+        });
+      }, 300);
+    }
   };
 
   const handleClearAllBookings = () => {
@@ -3180,18 +3671,34 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
 
         if (remoteBookings && Array.isArray(remoteBookings)) {
           const mergedMap = new Map<string, any>();
-          // 1. Add remote bookings
-          remoteBookings.forEach((b: any) => {
-            const code = b.refCode || b.ref_code;
-            if (code) mergedMap.set(code, b);
-          });
-          // 2. Merge local bookings so no booking is ever dropped
-          localBookings.forEach((b: any) => {
-            const code = b.refCode || b.ref_code;
+          
+          // 1. Process remote bookings as master source of truth for statuses & server states
+          remoteBookings.forEach((remoteB: any) => {
+            const code = remoteB.refCode || remoteB.ref_code;
             if (code) {
-              mergedMap.set(code, { ...(mergedMap.get(code) || {}), ...b });
+              const localB = localBookings.find((lb: any) => (lb.refCode || lb.ref_code) === code);
+              // Merge local metadata, but prioritize remote server fields for status, paymentStatus, and hmoStatus
+              const merged = { ...(localB || {}), ...remoteB };
+              merged.refCode = remoteB.refCode || remoteB.ref_code || localB?.refCode;
+              merged.patientName = remoteB.patientName || remoteB.patient_name || localB?.patientName;
+              merged.status = remoteB.status || localB?.status || "Booked";
+              merged.hmoStatus = remoteB.hmoStatus || remoteB.hmo_status || localB?.hmoStatus;
+              merged.hmo_status = remoteB.hmo_status || remoteB.hmoStatus || localB?.hmo_status;
+              merged.paymentStatus = remoteB.paymentStatus || remoteB.payment_status || localB?.paymentStatus;
+              merged.payment_status = remoteB.payment_status || remoteB.paymentStatus || localB?.payment_status;
+              merged.paymentType = remoteB.paymentType || remoteB.payment_type || localB?.paymentType;
+              mergedMap.set(code, merged);
             }
           });
+
+          // 2. Preserve any local-only offline bookings that haven't been pushed to backend server yet
+          localBookings.forEach((localB: any) => {
+            const code = localB.refCode || localB.ref_code;
+            if (code && !mergedMap.has(code)) {
+              mergedMap.set(code, localB);
+            }
+          });
+
           const combined = Array.from(mergedMap.values());
           setBookings(combined);
           localStorage.setItem("isalu_bookings", JSON.stringify(combined));
@@ -3200,15 +3707,16 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
         }
 
         const remoteDepts = await getDepartmentsAPI();
-        if (remoteDepts && remoteDepts.length > 0) {
-          const mapped = remoteDepts.map((d: any) => ({
-            id: d.dept_id || d.id,
-            name: d.name,
-            description: d.description || "",
-            iconName: d.icon_name || d.iconName || "Stethoscope",
-            doctorCount: d.doctor_count || d.doctorCount || 0,
-          }));
-          localStorage.setItem("isalu_hospital_departments", JSON.stringify(mapped));
+        if (remoteDepts && Array.isArray(remoteDepts)) {
+          const localStr = localStorage.getItem("isalu_clinics_list") || localStorage.getItem("isalu_hospital_departments");
+          let localParsed: any[] = [];
+          if (localStr) {
+            try { localParsed = JSON.parse(localStr); } catch {}
+          }
+          const merged = mergeClinicsData(DEPARTMENTS, localParsed, remoteDepts);
+          setClinics(merged);
+          localStorage.setItem("isalu_clinics_list", JSON.stringify(merged));
+          localStorage.setItem("isalu_hospital_departments", JSON.stringify(merged));
         }
 
         const remoteDoctors = await getDoctorsAPI();
@@ -3223,12 +3731,26 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
           localStorage.setItem("isalu_specialist_schedules", JSON.stringify(remoteSchedules));
         }
         const remoteHmos = await getHmoCompaniesAPI();
-        if (remoteHmos && remoteHmos.length > 0) {
+        const isCleared = localStorage.getItem("isalu_hmo_cleared");
+
+        if (isCleared === "true" && (!remoteHmos || remoteHmos.length === 0)) {
+          setHmoCompanies([]);
+        } else if (remoteHmos && Array.isArray(remoteHmos) && remoteHmos.length > 0) {
           setHmoCompanies(remoteHmos);
           localStorage.setItem("isalu_hmo_companies", JSON.stringify(remoteHmos));
+          localStorage.removeItem("isalu_hmo_cleared");
+        } else if (!isCleared) {
+          const localHmoStr = localStorage.getItem("isalu_hmo_companies");
+          let localHmoParsed: any[] = [];
+          if (localHmoStr) {
+            try { localHmoParsed = JSON.parse(localHmoStr); } catch {}
+          }
+          if (localHmoParsed.length > 0) {
+            setHmoCompanies(localHmoParsed);
+          }
         }
         const remoteUsers = await getSystemUsersAPI();
-        if (remoteUsers && remoteUsers.length > 0) {
+        if (remoteUsers && Array.isArray(remoteUsers)) {
           setSystemUsers(remoteUsers);
           localStorage.setItem("isalu_system_users", JSON.stringify(remoteUsers));
         }
@@ -3245,19 +3767,45 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
       syncBackendData();
     };
 
+    let channel: BroadcastChannel | null = null;
+    try {
+      channel = new BroadcastChannel("isalu_hospital_channel");
+      channel.onmessage = (event) => {
+        if (event.data?.type === "BOOKINGS_UPDATED") {
+          handleSync();
+        }
+      };
+    } catch {}
+
+    let userChan: BroadcastChannel | null = null;
+    try {
+      userChan = new BroadcastChannel("isalu_user_channel");
+      userChan.onmessage = (event) => {
+        if (event.data?.type === "USERS_UPDATED") {
+          loadUsers();
+        }
+      };
+    } catch {}
+
     window.addEventListener("storage", handleSync);
     window.addEventListener("isalu_booking_created", handleSync);
+    window.addEventListener("isalu_booking_updated", handleSync);
+    window.addEventListener("isalu_users_updated", loadUsers);
     window.addEventListener("focus", handleSync);
 
-    // Auto-polling interval every 4s for real-time live updates
+    // Auto-polling interval every 2s for instant real-time live updates across different accounts and windows
     const pollInterval = setInterval(() => {
       syncBackendData();
-    }, 4000);
+    }, 2000);
 
     return () => {
       window.removeEventListener("storage", handleSync);
       window.removeEventListener("isalu_booking_created", handleSync);
+      window.removeEventListener("isalu_booking_updated", handleSync);
+      window.removeEventListener("isalu_users_updated", loadUsers);
       window.removeEventListener("focus", handleSync);
+      if (channel) channel.close();
+      if (userChan) userChan.close();
       clearInterval(pollInterval);
     };
   }, []);
@@ -3265,6 +3813,13 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
   const saveBookings = (updatedList: any[]) => {
     setBookings(updatedList);
     localStorage.setItem("isalu_bookings", JSON.stringify(updatedList));
+    window.dispatchEvent(new Event("storage"));
+    window.dispatchEvent(new CustomEvent("isalu_booking_updated"));
+    try {
+      const channel = new BroadcastChannel("isalu_hospital_channel");
+      channel.postMessage({ type: "BOOKINGS_UPDATED", timestamp: Date.now() });
+      channel.close();
+    } catch {}
   };
 
   const handleCheckIn = async (refCode: string) => {
@@ -3429,21 +3984,21 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
     } else if (statusFilter === "today") {
       matchesStatus = b.date === todayStr || !b.date;
     } else if (statusFilter === "approved" || statusFilter === "hmo_approved") {
-      matchesStatus = hStat === "Approved";
+      matchesStatus = isHmoPatient && hStat === "Approved" && b.status !== "Cancelled";
     } else if (statusFilter === "pending" || statusFilter === "hmo_pending") {
-      matchesStatus = hStat !== "Approved";
+      matchesStatus = isHmoPatient && hStat !== "Approved" && b.status !== "Cancelled";
     } else if (statusFilter === "checked_in") {
       matchesStatus = b.status === "Checked In";
     } else if (statusFilter === "completed") {
       matchesStatus = b.status === "Completed";
     } else if (statusFilter === "private") {
-      matchesStatus = payType === "Private Self-Pay";
+      matchesStatus = payType === "Private Self-Pay" || !isHmoPatient;
     } else if (statusFilter === "hmo") {
-      matchesStatus = payType === "HMO Insurance";
+      matchesStatus = isHmoPatient;
     } else if (statusFilter === "cleared") {
-      matchesStatus = pStat === "Cleared";
+      matchesStatus = !isHmoPatient && pStat === "Cleared";
     } else if (statusFilter === "cash_pending") {
-      matchesStatus = payType === "Private Self-Pay" && pStat !== "Cleared";
+      matchesStatus = !isHmoPatient && pStat !== "Cleared" && b.status !== "Cancelled";
     } else if (statusFilter === "has_referral") {
       matchesStatus = Boolean(b.referralDocName || b.referral_doc_name);
     } else {
@@ -3456,10 +4011,215 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
     return matchesStatus && matchesHmo;
   });
 
+  const totalHelpdeskPages = Math.ceil(filteredBookings.length / helpdeskItemsPerPage) || 1;
+  const currentHelpdeskPage = Math.min(helpdeskCurrentPage, totalHelpdeskPages);
+  const paginatedHelpdeskBookings = filteredBookings.slice(
+    (currentHelpdeskPage - 1) * helpdeskItemsPerPage,
+    currentHelpdeskPage * helpdeskItemsPerPage
+  );
+
+  // 2. Cashdesk Invoicing List Pagination
+  const totalCashdeskPages = Math.ceil(filteredBookings.length / cashdeskItemsPerPage) || 1;
+  const currentCashdeskPage = Math.min(cashdeskCurrentPage, totalCashdeskPages);
+  const paginatedCashdeskBookings = filteredBookings.slice(
+    (currentCashdeskPage - 1) * cashdeskItemsPerPage,
+    currentCashdeskPage * cashdeskItemsPerPage
+  );
+
+  // 3. HMO Pre-Auth Desk List Pagination
+  const hmoList = filteredBookings.filter((b) => b.paymentType === "HMO Insurance" || b.hmoName || true);
+  const totalHmoPages = Math.ceil(hmoList.length / hmoItemsPerPage) || 1;
+  const currentHmoPage = Math.min(hmoCurrentPage, totalHmoPages);
+  const paginatedHmoBookings = hmoList.slice(
+    (currentHmoPage - 1) * hmoItemsPerPage,
+    currentHmoPage * hmoItemsPerPage
+  );
+
+  // 4. Master Patient Directory Pagination
+  const totalAllPatientsPages = Math.ceil(filteredBookings.length / allPatientsItemsPerPage) || 1;
+  const currentAllPatientsPage = Math.min(allPatientsCurrentPage, totalAllPatientsPages);
+  const paginatedAllPatientsBookings = filteredBookings.slice(
+    (currentAllPatientsPage - 1) * allPatientsItemsPerPage,
+    currentAllPatientsPage * allPatientsItemsPerPage
+  );
+
+  // 5. Checked-In Consultation Patients Directory Pagination
+  const checkedInList = bookings.filter((b) => b.status === "Checked In");
+  const totalCheckedInPages = Math.ceil(checkedInList.length / checkedInItemsPerPage) || 1;
+  const currentCheckedInPage = Math.min(checkedInCurrentPage, totalCheckedInPages);
+  const paginatedCheckedInBookings = checkedInList.slice(
+    (currentCheckedInPage - 1) * checkedInItemsPerPage,
+    currentCheckedInPage * checkedInItemsPerPage
+  );
+
+  // 6. HMO Enrollees Directory Pagination
+  const hmoEnrolleesList = bookings.filter((b) => b.paymentType === "HMO Insurance" || b.hmoName);
+  const totalHmoEnrolleesPages = Math.ceil(hmoEnrolleesList.length / hmoEnrolleesItemsPerPage) || 1;
+  const currentHmoEnrolleesPage = Math.min(hmoEnrolleesCurrentPage, totalHmoEnrolleesPages);
+  const paginatedHmoEnrolleesBookings = hmoEnrolleesList.slice(
+    (currentHmoEnrolleesPage - 1) * hmoEnrolleesItemsPerPage,
+    currentHmoEnrolleesPage * hmoEnrolleesItemsPerPage
+  );
+
+  // 7. Private Self-Pay Enrollees Directory Pagination
+  const privatePatientsList = bookings.filter((b) => b.paymentType === "Private Self-Pay" || !b.paymentType);
+  const totalPrivatePatientsPages = Math.ceil(privatePatientsList.length / privatePatientsItemsPerPage) || 1;
+  const currentPrivatePatientsPage = Math.min(privatePatientsCurrentPage, totalPrivatePatientsPages);
+  const paginatedPrivatePatientsBookings = privatePatientsList.slice(
+    (currentPrivatePatientsPage - 1) * privatePatientsItemsPerPage,
+    currentPrivatePatientsPage * privatePatientsItemsPerPage
+  );
+
+  // 8. Registered Doctors Directory Pagination
+  const totalDocDirPages = Math.ceil(filteredDirectoryDoctors.length / docDirItemsPerPage) || 1;
+  const currentDocDirPage = Math.min(docDirCurrentPage, totalDocDirPages);
+  const paginatedDoctorsDirectory = filteredDirectoryDoctors.slice(
+    (currentDocDirPage - 1) * docDirItemsPerPage,
+    currentDocDirPage * docDirItemsPerPage
+  );
+
+  // 9. User & Staff Management Directory Pagination
+  const filteredSystemUsers = systemUsers.filter((u) => {
+    const nameStr = (u.name || "").toLowerCase();
+    const emailStr = (u.email || "").toLowerCase();
+    const roleStr = (u.role || "").toLowerCase();
+    const deskStr = (u.desk || "").toLowerCase();
+    const q = userSearchQuery.toLowerCase().trim();
+
+    const matchesSearch = !q || nameStr.includes(q) || emailStr.includes(q) || roleStr.includes(q) || deskStr.includes(q);
+
+    let matchesRole = true;
+    if (userRoleFilter !== "all") {
+      matchesRole = roleStr.includes(userRoleFilter.toLowerCase());
+    }
+
+    let matchesStatus = true;
+    if (userStatusFilter === "active") {
+      matchesStatus = u.status === "Active" || !u.status;
+    } else if (userStatusFilter === "disabled") {
+      matchesStatus = u.status === "Disabled";
+    }
+
+    return matchesSearch && matchesRole && matchesStatus;
+  });
+
+  const totalUsersDirPages = Math.ceil(filteredSystemUsers.length / usersDirItemsPerPage) || 1;
+  const currentUsersDirPage = Math.min(usersDirCurrentPage, totalUsersDirPages);
+  const paginatedUsersList = filteredSystemUsers.slice(
+    (currentUsersDirPage - 1) * usersDirItemsPerPage,
+    currentUsersDirPage * usersDirItemsPerPage
+  );
+
+  // 10. Accredited HMO Companies Directory Pagination
+  const filteredHmoCompanies = hmoCompanies.filter((hmo) => {
+    const q = hmoOrgSearchQuery.toLowerCase().trim();
+    if (!q) return true;
+    const nameStr = (hmo.name || "").toLowerCase();
+    const codeStr = (hmo.code || "").toLowerCase();
+    const emailStr = (hmo.email || "").toLowerCase();
+    const phoneStr = (hmo.phone || "").toLowerCase();
+    const contactStr = (hmo.contactPerson || hmo.contact_person || "").toLowerCase();
+    return nameStr.includes(q) || codeStr.includes(q) || emailStr.includes(q) || phoneStr.includes(q) || contactStr.includes(q);
+  });
+
+  const totalHmoOrgPages = Math.ceil(filteredHmoCompanies.length / hmoOrgItemsPerPage) || 1;
+  const currentHmoOrgPage = Math.min(hmoOrgCurrentPage, totalHmoOrgPages);
+  const paginatedHmoCompanies = filteredHmoCompanies.slice(
+    (currentHmoOrgPage - 1) * hmoOrgItemsPerPage,
+    currentHmoOrgPage * hmoOrgItemsPerPage
+  );
+
+  const renderPaginationBar = (
+    currentPage: number,
+    totalPages: number,
+    totalItems: number,
+    itemsPerPage: number,
+    onPageChange: (page: number) => void,
+    onItemsPerPageChange: (items: number) => void,
+    itemLabel: string = "items"
+  ) => {
+    if (totalItems === 0) return null;
+
+    const startIdx = Math.min((currentPage - 1) * itemsPerPage + 1, totalItems);
+    const endIdx = Math.min(currentPage * itemsPerPage, totalItems);
+
+    return (
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-3xl p-4 sm:p-5 shadow-sm mt-4">
+        <div className="flex flex-wrap items-center gap-3 text-xs font-bold text-slate-500">
+          <span>
+            Showing{" "}
+            <span className="font-black text-slate-900 dark:text-white">{startIdx}</span> to{" "}
+            <span className="font-black text-slate-900 dark:text-white">{endIdx}</span> of{" "}
+            <span className="font-black text-[#008ac9]">{totalItems}</span> {itemLabel}
+          </span>
+
+          <div className="flex items-center gap-1.5 pl-3 border-l border-slate-200 dark:border-slate-800">
+            <span>Per page:</span>
+            <select
+              value={itemsPerPage}
+              onChange={(e) => onItemsPerPageChange(Number(e.target.value))}
+              className="px-2 py-1 text-xs font-black rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white focus:ring-2 focus:ring-[#008ac9]"
+            >
+              <option value={5}>5</option>
+              <option value={10}>10</option>
+              <option value={20}>20</option>
+              <option value={50}>50</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => onPageChange(Math.max(1, currentPage - 1))}
+            disabled={currentPage === 1}
+            className="p-2 text-xs font-black rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer"
+            title="Previous Page"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+
+          <div className="flex items-center gap-1">
+            {Array.from({ length: totalPages }, (_, i) => i + 1)
+              .filter((pg) => pg === 1 || pg === totalPages || Math.abs(pg - currentPage) <= 1)
+              .map((pg, idx, arr) => {
+                const prevPg = arr[idx - 1];
+                const showEllipsis = prevPg && pg - prevPg > 1;
+
+                return (
+                  <React.Fragment key={pg}>
+                    {showEllipsis && <span className="px-1.5 text-xs text-slate-400 font-bold">...</span>}
+                    <button
+                      onClick={() => onPageChange(pg)}
+                      className={`px-3 py-1.5 text-xs font-black rounded-xl transition-all cursor-pointer ${
+                        currentPage === pg
+                          ? "bg-[#008ac9] text-white shadow-md shadow-[#008ac9]/30"
+                          : "border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
+                      }`}
+                    >
+                      {pg}
+                    </button>
+                  </React.Fragment>
+                );
+              })}
+          </div>
+
+          <button
+            onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
+            disabled={currentPage === totalPages}
+            className="p-2 text-xs font-black rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer"
+            title="Next Page"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   // Calculate Key Metrics & Comprehensive Executive Reporting Data
   const totalBookings = bookings.length;
   const checkedInCount = bookings.filter((b) => b.status === "Checked In").length;
-  const completedCount = bookings.filter((b) => b.status === "Completed").length;
+  const completedCount = bookings.filter((b) => (b.status || "").toLowerCase().trim() === "completed").length;
   const confirmedCount = bookings.filter((b) => b.status === "Confirmed" || !b.status).length;
   const cancelledCount = bookings.filter((b) => b.status === "Cancelled").length;
 
@@ -3468,6 +4228,12 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
 
   const pendingCashCount = bookings.filter((b) => b.paymentType === "Private Self-Pay" && b.paymentStatus !== "Cleared").length;
   const clearedPaymentCount = bookings.filter((b) => b.paymentStatus === "Cleared").length;
+  const paidOrApprovedCount = bookings.filter((b) => {
+    const st = (b.status || "").toLowerCase().trim();
+    const isHmoApp = b.hmoStatus === "Approved" || b.hmo_status === "Approved";
+    const isPayClr = b.paymentStatus === "Cleared" || b.payment_status === "Cleared";
+    return (isHmoApp || isPayClr) && st !== "completed" && st !== "cancelled" && st !== "done" && st !== "discharged";
+  }).length;
 
   const privateSelfPayCount = bookings.filter((b) => b.paymentType === "Private Self-Pay" || !b.paymentType || b.paymentType.includes("Self-Pay")).length;
   const hmoEnrolleeCount = bookings.filter((b) => b.paymentType === "HMO Insurance").length;
@@ -3691,10 +4457,13 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
               {/* Action Buttons Grid for Mobile & Row on Desktop */}
               <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 sm:gap-3 w-full sm:w-auto">
                 <button
-                  onClick={loadBookings}
-                  className="px-4 py-3 bg-white/10 hover:bg-white/20 text-white font-extrabold text-xs rounded-2xl border border-white/30 backdrop-blur-md transition-all flex items-center justify-center gap-1.5"
+                  onClick={handleManualRefresh}
+                  disabled={isRefreshingData}
+                  className="px-4 py-3 bg-white/10 hover:bg-white/20 active:scale-95 text-white font-extrabold text-xs rounded-2xl border border-white/30 backdrop-blur-md transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                  title="Refresh & Synchronize Live Hospital Data"
                 >
-                  <RefreshCw className="h-4 w-4" /> Refresh
+                  <RefreshCw className={`h-4 w-4 ${isRefreshingData ? "animate-spin text-amber-300" : ""}`} />
+                  <span>{isRefreshingData ? "Refreshing..." : "Refresh"}</span>
                 </button>
                 <button
                   onClick={() => handleSelectDesk("clinic")}
@@ -3738,7 +4507,7 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
 
         {/* Live Metrics Overview Cards (Shown on main desk suite: Helpdesk, HMO, Cashdesk, Analytics, Monitor) */}
         {["helpdesk", "hmo", "cashdesk", "analytics", "monitor"].includes(activeDesk) && (
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-8">
             <div className="bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 rounded-3xl p-5 shadow-sm">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Total Bookings</span>
@@ -3757,8 +4526,19 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                   <UserCheck className="h-5 w-5" />
                 </div>
               </div>
-              <h2 className="text-3xl font-black text-slate-900 dark:text-white mt-2">{checkedInCount}</h2>
-              <p className="text-[11px] font-bold text-emerald-600 mt-1">Verified at Reception Desk</p>
+              <h2 className="text-3xl font-black text-slate-900 dark:text-white mt-2">{paidOrApprovedCount}</h2>
+              <p className="text-[11px] font-bold text-emerald-600 mt-1">Cleared by HMO Auth or Cashdesk</p>
+            </div>
+
+            <div className="bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 rounded-3xl p-5 shadow-sm">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Completed</span>
+                <div className="p-2.5 rounded-2xl bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 font-black">
+                  <CheckCircle2 className="h-5 w-5" />
+                </div>
+              </div>
+              <h2 className="text-3xl font-black text-slate-900 dark:text-white mt-2">{completedCount}</h2>
+              <p className="text-[11px] font-bold text-rose-600 dark:text-rose-400 mt-1">Concluded Consultations</p>
             </div>
 
             <div className="bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 rounded-3xl p-5 shadow-sm">
@@ -3866,7 +4646,7 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
         )}
 
         {/* Search & Filter Bar */}
-        {["helpdesk", "hmo", "cashdesk", "monitor"].includes(activeDesk) && (
+        {["helpdesk", "hmo", "cashdesk"].includes(activeDesk) && (
           <div className="bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 rounded-3xl p-5 shadow-sm mb-6 flex flex-col md:flex-row gap-4 justify-between items-center">
             <div className="relative w-full md:w-96">
               <Search className="absolute left-3.5 top-3 h-4 w-4 text-slate-400" />
@@ -3921,7 +4701,9 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                   <>
                     <option value="all">All Queue Statuses</option>
                     <option value="today">📅 Today's Queue</option>
-                    <option value="checked_in">🩺 Currently In Consultation Room</option>
+                    <option value="completed">✅ Completed Consultations</option>
+                    <option value="hmo">🛡️ HMO Insurance Patients</option>
+                    <option value="private">💳 Private Self-Pay Patients</option>
                   </>
                 )}
               </select>
@@ -3933,14 +4715,9 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                   className="px-3.5 py-2.5 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-extrabold text-slate-800 dark:text-slate-200"
                 >
                   <option value="all">All HMO Providers</option>
-                  <option value="Hygeia HMO">Hygeia HMO</option>
-                  <option value="Reliance HMO">Reliance HMO</option>
-                  <option value="AXA Mansard Health">AXA Mansard Health</option>
-                  <option value="Avon HMO">Avon HMO</option>
-                  <option value="Leadway Health">Leadway Health</option>
-                  <option value="Clearline HMO">Clearline HMO</option>
-                  <option value="Total Health Trust">Total Health Trust</option>
-                  <option value="Redcare HMO">Redcare HMO</option>
+                  {hmoCompanies.map((hmo) => (
+                    <option key={hmo.id || hmo.name} value={hmo.name}>{hmo.name}</option>
+                  ))}
                 </select>
               )}
             </div>
@@ -3964,7 +4741,7 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
               </div>
             ) : (
               <div className="grid gap-4">
-                {filteredBookings.map((b) => (
+                {paginatedHelpdeskBookings.map((b) => (
                   <div
                     key={b.refCode}
                     className="bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 rounded-3xl p-5 sm:p-6 shadow-sm hover:shadow-md transition-all w-full"
@@ -4112,6 +4889,16 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                     </div>
                   </div>
                 ))}
+
+                {renderPaginationBar(
+                  currentHelpdeskPage,
+                  totalHelpdeskPages,
+                  filteredBookings.length,
+                  helpdeskItemsPerPage,
+                  setHelpdeskCurrentPage,
+                  (val) => { setHelpdeskItemsPerPage(val); setHelpdeskCurrentPage(1); },
+                  "patient tickets"
+                )}
               </div>
             )}
           </div>
@@ -4127,9 +4914,7 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
             </div>
 
             <div className="grid gap-4">
-              {filteredBookings
-                .filter((b) => b.paymentType === "HMO Insurance" || b.hmoName || true)
-                .map((b) => (
+              {paginatedHmoBookings.map((b) => (
                   <div
                     key={b.refCode}
                     className="bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 rounded-3xl p-5 sm:p-6 shadow-sm hover:shadow-md transition-all w-full space-y-3"
@@ -4263,6 +5048,16 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                     </div>
                   </div>
                 ))}
+
+                {renderPaginationBar(
+                  currentHmoPage,
+                  totalHmoPages,
+                  hmoList.length,
+                  hmoItemsPerPage,
+                  setHmoCurrentPage,
+                  (val) => { setHmoItemsPerPage(val); setHmoCurrentPage(1); },
+                  "HMO pre-auth requests"
+                )}
             </div>
           </div>
         )}
@@ -4277,7 +5072,7 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
             </div>
 
             <div className="grid gap-4">
-              {filteredBookings.map((b) => (
+              {paginatedCashdeskBookings.map((b) => (
                 <div
                   key={b.refCode}
                   className="bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 rounded-3xl p-5 shadow-sm hover:shadow-md transition-all flex flex-col lg:flex-row lg:items-center justify-between gap-4"
@@ -4337,6 +5132,16 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                   </div>
                 </div>
               ))}
+
+              {renderPaginationBar(
+                currentCashdeskPage,
+                totalCashdeskPages,
+                filteredBookings.length,
+                cashdeskItemsPerPage,
+                setCashdeskCurrentPage,
+                (val) => { setCashdeskItemsPerPage(val); setCashdeskCurrentPage(1); },
+                "invoices"
+              )}
             </div>
           </div>
         )}
@@ -5251,125 +6056,38 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
         {activeDesk === "monitor" && (
           <div className="space-y-6 animate-fadeIn">
             {/* TV Screen Banner */}
-            <div className="bg-gradient-to-r from-slate-900 via-[#011627] to-slate-900 border-2 border-[#008ac9] rounded-3xl p-6 sm:p-8 text-white shadow-2xl relative overflow-hidden">
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 relative z-10">
-                <div className="space-y-1">
-                  <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#008ac9]/30 text-sky-300 text-xs font-black border border-sky-400/30">
-                    <Tv className="h-4 w-4 text-sky-400" /> LIVE WAITING ROOM & CLINIC FLOOR MONITOR
+            <div className="bg-gradient-to-r from-slate-900 via-[#011627] to-slate-900 border border-[#008ac9]/60 rounded-2xl p-4 sm:p-5 text-white shadow-lg relative overflow-hidden">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 relative z-10">
+                <div className="space-y-0.5">
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-[#008ac9]/25 text-sky-300 text-[10px] font-black border border-sky-400/30 mb-1">
+                    <Tv className="h-3.5 w-3.5 text-sky-400" /> LIVE WAITING ROOM & CLINIC FLOOR MONITOR
                   </div>
-                  <h2 className="text-3xl sm:text-4xl font-black tracking-tight text-white">Isalu Hospitals Queue Monitor</h2>
-                  <p className="text-xs sm:text-sm font-semibold text-slate-300">
+                  <h2 className="text-xl sm:text-2xl font-black tracking-tight text-white">Isalu Hospitals Queue Monitor</h2>
+                  <p className="text-[11px] sm:text-xs font-medium text-slate-300">
                     Real-time TV screen display for clinic waiting areas, reception floor monitors, and doctor consultation rooms.
                   </p>
                 </div>
 
-                <div className="flex items-center gap-3">
-                  <div className="bg-white/10 backdrop-blur-md px-4 py-2 rounded-2xl border border-white/20 text-center">
-                    <span className="block text-[10px] font-extrabold uppercase text-slate-400">Current Time</span>
-                    <span className="text-sm font-black text-sky-300">{new Date().toLocaleTimeString()}</span>
+                <div className="flex items-center gap-2.5 shrink-0">
+                  <div className="bg-white/10 backdrop-blur-md px-3.5 py-1.5 rounded-xl border border-white/20 text-center">
+                    <span className="block text-[9px] font-extrabold uppercase text-slate-400">Current Time</span>
+                    <span className="text-xs font-black text-sky-300">{new Date().toLocaleTimeString()}</span>
                   </div>
-                  <div className="bg-emerald-500/20 backdrop-blur-md px-4 py-2 rounded-2xl border border-emerald-400/40 text-center">
-                    <span className="block text-[10px] font-extrabold uppercase text-emerald-300">Live Status</span>
-                    <span className="text-sm font-black text-emerald-400 flex items-center gap-1">
-                      <span className="h-2 w-2 rounded-full bg-emerald-400 animate-ping"></span> Live Broadcast
+                  <div className="bg-emerald-500/20 backdrop-blur-md px-3.5 py-1.5 rounded-xl border border-emerald-400/40 text-center">
+                    <span className="block text-[9px] font-extrabold uppercase text-emerald-300">Live Status</span>
+                    <span className="text-xs font-black text-emerald-400 flex items-center gap-1">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-ping"></span> Live Broadcast
                     </span>
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* Currently Being Seen / Consultation In Progress */}
-            <div className="bg-white dark:bg-slate-900 border-2 border-emerald-500/40 rounded-3xl p-6 shadow-xl">
-              <div className="flex items-center justify-between border-b-2 border-slate-100 dark:border-slate-800 pb-4 mb-4">
-                <div className="flex items-center gap-3">
-                  <div className="p-3 bg-emerald-100 dark:bg-emerald-950 text-emerald-600 rounded-2xl">
-                    <Activity className="h-6 w-6" />
-                  </div>
-                  <div>
-                    <h3 className="text-xl font-black text-slate-900 dark:text-white">Currently In Consultation Room</h3>
-                    <p className="text-xs font-bold text-slate-500">Patients checked-in with doctor right now.</p>
-                  </div>
-                </div>
-                <span className="px-3.5 py-1 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 font-black text-xs border border-emerald-300">
-                  {bookings.filter((b) => b.status === "Checked In").length} Active Consultations
-                </span>
-              </div>
-
-              {bookings.filter((b) => b.status === "Checked In").length === 0 ? (
-                <div className="text-center py-10 text-slate-500 font-semibold text-sm">
-                  No active consultations right now. Reception check-ins will automatically broadcast here.
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {bookings
-                    .filter((b) => b.status === "Checked In")
-                    .map((b) => {
-                      const docDisplay = getDoctorRealName(b);
-                      const matchedDoc = DOCTORS.find((d) => d.fullName === docDisplay || d.name === docDisplay || d.acronym === (b.doctorName || b.doctor_name));
-                      const docSpecialty = b.doctorSpecialty || b.doctor_specialty || matchedDoc?.specialty || "Obstetrics & Gynaecology";
-                      const docAcronym = b.doctorAcronym || b.doctor_acronym || matchedDoc?.acronym;
-
-                      return (
-                        <div
-                          key={b.refCode}
-                          className="bg-emerald-50/60 dark:bg-emerald-950/40 border-2 border-emerald-400/60 rounded-2xl p-4 shadow-md flex flex-col justify-between space-y-3"
-                        >
-                          <div className="flex items-center justify-between">
-                            <span className="text-xl font-black text-emerald-700 dark:text-emerald-300 tracking-wider">
-                              {b.refCode}
-                            </span>
-                            <span className="px-2.5 py-0.5 rounded-full bg-emerald-600 text-white font-black text-[10px] uppercase animate-pulse">
-                              IN ROOM
-                            </span>
-                          </div>
-
-                          <div>
-                            <div className="text-sm font-black text-slate-900 dark:text-white flex items-center justify-between">
-                              <span>{b.patientName}</span>
-                              {b.patientPhone && <span className="text-[11px] font-bold text-slate-500">{b.patientPhone}</span>}
-                            </div>
-                            <div className="mt-1.5 space-y-1">
-                              <div className="flex items-center gap-1.5 flex-wrap">
-                                <span className="text-xs font-extrabold text-[#008ac9] dark:text-sky-400">
-                                  🩺 {docDisplay}
-                                </span>
-                                {docAcronym && docAcronym.toLowerCase() !== docDisplay.toLowerCase() && (
-                                  <span className="px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 text-[10px] font-black border border-emerald-300 shadow-2xs">
-                                    {docAcronym}
-                                  </span>
-                                )}
-                              </div>
-                              <div className="text-[11px] font-bold text-slate-600 dark:text-slate-300 flex items-center gap-1">
-                                <span className="text-slate-400">Specialty:</span>
-                                <span className="font-extrabold text-slate-800 dark:text-slate-200">{docSpecialty}</span>
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="pt-2 border-t border-emerald-200 dark:border-emerald-800 text-[11px] font-bold text-slate-600 dark:text-slate-400 flex flex-col gap-2">
-                            <div className="flex justify-between">
-                              <span>🕒 {b.time}</span>
-                              <span className="text-emerald-700 dark:text-emerald-300 font-black">Room Verified ✓</span>
-                            </div>
-                            <button
-                              onClick={() => handleMarkCompleted(b.refCode)}
-                              className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white font-black text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-1.5"
-                            >
-                              <CheckCircle2 className="h-4 w-4" /> Mark Consultation Done ✓
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                </div>
-              )}
-            </div>
-
             {/* Waiting Room Queue / Next Patients */}
-            <div className="bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-xl">
-              <div className="flex items-center justify-between border-b-2 border-slate-100 dark:border-slate-800 pb-4 mb-4">
+            <div className="bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between border-b-2 border-slate-100 dark:border-slate-800 pb-4 gap-4">
                 <div className="flex items-center gap-3">
-                  <div className="p-3 bg-sky-100 dark:bg-slate-800 text-[#008ac9] rounded-2xl">
+                  <div className="p-3 bg-sky-100 dark:bg-slate-800 text-[#008ac9] rounded-2xl shrink-0">
                     <Clock className="h-6 w-6" />
                   </div>
                   <div>
@@ -5377,15 +6095,62 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                     <p className="text-xs font-bold text-slate-500">Scheduled appointments awaiting check-in.</p>
                   </div>
                 </div>
-                <span className="px-3.5 py-1 rounded-full bg-sky-100 dark:bg-slate-800 text-[#008ac9] font-black text-xs border border-[#008ac9]/30">
-                  {bookings.filter((b) => b.status !== "Checked In" && b.status !== "Completed" && b.status !== "Cancelled").length} Waiting Patients
-                </span>
+
+                {/* Embedded Search & Filter Controls directly inside the card header */}
+                <div className="flex flex-col sm:flex-row items-center gap-3 w-full lg:w-auto">
+                  <div className="relative w-full sm:w-72">
+                    <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="Search ref, patient, phone..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white text-xs font-bold focus:ring-2 focus:ring-[#008ac9]"
+                    />
+                  </div>
+
+                  <select
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                    className="w-full sm:w-auto px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-xs font-extrabold text-slate-800 dark:text-slate-200"
+                  >
+                    <option value="all">All Queue Statuses</option>
+                    <option value="today">📅 Today's Queue</option>
+                    <option value="completed">✅ Completed Consultations</option>
+                    <option value="hmo">🛡️ HMO Insurance Patients</option>
+                    <option value="private">💳 Private Self-Pay Patients</option>
+                  </select>
+
+                  <span className="px-3 py-1.5 rounded-full bg-sky-100 dark:bg-slate-800 text-[#008ac9] font-black text-xs border border-[#008ac9]/30 whitespace-nowrap">
+                    {filteredBookings.filter((b) => {
+                      const st = (b.status || "").toLowerCase().trim();
+                      return st !== "completed" && st !== "cancelled" && st !== "done" && st !== "discharged";
+                    }).length} Waiting Patients
+                  </span>
+                </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {bookings
-                  .filter((b) => b.status !== "Checked In" && b.status !== "Completed" && b.status !== "Cancelled")
-                  .map((b) => {
+              {filteredBookings.filter((b) => {
+                const st = (b.status || "").toLowerCase().trim();
+                return st !== "completed" && st !== "cancelled" && st !== "done" && st !== "discharged";
+              }).length === 0 ? (
+                <div className="text-center py-10 bg-slate-50 dark:bg-slate-950 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-2xl p-6">
+                  <Clock className="h-8 w-8 text-slate-400 mx-auto mb-2" />
+                  <h4 className="text-sm font-black text-slate-800 dark:text-slate-200">No Patients Waiting in Queue</h4>
+                  <p className="text-xs font-bold text-slate-500 mt-1">
+                    {statusFilter === "completed"
+                      ? "Completed consultations are displayed in the Completed Consultations section below."
+                      : "All appointments for this filter are either completed or no new consultations are pending."}
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {filteredBookings
+                    .filter((b) => {
+                      const st = (b.status || "").toLowerCase().trim();
+                      return st !== "completed" && st !== "cancelled" && st !== "done" && st !== "discharged";
+                    })
+                    .map((b) => {
                     const isHmoApproved = b.paymentType === "HMO Insurance" && b.hmoStatus === "Approved";
                     const isPayCleared = (b.paymentType === "Private Self-Pay" || !b.paymentType) && b.paymentStatus === "Cleared";
                     const isEligibleForCheckIn = isHmoApproved || isPayCleared;
@@ -5420,7 +6185,23 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                             <span>{b.patientName}</span>
                             {b.patientPhone && <span className="text-[11px] font-bold text-slate-500">{b.patientPhone}</span>}
                           </div>
-                          <div className="mt-1.5 space-y-1">
+                          <div className="mt-1.5 space-y-2">
+                            {/* Colorful Modern Patient Type Badge */}
+                            <div>
+                              {b.paymentType === "HMO Insurance" ? (
+                                <span className="inline-flex items-center gap-2 px-3 py-1 rounded-xl text-xs font-black bg-gradient-to-r from-purple-600 via-indigo-600 to-violet-600 text-white shadow-md shadow-purple-500/25 border border-purple-400/40 tracking-wide">
+                                  <ShieldCheck className="h-4 w-4 text-white shrink-0" />
+                                  <span>HMO INSURANCE</span>
+                                  {b.hmoName && <span className="bg-white/25 text-white px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider">• {b.hmoName}</span>}
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-2 px-3 py-1 rounded-xl text-xs font-black bg-gradient-to-r from-cyan-600 via-teal-600 to-emerald-600 text-white shadow-md shadow-teal-500/25 border border-teal-400/40 tracking-wide">
+                                  <CreditCard className="h-4 w-4 text-white shrink-0" />
+                                  <span>PRIVATE SELF-PAY</span>
+                                </span>
+                              )}
+                            </div>
+
                             <div className="flex items-center gap-1.5 flex-wrap">
                               <span className="text-xs font-black text-[#008ac9] dark:text-sky-400">
                                 🩺 {docDisplay}
@@ -5435,9 +6216,6 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                               <span className="text-slate-400">Specialty:</span>
                               <span className="font-extrabold text-slate-800 dark:text-slate-200">{docSpecialty}</span>
                             </div>
-                            <div className="text-[11px] font-bold text-slate-500 pt-0.5">
-                              💳 {b.paymentType || "Private Self-Pay"} {b.hmoName ? `(${b.hmoName})` : ""}
-                            </div>
                           </div>
                         </div>
 
@@ -5449,10 +6227,10 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
 
                           {isEligibleForCheckIn ? (
                             <button
-                              onClick={() => handleCheckIn(b.refCode)}
-                              className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                              onClick={() => handleMarkCompleted(b.refCode)}
+                              className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-black text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                             >
-                              <UserCheck className="h-4 w-4" /> Check-In Patient to Room →
+                              <CheckCircle2 className="h-4 w-4" /> Mark Consultation Completed ✓
                             </button>
                           ) : b.paymentType === "HMO Insurance" ? (
                             <div className="w-full py-2.5 bg-amber-100 dark:bg-amber-950/70 border border-amber-300 text-amber-800 dark:text-amber-300 font-extrabold text-[11px] rounded-xl text-center flex items-center justify-center gap-1.5">
@@ -5467,7 +6245,140 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                       </div>
                     );
                   })}
+                </div>
+              )}
+            </div>
+
+            {/* Completed Consultations / Concluded Appointments */}
+            <div className="bg-white dark:bg-slate-900 border-2 border-rose-400/40 rounded-3xl p-6 shadow-xl space-y-4">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between border-b-2 border-slate-100 dark:border-slate-800 pb-4 gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-rose-100 dark:bg-rose-950 text-rose-600 rounded-2xl shrink-0">
+                    <CheckCircle2 className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-black text-slate-900 dark:text-white">Completed Consultations</h3>
+                    <p className="text-xs font-bold text-slate-500">Concluded doctor consultation visits.</p>
+                  </div>
+                </div>
+
+                {/* Embedded Search & Filter Controls directly inside the card header */}
+                <div className="flex flex-col sm:flex-row items-center gap-3 w-full lg:w-auto">
+                  <div className="relative w-full sm:w-72">
+                    <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="Search completed ref, patient, phone..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white text-xs font-bold focus:ring-2 focus:ring-rose-500"
+                    />
+                  </div>
+
+                  <span className="px-3 py-1.5 rounded-full bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 font-black text-xs border border-rose-300 whitespace-nowrap">
+                    {bookings.filter((b) => {
+                      const st = (b.status || "").toLowerCase().trim();
+                      if (st !== "completed") return false;
+                      if (!searchQuery) return true;
+                      const q = searchQuery.toLowerCase().trim();
+                      const ref = (b.refCode || b.ref_code || "").toLowerCase();
+                      const pName = (b.patientName || b.patient_name || "").toLowerCase();
+                      const pPhone = (b.patientPhone || b.patient_phone || "").toLowerCase();
+                      const dName = (b.doctorName || b.doctor_name || "").toLowerCase();
+                      return ref.includes(q) || pName.includes(q) || pPhone.includes(q) || dName.includes(q);
+                    }).length} Completed Visits
+                  </span>
+                </div>
               </div>
+
+              {bookings.filter((b) => {
+                const st = (b.status || "").toLowerCase().trim();
+                if (st !== "completed") return false;
+                if (!searchQuery) return true;
+                const q = searchQuery.toLowerCase().trim();
+                const ref = (b.refCode || b.ref_code || "").toLowerCase();
+                const pName = (b.patientName || b.patient_name || "").toLowerCase();
+                const pPhone = (b.patientPhone || b.patient_phone || "").toLowerCase();
+                const dName = (b.doctorName || b.doctor_name || "").toLowerCase();
+                return ref.includes(q) || pName.includes(q) || pPhone.includes(q) || dName.includes(q);
+              }).length === 0 ? (
+                <div className="text-center py-10 text-slate-500 font-semibold text-sm">
+                  No completed consultations match your search query.
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {bookings
+                    .filter((b) => {
+                      const st = (b.status || "").toLowerCase().trim();
+                      if (st !== "completed") return false;
+                      if (!searchQuery) return true;
+                      const q = searchQuery.toLowerCase().trim();
+                      const ref = (b.refCode || b.ref_code || "").toLowerCase();
+                      const pName = (b.patientName || b.patient_name || "").toLowerCase();
+                      const pPhone = (b.patientPhone || b.patient_phone || "").toLowerCase();
+                      const dName = (b.doctorName || b.doctor_name || "").toLowerCase();
+                      return ref.includes(q) || pName.includes(q) || pPhone.includes(q) || dName.includes(q);
+                    })
+                    .map((b) => {
+                      const docDisplay = getDoctorRealName(b);
+                      const matchedDoc = DOCTORS.find((d) => d.fullName === docDisplay || d.name === docDisplay || d.acronym === (b.doctorName || b.doctor_name));
+                      const docSpecialty = b.doctorSpecialty || b.doctor_specialty || matchedDoc?.specialty || "Obstetrics & Gynaecology";
+
+                      return (
+                        <div
+                          key={b.refCode}
+                          className="bg-rose-50/50 dark:bg-rose-950/30 border-2 border-rose-300 dark:border-rose-800 rounded-2xl p-4 shadow-sm flex flex-col justify-between space-y-3"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-lg font-black text-rose-700 dark:text-rose-400 tracking-wider">
+                              {b.refCode}
+                            </span>
+                            <span className="px-2.5 py-0.5 rounded-full bg-rose-600 text-white font-black text-[10px] uppercase">
+                              COMPLETED ✓
+                            </span>
+                          </div>
+
+                          <div>
+                            <div className="text-sm font-black text-slate-900 dark:text-white flex items-center justify-between">
+                              <span>{b.patientName}</span>
+                              {b.patientPhone && <span className="text-[11px] font-bold text-slate-500">{b.patientPhone}</span>}
+                            </div>
+                            <div className="mt-1.5 space-y-2">
+                              {/* Patient Type Badge */}
+                              <div>
+                                {b.paymentType === "HMO Insurance" ? (
+                                  <span className="inline-flex items-center gap-2 px-3 py-1 rounded-xl text-xs font-black bg-gradient-to-r from-purple-600 via-indigo-600 to-violet-600 text-white shadow-md shadow-purple-500/25 border border-purple-400/40 tracking-wide">
+                                    <ShieldCheck className="h-4 w-4 text-white shrink-0" />
+                                    <span>HMO INSURANCE</span>
+                                    {b.hmoName && <span className="bg-white/25 text-white px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider">• {b.hmoName}</span>}
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-2 px-3 py-1 rounded-xl text-xs font-black bg-gradient-to-r from-cyan-600 via-teal-600 to-emerald-600 text-white shadow-md shadow-teal-500/25 border border-teal-400/40 tracking-wide">
+                                    <CreditCard className="h-4 w-4 text-white shrink-0" />
+                                    <span>PRIVATE SELF-PAY</span>
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="text-xs font-black text-[#008ac9] dark:text-sky-400">
+                                🩺 {docDisplay}
+                              </div>
+                              <div className="text-[11px] font-bold text-slate-600 dark:text-slate-300 flex items-center gap-1">
+                                <span className="text-slate-400">Specialty:</span>
+                                <span className="font-extrabold text-slate-800 dark:text-slate-200">{docSpecialty}</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="pt-2 border-t border-rose-200 dark:border-rose-800 text-[11px] font-bold text-slate-600 dark:text-slate-400 flex items-center justify-between">
+                            <span>📅 {b.date} • 🕒 {b.time}</span>
+                            <span className="text-rose-700 dark:text-rose-300 font-extrabold">Discharged ✓</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -5505,13 +6416,59 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
 
             {/* Users Accounts List Grid */}
             <div className="bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
-              <div className="flex items-center justify-between border-b-2 border-slate-100 dark:border-slate-800 pb-4">
-                <h3 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
-                  <Users className="h-5 w-5 text-[#008ac9]" /> Registered System Users & Staff Roster
-                </h3>
-                <span className="px-3 py-1 rounded-full bg-sky-50 dark:bg-slate-800 text-[#008ac9] font-black text-xs border border-[#008ac9]/30">
-                  {systemUsers.length} Active Accounts
+              <div className="flex flex-col md:flex-row md:items-center justify-between border-b-2 border-slate-100 dark:border-slate-800 pb-4 gap-4">
+                <div>
+                  <h3 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
+                    <Users className="h-5 w-5 text-[#008ac9]" /> Registered System Users & Staff Roster
+                  </h3>
+                  <p className="text-xs font-semibold text-slate-500 mt-0.5">
+                    Filter by role, search name/email, edit user details or toggle account access.
+                  </p>
+                </div>
+                <span className="px-3 py-1 rounded-full bg-sky-50 dark:bg-slate-800 text-[#008ac9] font-black text-xs border border-[#008ac9]/30 shrink-0">
+                  {filteredSystemUsers.length} Staff Accounts
                 </span>
+              </div>
+
+              {/* Search & Filter Toolbar */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3 bg-slate-50 dark:bg-slate-950/70 rounded-2xl border border-slate-200 dark:border-slate-800">
+                <div className="relative">
+                  <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400 pointer-events-none" />
+                  <input
+                    type="text"
+                    placeholder="Search staff name, email, role, desk..."
+                    value={userSearchQuery}
+                    onChange={(e) => setUserSearchQuery(e.target.value)}
+                    className="w-full pl-9 pr-3 py-2 text-xs font-bold rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-[#008ac9]"
+                  />
+                </div>
+
+                <div>
+                  <select
+                    value={userRoleFilter}
+                    onChange={(e) => setUserRoleFilter(e.target.value)}
+                    className="w-full px-3 py-2 text-xs font-bold rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-[#008ac9]"
+                  >
+                    <option value="all">All Roles</option>
+                    <option value="administrator">Super / Hospital Administrator</option>
+                    <option value="helpdesk">Helpdesk Officer</option>
+                    <option value="hmo">HMO Approval Officer</option>
+                    <option value="cashdesk">Cashdesk Billing Officer</option>
+                    <option value="monitor">Monitor Operator</option>
+                  </select>
+                </div>
+
+                <div>
+                  <select
+                    value={userStatusFilter}
+                    onChange={(e) => setUserStatusFilter(e.target.value)}
+                    className="w-full px-3 py-2 text-xs font-bold rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-[#008ac9]"
+                  >
+                    <option value="all">All Statuses (Active & Disabled)</option>
+                    <option value="active">Active Staff Accounts Only ✓</option>
+                    <option value="disabled">Disabled Accounts Only 🚫</option>
+                  </select>
+                </div>
               </div>
 
               <div className="overflow-x-auto">
@@ -5528,7 +6485,7 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                    {systemUsers.map((u) => (
+                    {paginatedUsersList.map((u) => (
                       <tr key={u.id} className="hover:bg-slate-50 dark:hover:bg-slate-950/60 transition-colors">
                         <td className="py-4 px-3 font-black text-slate-900 dark:text-white">
                           <div className="flex items-center gap-2.5">
@@ -5603,6 +6560,16 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                   </tbody>
                 </table>
               </div>
+
+              {renderPaginationBar(
+                currentUsersDirPage,
+                totalUsersDirPages,
+                filteredSystemUsers.length,
+                usersDirItemsPerPage,
+                setUsersDirCurrentPage,
+                (val) => { setUsersDirItemsPerPage(val); setUsersDirCurrentPage(1); },
+                "user accounts"
+              )}
             </div>
           </div>
         )}
@@ -5868,7 +6835,7 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                      {filteredBookings.map((b) => (
+                      {paginatedAllPatientsBookings.map((b) => (
                         <tr key={b.refCode} className="hover:bg-slate-50 dark:hover:bg-slate-950/60 transition-colors">
                           <td className="py-4 px-3 font-black text-[#008ac9] dark:text-sky-400">
                             {b.refCode}
@@ -5914,6 +6881,16 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                   </table>
                 </div>
               )}
+
+              {renderPaginationBar(
+                currentAllPatientsPage,
+                totalAllPatientsPages,
+                filteredBookings.length,
+                allPatientsItemsPerPage,
+                setAllPatientsCurrentPage,
+                (val) => { setAllPatientsItemsPerPage(val); setAllPatientsCurrentPage(1); },
+                "master patients"
+              )}
             </div>
           </div>
         )}
@@ -5950,9 +6927,7 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                    {bookings
-                      .filter((b) => b.status === "Checked In")
-                      .map((b) => (
+                    {paginatedCheckedInBookings.map((b) => (
                         <tr key={b.refCode} className="hover:bg-slate-50 dark:hover:bg-slate-950/60 transition-colors">
                           <td className="py-4 px-3 font-black text-[#008ac9]">{b.refCode}</td>
                           <td className="py-4 px-3 font-black text-slate-900 dark:text-white">
@@ -5975,6 +6950,16 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                   </tbody>
                 </table>
               </div>
+
+              {renderPaginationBar(
+                currentCheckedInPage,
+                totalCheckedInPages,
+                checkedInList.length,
+                checkedInItemsPerPage,
+                setCheckedInCurrentPage,
+                (val) => { setCheckedInItemsPerPage(val); setCheckedInCurrentPage(1); },
+                "checked-in patients"
+              )}
             </div>
           </div>
         )}
@@ -6007,13 +6992,89 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
               </div>
             </div>
 
+            {/* 0. Super Admin Bulk HMO CSV Import Module */}
+            <div className="bg-gradient-to-r from-sky-900 via-[#011627] to-slate-900 border-2 border-[#008ac9] rounded-3xl p-6 shadow-2xl text-white space-y-4">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                <div className="space-y-1 max-w-2xl">
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#008ac9]/30 text-sky-300 text-xs font-black border border-sky-400/30">
+                    <FileText className="h-4 w-4 text-sky-400" /> SUPER ADMIN HMO CSV IMPORT MODULE
+                  </div>
+                  <h3 className="text-xl font-black text-white">Bulk Import Accredited HMO Partners (.CSV)</h3>
+                  <p className="text-xs font-medium text-slate-300 leading-relaxed">
+                    Upload a CSV file containing HMO partner names, registration codes, desk emails, helpline phone numbers, and contact officers. Uploaded HMOs automatically populate the homepage logo slider, appointment booking form dropdowns, and dashboard filters in real time.
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3 shrink-0">
+                  <button
+                    onClick={handleDownloadHmoCsvTemplate}
+                    className="px-4 py-3 bg-white/10 hover:bg-white/20 text-white font-extrabold text-xs rounded-2xl border border-white/30 backdrop-blur-md transition-all flex items-center gap-2 shadow-md cursor-pointer"
+                    title="Download sample formatted HMO CSV template file"
+                  >
+                    <Download className="h-4 w-4 text-amber-300" /> Download Sample CSV Template
+                  </button>
+
+                  <div className="relative">
+                    <input
+                      type="file"
+                      id="hmo-csv-upload-input"
+                      accept=".csv,text/csv"
+                      onChange={(e) => {
+                        if (e.target.files && e.target.files[0]) {
+                          handleUploadHmoCsv(e.target.files[0]);
+                          e.target.value = "";
+                        }
+                      }}
+                      className="hidden"
+                    />
+                    <label
+                      htmlFor="hmo-csv-upload-input"
+                      className="px-5 py-3 bg-[#008ac9] hover:bg-[#0072b1] text-white font-black text-xs rounded-2xl shadow-lg shadow-[#008ac9]/30 transition-all flex items-center gap-2 border border-sky-400/40 cursor-pointer"
+                    >
+                      <Upload className="h-4 w-4" /> Upload HMO CSV File (.csv)
+                    </label>
+                  </div>
+
+                  {isSuperAdminOnly(currentUser) && (
+                    <button
+                      onClick={handleClearAllHmoCompanies}
+                      className="px-4 py-3 bg-rose-600/90 hover:bg-rose-600 text-white font-extrabold text-xs rounded-2xl border border-rose-400 transition-all flex items-center gap-2 shadow-md cursor-pointer"
+                      title="Clear all current HMO records from database to re-upload (Super Admin Only)"
+                    >
+                      <Trash2 className="h-4 w-4 text-white" /> Clear All HMO Records
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
             {/* 1. Accredited HMO Companies Table */}
             <div className="bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
-              <div className="flex items-center justify-between border-b-2 border-slate-100 dark:border-slate-800 pb-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b-2 border-slate-100 dark:border-slate-800 pb-3 gap-3">
                 <h3 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
                   <Building2 className="h-5 w-5 text-[#008ac9]" /> Accredited HMO Provider Organizations
                 </h3>
-                <span className="text-xs font-extrabold text-slate-500">Official Hospital Partners</span>
+                <span className="px-3 py-1 rounded-full bg-sky-50 dark:bg-slate-800 text-[#008ac9] font-black text-xs border border-[#008ac9]/30 shrink-0">
+                  {filteredHmoCompanies.length} Accredited HMO Partners
+                </span>
+              </div>
+
+              {/* Search Toolbar */}
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 p-3 bg-slate-50 dark:bg-slate-950/70 rounded-2xl border border-slate-200 dark:border-slate-800">
+                <div className="relative w-full sm:w-80">
+                  <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400 pointer-events-none" />
+                  <input
+                    type="text"
+                    placeholder="Search HMO name, code, email, contact..."
+                    value={hmoOrgSearchQuery}
+                    onChange={(e) => setHmoOrgSearchQuery(e.target.value)}
+                    className="w-full pl-9 pr-3 py-2 text-xs font-bold rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-[#008ac9]"
+                  />
+                </div>
+
+                <span className="text-xs font-extrabold text-slate-500">
+                  Showing page {currentHmoOrgPage} of {totalHmoOrgPages}
+                </span>
               </div>
 
               <div className="overflow-x-auto">
@@ -6030,8 +7091,8 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                    {hmoCompanies.map((hmo) => (
-                      <tr key={hmo.id} className="hover:bg-slate-50 dark:hover:bg-slate-950/60 transition-colors">
+                    {paginatedHmoCompanies.map((hmo) => (
+                      <tr key={hmo.id || hmo.name} className="hover:bg-slate-50 dark:hover:bg-slate-950/60 transition-colors">
                         <td className="py-4 px-3 font-black text-[#008ac9] text-xs flex items-center gap-2">
                           <ShieldCheck className="h-4 w-4 text-[#008ac9]" />
                           {hmo.name}
@@ -6046,7 +7107,7 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                           {hmo.phone}
                         </td>
                         <td className="py-4 px-3 font-semibold text-slate-600 dark:text-slate-400">
-                          {hmo.contactPerson}
+                          {hmo.contactPerson || hmo.contact_person}
                         </td>
                         <td className="py-4 px-3">
                           <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black ${
@@ -6058,22 +7119,44 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                           </span>
                         </td>
                         <td className="py-4 px-3 text-right">
-                          <button
-                            onClick={() => handleRequestToggleHmoDisable(hmo)}
-                            className={`px-3 py-1 rounded-xl text-[11px] font-black transition-all border ${
-                              hmo.status === "Disabled Partner"
-                                ? "bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300"
-                                : "bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-300"
-                            }`}
-                          >
-                            {hmo.status === "Disabled Partner" ? "Enable Partner" : "Disable Partner"}
-                          </button>
+                          <div className="flex items-center justify-end gap-2">
+                            {isAdminUser(currentUser) && (
+                              <button
+                                onClick={() => handleOpenEditHmoModal(hmo)}
+                                className="px-3 py-1 rounded-xl text-[11px] font-black bg-sky-50 hover:bg-sky-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-[#008ac9] dark:text-sky-300 border border-[#008ac9]/30 transition-all flex items-center gap-1 cursor-pointer"
+                                title="Edit HMO Provider Details (Admin Only)"
+                              >
+                                <Pencil className="h-3.5 w-3.5 text-[#008ac9] dark:text-sky-300" /> Edit
+                              </button>
+                            )}
+
+                            <button
+                              onClick={() => handleRequestToggleHmoDisable(hmo)}
+                              className={`px-3 py-1 rounded-xl text-[11px] font-black transition-all border ${
+                                hmo.status === "Disabled Partner"
+                                  ? "bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300"
+                                  : "bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-300"
+                              }`}
+                            >
+                              {hmo.status === "Disabled Partner" ? "Enable Partner" : "Disable Partner"}
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
+
+              {renderPaginationBar(
+                currentHmoOrgPage,
+                totalHmoOrgPages,
+                filteredHmoCompanies.length,
+                hmoOrgItemsPerPage,
+                setHmoOrgCurrentPage,
+                (val) => { setHmoOrgItemsPerPage(val); setHmoOrgCurrentPage(1); },
+                "HMO provider companies"
+              )}
             </div>
 
             {/* 2. Patient Enrollees List */}
@@ -6096,9 +7179,7 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                    {bookings
-                      .filter((b) => b.paymentType === "HMO Insurance" || b.hmoName)
-                      .map((b) => (
+                    {paginatedHmoEnrolleesBookings.map((b) => (
                         <tr key={b.refCode} className="hover:bg-slate-50 dark:hover:bg-slate-950/60 transition-colors">
                           <td className="py-4 px-3 font-black text-slate-900 dark:text-white">
                             {b.patientName}
@@ -6127,6 +7208,16 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                   </tbody>
                 </table>
               </div>
+
+              {renderPaginationBar(
+                currentHmoEnrolleesPage,
+                totalHmoEnrolleesPages,
+                hmoEnrolleesList.length,
+                hmoEnrolleesItemsPerPage,
+                setHmoEnrolleesCurrentPage,
+                (val) => { setHmoEnrolleesItemsPerPage(val); setHmoEnrolleesCurrentPage(1); },
+                "enrollees"
+              )}
             </div>
           </div>
         )}
@@ -6163,9 +7254,7 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                    {bookings
-                      .filter((b) => b.paymentType === "Private Self-Pay" || !b.paymentType)
-                      .map((b) => (
+                    {paginatedPrivatePatientsBookings.map((b) => (
                         <tr key={b.refCode} className="hover:bg-slate-50 dark:hover:bg-slate-950/60 transition-colors">
                           <td className="py-4 px-3 font-black text-[#008ac9]">{b.refCode}</td>
                           <td className="py-4 px-3 font-black text-slate-900 dark:text-white">
@@ -6192,6 +7281,16 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                   </tbody>
                 </table>
               </div>
+
+              {renderPaginationBar(
+                currentPrivatePatientsPage,
+                totalPrivatePatientsPages,
+                privatePatientsList.length,
+                privatePatientsItemsPerPage,
+                setPrivatePatientsCurrentPage,
+                (val) => { setPrivatePatientsItemsPerPage(val); setPrivatePatientsCurrentPage(1); },
+                "private enrollees"
+              )}
             </div>
           </div>
         )}
@@ -6300,13 +7399,13 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                     className="w-full px-3 py-2 text-xs font-bold rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-[#008ac9]"
                   >
                     <option value="all">All Duty Days</option>
-                    <option value="Monday">Monday</option>
-                    <option value="Tuesday">Tuesday</option>
-                    <option value="Wednesday">Wednesday</option>
-                    <option value="Thursday">Thursday</option>
-                    <option value="Friday">Friday</option>
-                    <option value="Saturday">Saturday</option>
-                    <option value="Sunday">Sunday</option>
+                    <option value="Monday">Monday (Mon)</option>
+                    <option value="Tuesday">Tuesday (Tue)</option>
+                    <option value="Wednesday">Wednesday (Wed)</option>
+                    <option value="Thursday">Thursday (Thu)</option>
+                    <option value="Friday">Friday (Fri)</option>
+                    <option value="Saturday">Saturday (Sat)</option>
+                    <option value="Sunday">Sunday (Sun)</option>
                   </select>
                 </div>
               </div>
@@ -6576,7 +7675,7 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {filteredDirectoryDoctors.map((doc, idx) => {
+                  {paginatedDoctorsDirectory.map((doc, idx) => {
                     const isDisabled = doc.status?.includes("Disabled");
                     const acronym = doc.acronym || getAcronymForIndex(idx);
                     return (
@@ -6602,34 +7701,31 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                               </span>
                             </div>
                             <span
-                              className={`px-2.5 py-1 rounded-full text-[10px] font-black shrink-0 ${
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
                                 isDisabled
-                                  ? "bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300 border border-rose-300"
-                                  : "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300"
+                                  ? "bg-rose-100 text-rose-700 border border-rose-300"
+                                  : "bg-emerald-100 text-emerald-700 border border-emerald-300"
                               }`}
                             >
-                              {isDisabled ? "Disabled 🚫" : "Active ✓"}
+                              {isDisabled ? "Disabled" : "Active"}
                             </span>
                           </div>
 
-                          <div className="text-[11px] font-semibold text-slate-500 space-y-0.5 pt-1 border-t border-slate-200/60 dark:border-slate-800">
-                            <div>🎓 {doc.qualification || doc.qualifications || "MBBS, FWACS"}</div>
-                            <div>🏛️ {doc.room || doc.roomNumber || "Consultation Room"}</div>
-                            <div className="flex flex-wrap gap-1 pt-1">
-                              {(doc.acceptedPatientTypes || doc.accepted_patient_types || ["Private Self-Pay", "HMO Insurance"]).map((t: string) => (
-                                <span key={t} className="px-2 py-0.5 bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 rounded-md text-[10px] font-black border border-purple-200">
-                                  {t === "HMO Insurance" ? "🛡️ HMO" : "💳 Private"}
-                                </span>
-                              ))}
+                          <div className="text-[11px] font-semibold text-slate-600 dark:text-slate-400 space-y-1">
+                            <div>🏛️ <strong>Suite:</strong> {doc.room || "Suite 101"}</div>
+                            <div>🎓 <strong>Qualifications:</strong> {doc.qualifications || "MBBS, FWACS"}</div>
+                            <div>
+                              💳 <strong>Accepted:</strong>{" "}
+                              {doc.acceptedTypes?.join(", ") || "Private & HMO"}
                             </div>
                           </div>
                         </div>
 
-                        <div className="flex items-center justify-between pt-2 border-t border-slate-200/60 dark:border-slate-800 gap-2">
+                        <div className="pt-2 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2">
                           <button
                             type="button"
                             onClick={() => handleOpenEditDoctor(doc)}
-                            className="px-3 py-1.5 bg-[#008ac9]/10 hover:bg-[#008ac9] text-[#008ac9] hover:text-white rounded-xl text-xs font-black transition-all flex items-center gap-1 border border-[#008ac9]/30"
+                            className="px-3 py-1.5 rounded-xl bg-sky-50 hover:bg-sky-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-[#008ac9] dark:text-sky-300 text-xs font-black transition-all border border-sky-300 dark:border-slate-700 flex items-center gap-1 shadow-sm"
                           >
                             <Pencil className="h-3.5 w-3.5" /> Edit
                           </button>
@@ -6650,6 +7746,16 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                     );
                   })}
                 </div>
+              )}
+
+              {renderPaginationBar(
+                currentDocDirPage,
+                totalDocDirPages,
+                filteredDirectoryDoctors.length,
+                docDirItemsPerPage,
+                setDocDirCurrentPage,
+                (val) => { setDocDirItemsPerPage(val); setDocDirCurrentPage(1); },
+                "specialist doctors"
               )}
             </div>
 
@@ -9209,6 +10315,130 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
             </div>
           </div>
         )}
+
+      {/* EDIT HMO PROVIDER MODAL (ADMIN ONLY) */}
+      {showEditHmoModal && editingHmoItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white dark:bg-slate-900 border-2 border-[#008ac9] rounded-3xl p-6 sm:p-8 max-w-lg w-full shadow-2xl space-y-6 relative overflow-hidden">
+            <div className="flex items-center justify-between border-b-2 border-slate-100 dark:border-slate-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-3 rounded-2xl bg-sky-100 dark:bg-slate-800 text-[#008ac9]">
+                  <Pencil className="h-6 w-6 text-[#008ac9]" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-black text-slate-900 dark:text-white">Edit HMO Provider Details</h3>
+                  <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">Update accreditation information & desk contacts</p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setShowEditHmoModal(false);
+                  setEditingHmoItem(null);
+                }}
+                className="p-2 rounded-xl text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+              >
+                ✕
+              </button>
+            </div>
+
+            {hmoFormError && (
+              <div className="p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-950/60 border border-rose-300 text-xs font-black text-rose-700 dark:text-rose-300">
+                ⚠️ {hmoFormError}
+              </div>
+            )}
+
+            <form onSubmit={handleSaveEditHmoCompany} className="space-y-4">
+              <div className="space-y-1">
+                <label className="text-xs font-black text-slate-700 dark:text-slate-300">HMO Company Name *</label>
+                <input
+                  type="text"
+                  required
+                  value={hmoCompanyName}
+                  onChange={(e) => setHmoCompanyName(e.target.value)}
+                  className="w-full px-4 py-2.5 text-xs font-bold rounded-2xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-[#008ac9]"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-xs font-black text-slate-700 dark:text-slate-300">Registration Code</label>
+                  <input
+                    type="text"
+                    value={hmoCompanyCode}
+                    onChange={(e) => setHmoCompanyCode(e.target.value)}
+                    className="w-full px-4 py-2.5 text-xs font-bold rounded-2xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-[#008ac9]"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-black text-slate-700 dark:text-slate-300">Partnership Status</label>
+                  <select
+                    value={hmoCompanyStatus}
+                    onChange={(e) => setHmoCompanyStatus(e.target.value)}
+                    className="w-full px-4 py-2.5 text-xs font-bold rounded-2xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-[#008ac9]"
+                  >
+                    <option value="Active Partner">Active Partner ✓</option>
+                    <option value="Disabled Partner">Disabled Partner 🚫</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-xs font-black text-slate-700 dark:text-slate-300">Pre-Auth Desk Email *</label>
+                  <input
+                    type="email"
+                    required
+                    value={hmoCompanyEmail}
+                    onChange={(e) => setHmoCompanyEmail(e.target.value)}
+                    className="w-full px-4 py-2.5 text-xs font-bold rounded-2xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-[#008ac9]"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-black text-slate-700 dark:text-slate-300">Helpline Phone *</label>
+                  <input
+                    type="text"
+                    required
+                    value={hmoCompanyPhone}
+                    onChange={(e) => setHmoCompanyPhone(e.target.value)}
+                    className="w-full px-4 py-2.5 text-xs font-bold rounded-2xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-[#008ac9]"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-black text-slate-700 dark:text-slate-300">Contact Officer / Desk Officer</label>
+                <input
+                  type="text"
+                  value={hmoCompanyContact}
+                  onChange={(e) => setHmoCompanyContact(e.target.value)}
+                  className="w-full px-4 py-2.5 text-xs font-bold rounded-2xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-[#008ac9]"
+                />
+              </div>
+
+              <div className="pt-4 flex items-center justify-end gap-3 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowEditHmoModal(false);
+                    setEditingHmoItem(null);
+                  }}
+                  className="px-5 py-2.5 rounded-2xl text-xs font-black bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-6 py-2.5 rounded-2xl text-xs font-black bg-[#008ac9] hover:bg-[#0072b1] text-white shadow-lg shadow-[#008ac9]/30"
+                >
+                  Save Changes ✓
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
         {/* Persistent Toast Feedback Alert (Positioned at Top Right Corner) */}
         {toastAlert && (

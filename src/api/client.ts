@@ -133,6 +133,13 @@ export async function updateHmoCompanyAPI(hmoId: string, hmoData: any): Promise<
   });
 }
 
+export async function deleteHmoCompanyAPI(hmoId: string): Promise<boolean> {
+  const res = await apiRequest<any>(`/hmo-companies/${hmoId}/`, {
+    method: "DELETE",
+  });
+  return res !== null;
+}
+
 // 5. System Users API
 export async function getSystemUsersAPI(): Promise<any[] | null> {
   return apiRequest<any[]>("/users/");

@@ -23,6 +23,7 @@ import {
   ShieldCheck,
   UserCheck,
   AlertTriangle,
+  Share2,
 } from "lucide-react";
 import { getBookingsAPI, updateBookingAPI, getDoctorsAPI, getSchedulesAPI } from "../api/client";
 import { DOCTORS, getDoctorDisplayAcronym } from "../data/doctors";
@@ -642,15 +643,8 @@ export function CheckAppointmentsPage() {
     link.click();
   };
 
-  // PDF Ticket Generator
-  const downloadTicketAsPdf = (booking: any) => {
-    if (!booking) return;
-
-    const check = isActionDisabled(booking);
-    if (check.disabled) {
-      showToast(`Ticket download is disabled: ${check.reason}.`, "error");
-      return;
-    }
+  const buildTicketPdfDoc = (booking: any) => {
+    if (!booking) return null;
 
     const doc = new jsPDF({
       orientation: "portrait",
@@ -781,6 +775,58 @@ export function CheckAppointmentsPage() {
     doc.setFont("helvetica", "bold");
     doc.text("No. 46, Ijaiye Road (beside Tastee Fried Chicken), Ogba, Ikeja, Lagos  |  Hotline: +234 (0) 800-ISALU-CARE", 105, 287, { align: "center" });
 
+    return doc;
+  };
+
+  const shareTicketAsPdf = async (booking: any) => {
+    if (!booking) return;
+
+    const check = isActionDisabled(booking);
+    if (check.disabled) {
+      showToast(`Ticket sharing is disabled: ${check.reason}.`, "error");
+      return;
+    }
+
+    const doc = buildTicketPdfDoc(booking);
+    if (!doc) return;
+
+    const code = booking.refCode || booking.ref_code || "ISALU-000000";
+    const fileName = `Isalu_Appointment_Ticket_${code}.pdf`;
+    const pdfBlob = doc.output("blob");
+    const pdfFile = new File([pdfBlob], fileName, { type: "application/pdf" });
+
+    if (navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
+      try {
+        await navigator.share({
+          files: [pdfFile],
+          title: `Isalu Hospitals Ticket - ${code}`,
+          text: `Official Isalu Hospitals Appointment Ticket (${code})`,
+        });
+        return;
+      } catch (err: any) {
+        if (err.name === "AbortError") return;
+      }
+    }
+
+    // Fallback: trigger download and show toast
+    doc.save(fileName);
+    showToast("PDF Ticket generated & downloaded.", "success");
+  };
+
+  // PDF Ticket Generator
+  const downloadTicketAsPdf = (booking: any) => {
+    if (!booking) return;
+
+    const check = isActionDisabled(booking);
+    if (check.disabled) {
+      showToast(`Ticket download is disabled: ${check.reason}.`, "error");
+      return;
+    }
+
+    const doc = buildTicketPdfDoc(booking);
+    if (!doc) return;
+
+    const code = booking.refCode || booking.ref_code || "ISALU-000000";
     doc.save(`Isalu_Appointment_Ticket_${code}.pdf`);
   };
 
@@ -841,6 +887,28 @@ export function CheckAppointmentsPage() {
       }
     }
     loadAllData();
+
+    const pollInterval = setInterval(() => {
+      loadAllData();
+    }, 2000);
+
+    let channel: BroadcastChannel | null = null;
+    try {
+      channel = new BroadcastChannel("isalu_hospital_channel");
+      channel.onmessage = () => {
+        loadAllData();
+      };
+    } catch {}
+
+    window.addEventListener("storage", loadAllData);
+    window.addEventListener("isalu_booking_updated", loadAllData);
+
+    return () => {
+      clearInterval(pollInterval);
+      if (channel) channel.close();
+      window.removeEventListener("storage", loadAllData);
+      window.removeEventListener("isalu_booking_updated", loadAllData);
+    };
   }, [searchParams]);
 
   const handleSearch = (e: React.FormEvent) => {
@@ -1257,6 +1325,15 @@ export function CheckAppointmentsPage() {
                           >
                             <FileText className="h-3.5 w-3.5 text-sky-400" /> PDF
                           </button>
+
+                          <button
+                            type="button"
+                            onClick={() => shareTicketAsPdf(b)}
+                            className="flex-1 px-3 py-2 bg-sky-600 hover:bg-sky-700 text-white text-[11px] font-black rounded-xl shadow-sm transition-all flex items-center justify-center gap-1 cursor-pointer"
+                            title="Share PDF Ticket"
+                          >
+                            <Share2 className="h-3.5 w-3.5 text-white" /> Share PDF
+                          </button>
                         </div>
                       </div>
                     );
@@ -1660,9 +1737,17 @@ export function CheckAppointmentsPage() {
                       <button
                         type="button"
                         onClick={() => downloadTicketAsPdf(selectedBooking)}
-                        className="px-4 py-3 bg-slate-900 hover:bg-slate-800 text-white text-xs font-black rounded-2xl shadow-sm transition-all flex items-center gap-1.5 border border-slate-700"
+                        className="px-4 py-3 bg-[#0f172a] hover:bg-slate-800 text-white text-xs font-black rounded-2xl shadow-sm transition-all flex items-center gap-1.5 border border-slate-700"
                       >
                         <FileText className="h-4 w-4 text-sky-400" /> PDF
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => shareTicketAsPdf(selectedBooking)}
+                        className="px-4 py-3 bg-sky-600 hover:bg-sky-700 text-white text-xs font-black rounded-2xl shadow-sm transition-all flex items-center gap-1.5 border border-sky-500"
+                      >
+                        <Share2 className="h-4 w-4" /> Share PDF
                       </button>
                     </div>
                   </div>
