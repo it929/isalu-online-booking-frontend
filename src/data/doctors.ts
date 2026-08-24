@@ -87,11 +87,17 @@ export function getDoctorRealName(doctorOrBooking: any): string {
   // 4. Find doctor by Exact / Category Specialty match (prevent substring collision like "urology" inside "neurology")
   if (!match && rawSpec) {
     const target = rawSpec.toLowerCase().trim();
+    const isTargetNeuro = target.includes("neurolog") || target.includes("neuro") || target.includes("brain");
+    const isTargetUro = (target.includes("urolog") || target.includes("urinary")) && !isTargetNeuro;
+
     match = DOCTORS.find((d) => {
       const spec = d.specialty.toLowerCase().trim();
+      const isSpecNeuro = spec.includes("neurolog") || spec.includes("neuro") || spec.includes("brain");
+      const isSpecUro = (spec.includes("urolog") || spec.includes("urinary")) && !isSpecNeuro;
+
       if (spec === target) return true;
-      if ((spec.includes("urolog") || spec.includes("urinary")) && (target.includes("urolog") || target.includes("urinary"))) return true;
-      if ((spec.includes("neurolog") || spec.includes("brain")) && (target.includes("neurolog") || target.includes("brain"))) return true;
+      if (isSpecUro && isTargetUro) return true;
+      if (isSpecNeuro && isTargetNeuro) return true;
       if ((spec.includes("gynaec") || spec.includes("obs")) && (target.includes("gynaec") || target.includes("obs"))) return true;
       if (spec.includes("cardio") && target.includes("cardio")) return true;
       if (spec.includes("derma") && target.includes("derma")) return true;

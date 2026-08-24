@@ -65,10 +65,25 @@ export function DoctorsPage() {
   const filteredDoctors = allDoctors.filter((doc: any) => {
     const isNotDisabled = !doc.status || doc.status === "Active" || !doc.status.includes("Disabled");
     const deptObj = DEPARTMENTS.find((d) => d.id === selectedDept);
-    const matchesDept =
-      doc.departmentId === selectedDept ||
-      (deptObj && doc.specialty?.toLowerCase().includes(deptObj.name.toLowerCase())) ||
-      (deptObj && deptObj.name.toLowerCase().includes(doc.specialty?.toLowerCase()));
+    const deptNameLower = deptObj ? deptObj.name.toLowerCase() : selectedDept.toLowerCase();
+    const docSpecialtyLower = (doc.specialty || "").toLowerCase();
+
+    const isDocNeuro = docSpecialtyLower.includes("neuro");
+    const isDocUro = docSpecialtyLower.includes("urol") && !isDocNeuro;
+
+    const isDeptNeuro = selectedDept.toLowerCase().includes("neuro") || deptNameLower.includes("neuro");
+    const isDeptUro = (selectedDept.toLowerCase().includes("urol") || deptNameLower.includes("urol")) && !isDeptNeuro;
+
+    let matchesDept = doc.departmentId === selectedDept || doc.department_id === selectedDept;
+    if (!matchesDept) {
+      if (isDeptUro) matchesDept = isDocUro;
+      else if (isDeptNeuro) matchesDept = isDocNeuro;
+      else {
+        matchesDept =
+          (deptObj && docSpecialtyLower.includes(deptNameLower)) ||
+          (deptObj && deptNameLower.includes(docSpecialtyLower));
+      }
+    }
     const matchesSearch =
       (doc.name && doc.name.toLowerCase().includes(searchQuery.toLowerCase())) ||
       (doc.specialty && doc.specialty.toLowerCase().includes(searchQuery.toLowerCase()));

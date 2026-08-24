@@ -243,11 +243,22 @@ export function BookAppointmentPage() {
 
   const matchesDept = (doc: any, deptId: string) => {
     if (!deptId) return false;
-    if (doc.departmentId === deptId) return true;
+    const docDept = doc.departmentId || doc.department_id || doc.department || "";
+    if (docDept && (docDept === deptId || docDept.toLowerCase() === deptId.toLowerCase())) return true;
+
     const deptObj = DEPARTMENTS.find((d) => d.id === deptId);
-    if (!deptObj) return false;
-    const deptNameLower = deptObj.name.toLowerCase();
+    const deptNameLower = deptObj ? deptObj.name.toLowerCase() : deptId.toLowerCase();
     const docSpecialtyLower = (doc.specialty || "").toLowerCase();
+
+    const isDocNeuro = docSpecialtyLower.includes("neuro");
+    const isDocUro = docSpecialtyLower.includes("urol") && !isDocNeuro;
+
+    const isDeptNeuro = deptId.toLowerCase().includes("neuro") || deptNameLower.includes("neuro");
+    const isDeptUro = (deptId.toLowerCase().includes("urol") || deptNameLower.includes("urol")) && !isDeptNeuro;
+
+    if (isDeptUro) return isDocUro;
+    if (isDeptNeuro) return isDocNeuro;
+
     return (
       docSpecialtyLower.includes(deptId.toLowerCase()) ||
       docSpecialtyLower.includes(deptNameLower) ||
