@@ -1969,7 +1969,7 @@ export function BookAppointmentPage() {
                 type="button"
                 disabled={isSubmittingBooking}
                 onClick={() => setStep(2)}
-                className="px-5 py-2.5 rounded-xl border-2 border-slate-300 dark:border-slate-700 font-extrabold text-xs text-slate-900 dark:text-white hover:bg-slate-200 dark:hover:bg-slate-800 transition-all disabled:opacity-50"
+                className="px-5 py-2.5 rounded-xl border-2 border-slate-300 dark:border-slate-700 font-extrabold text-xs text-slate-900 dark:text-white hover:bg-slate-200 dark:hover:bg-slate-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Back
               </button>
@@ -1977,7 +1977,7 @@ export function BookAppointmentPage() {
                 type="button"
                 disabled={!selectedDate || !selectedTime || isSubmittingBooking}
                 onClick={handleBookingSubmit}
-                className="bg-[#008ac9] hover:bg-[#0072b1] disabled:opacity-50 text-white px-8 py-3.5 text-sm font-black rounded-2xl flex items-center gap-2 shadow-lg border-2 border-sky-300/40 transition-all"
+                className="bg-[#008ac9] hover:bg-[#0072b1] disabled:opacity-50 disabled:cursor-not-allowed text-white px-8 py-3.5 text-sm font-black rounded-2xl flex items-center gap-2 shadow-lg border-2 border-sky-300/40 transition-all"
               >
                 {isSubmittingBooking ? (
                   <>

@@ -1624,7 +1624,7 @@ export function CheckAppointmentsPage() {
                         type="button"
                         onClick={() => setIsRescheduleOpen(false)}
                         disabled={isSubmittingReschedule}
-                        className="px-5 py-3 rounded-2xl bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 text-slate-800 dark:text-slate-200 text-xs font-black transition"
+                        className="px-5 py-3 rounded-2xl bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 text-slate-800 dark:text-slate-200 text-xs font-black transition disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         Back to Ticket Slip
                       </button>
@@ -1632,7 +1632,7 @@ export function CheckAppointmentsPage() {
                       <button
                         type="submit"
                         disabled={isSubmittingReschedule || !rescheduleDate || currentSlotStats.isLocked}
-                        className="px-6 py-3 rounded-2xl bg-amber-500 hover:bg-amber-600 text-white font-black text-xs shadow-lg transition flex items-center gap-2 border border-amber-600 disabled:opacity-50"
+                        className="px-6 py-3 rounded-2xl bg-amber-500 hover:bg-amber-600 text-white font-black text-xs shadow-lg transition flex items-center gap-2 border border-amber-600 disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         {isSubmittingReschedule ? (
                           <>

@@ -831,45 +831,50 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
       return;
     }
 
-    const targetId = editingHmoItem.id || editingHmoItem.hmo_id;
-
-    const updatedData = {
-      ...editingHmoItem,
-      id: targetId,
-      hmo_id: targetId,
-      name: hmoCompanyName.trim(),
-      code: hmoCompanyCode.trim() || `HMO-${hmoCompanyName.substring(0, 3).toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`,
-      email: hmoCompanyEmail.trim(),
-      phone: hmoCompanyPhone.trim(),
-      contactPerson: hmoCompanyContact.trim() || "Pre-Auth Desk Officer",
-      contact_person: hmoCompanyContact.trim() || "Pre-Auth Desk Officer",
-      status: hmoCompanyStatus,
-    };
-
+    setIsSubmittingHmoCompany(true);
     try {
-      if (targetId) {
-        await updateHmoCompanyAPI(targetId, updatedData);
-      }
-    } catch {}
+      const targetId = editingHmoItem.id || editingHmoItem.hmo_id;
 
-    const updatedList = hmoCompanies.map((item) => {
-      const itemId = item.id || item.hmo_id;
-      if ((itemId && itemId === targetId) || item.name.toLowerCase() === editingHmoItem.name.toLowerCase()) {
-        return updatedData;
-      }
-      return item;
-    });
+      const updatedData = {
+        ...editingHmoItem,
+        id: targetId,
+        hmo_id: targetId,
+        name: hmoCompanyName.trim(),
+        code: hmoCompanyCode.trim() || `HMO-${hmoCompanyName.substring(0, 3).toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`,
+        email: hmoCompanyEmail.trim(),
+        phone: hmoCompanyPhone.trim(),
+        contactPerson: hmoCompanyContact.trim() || "Pre-Auth Desk Officer",
+        contact_person: hmoCompanyContact.trim() || "Pre-Auth Desk Officer",
+        status: hmoCompanyStatus,
+      };
 
-    setHmoCompanies(updatedList);
-    broadcastHmoChange(updatedList);
-    setShowEditHmoModal(false);
-    setEditingHmoItem(null);
+      try {
+        if (targetId) {
+          await updateHmoCompanyAPI(targetId, updatedData);
+        }
+      } catch {}
 
-    setToastAlert({
-      title: "HMO Provider Details Updated ✓",
-      description: `Updated partnership details for ${updatedData.name}.`,
-      type: "success",
-    });
+      const updatedList = hmoCompanies.map((item) => {
+        const itemId = item.id || item.hmo_id;
+        if ((itemId && itemId === targetId) || item.name.toLowerCase() === editingHmoItem.name.toLowerCase()) {
+          return updatedData;
+        }
+        return item;
+      });
+
+      setHmoCompanies(updatedList);
+      broadcastHmoChange(updatedList);
+      setShowEditHmoModal(false);
+      setEditingHmoItem(null);
+
+      setToastAlert({
+        title: "HMO Provider Details Updated ✓",
+        description: `Updated partnership details for ${updatedData.name}.`,
+        type: "success",
+      });
+    } finally {
+      setIsSubmittingHmoCompany(false);
+    }
   };
 
   const handleCreateHmoCompany = (e: React.FormEvent) => {
@@ -1525,8 +1530,9 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
   const [editDocAcronym, setEditDocAcronym] = useState("");
   const [editDocStatus, setEditDocStatus] = useState("Active");
   const [editDocAcceptedTypes, setEditDocAcceptedTypes] = useState<string[]>(["Private Self-Pay", "HMO Insurance"]);
-  const [editDocFormError, setEditDocFormError] = useState("");
   const [isSubmittingDoctor, setIsSubmittingDoctor] = useState(false);
+  const [isApprovingHmo, setIsApprovingHmo] = useState(false);
+  const [isSubmittingHmoCompany, setIsSubmittingHmoCompany] = useState(false);
 
   const handleOpenEditDoctor = (doc: any) => {
     setEditingDoctor(doc);
@@ -1538,14 +1544,14 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
     setEditDocAcronym(doc.acronym || "");
     setEditDocStatus(doc.status || "Active");
     setEditDocAcceptedTypes(doc.acceptedPatientTypes || doc.accepted_patient_types || ["Private Self-Pay", "HMO Insurance"]);
-    setEditDocFormError("");
+    setEditFormError("");
   };
 
   const handleSaveEditDoctor = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingDoctor) return;
     if (!editDocName.trim() || !editDocSpecialty.trim()) {
-      setEditDocFormError("Doctor Name and Specialty are required.");
+      setEditFormError("Doctor Name and Specialty are required.");
       return;
     }
 
@@ -3930,25 +3936,30 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
     });
   };
 
-  const handleHmoApproval = (refCode: string, policy: string, auth: string) => {
-    approveHmoBookingAPI(refCode, policy, auth);
-    const updated = bookings.map((b) =>
-      (b.refCode === refCode || b.ref_code === refCode)
-        ? {
-            ...b,
-            hmoPolicyCode: policy || b.hmoPolicyCode || b.hmo_policy_code || `POL-${Math.floor(100000 + Math.random() * 900000)}`,
-            hmo_policy_code: policy || b.hmoPolicyCode || b.hmo_policy_code || `POL-${Math.floor(100000 + Math.random() * 900000)}`,
-            hmoAuthCode: auth || b.hmoAuthCode || b.hmo_auth_code || `AUTH-${Math.floor(1000 + Math.random() * 9000)}`,
-            hmo_auth_code: auth || b.hmoAuthCode || b.hmo_auth_code || `AUTH-${Math.floor(1000 + Math.random() * 9000)}`,
-            hmoStatus: "Approved",
-            hmo_status: "Approved",
-            paymentStatus: "Cleared",
-            payment_status: "Cleared",
-          }
-        : b
-    );
-    saveBookings(updated);
-    setSelectedBooking(null);
+  const handleHmoApproval = async (refCode: string, policy: string, auth: string) => {
+    setIsApprovingHmo(true);
+    try {
+      await approveHmoBookingAPI(refCode, policy, auth);
+      const updated = bookings.map((b) =>
+        (b.refCode === refCode || b.ref_code === refCode)
+          ? {
+              ...b,
+              hmoPolicyCode: policy || b.hmoPolicyCode || b.hmo_policy_code || `POL-${Math.floor(100000 + Math.random() * 900000)}`,
+              hmo_policy_code: policy || b.hmoPolicyCode || b.hmo_policy_code || `POL-${Math.floor(100000 + Math.random() * 900000)}`,
+              hmoAuthCode: auth || b.hmoAuthCode || b.hmo_auth_code || `AUTH-${Math.floor(1000 + Math.random() * 9000)}`,
+              hmo_auth_code: auth || b.hmoAuthCode || b.hmo_auth_code || `AUTH-${Math.floor(1000 + Math.random() * 9000)}`,
+              hmoStatus: "Approved",
+              hmo_status: "Approved",
+              paymentStatus: "Cleared",
+              payment_status: "Cleared",
+            }
+          : b
+      );
+      saveBookings(updated);
+      setSelectedBooking(null);
+    } finally {
+      setIsApprovingHmo(false);
+    }
   };
 
   const handleCashdeskPayment = (refCode: string, method: string) => {
@@ -7808,9 +7819,9 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
               </div>
 
               <form onSubmit={handleSaveEditDoctor} className="p-6 space-y-4 overflow-y-auto max-h-[72vh] flex-1">
-                {editDocFormError && (
+                {editFormError && (
                   <div className="p-3 bg-rose-50 text-rose-700 rounded-xl text-xs font-black border border-rose-300">
-                    {editDocFormError}
+                    {editFormError}
                   </div>
                 )}
 
@@ -9963,17 +9974,26 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
               <div className="flex justify-end gap-2 pt-3">
                 <button
                   type="button"
+                  disabled={isApprovingHmo}
                   onClick={() => setSelectedBooking(null)}
-                  className="px-4 py-2 rounded-xl border border-slate-300 text-xs font-bold text-slate-700 dark:text-slate-300"
+                  className="px-4 py-2 rounded-xl border border-slate-300 text-xs font-bold text-slate-700 dark:text-slate-300 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
+                  disabled={isApprovingHmo}
                   onClick={() => handleHmoApproval(selectedBooking.refCode, hmoPolicyCode, hmoAuthCode)}
-                  className="px-5 py-2 bg-[#008ac9] hover:bg-[#0072b1] text-white font-black text-xs rounded-xl shadow-md"
+                  className="px-5 py-2 bg-[#008ac9] hover:bg-[#0072b1] text-white font-black text-xs rounded-xl shadow-md flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Approve & Issue Auth ✓
+                  {isApprovingHmo ? (
+                    <>
+                      <RefreshCw className="h-4 w-4 animate-spin text-white" />
+                      <span>Approving & Issuing Pre-Auth...</span>
+                    </>
+                  ) : (
+                    <>Approve & Issue Auth ✓</>
+                  )}
                 </button>
               </div>
             </div>
@@ -10465,22 +10485,38 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                 />
               </div>
 
+              {isSubmittingHmoCompany && (
+                <div className="p-3 rounded-2xl bg-sky-50 dark:bg-slate-900 border-2 border-[#008ac9] text-[#008ac9] dark:text-sky-300 text-xs font-bold flex items-center justify-center gap-2.5 animate-pulse shadow-sm">
+                  <RefreshCw className="h-4 w-4 animate-spin text-[#008ac9]" />
+                  <span>Saving HMO partner changes... Please wait.</span>
+                </div>
+              )}
+
               <div className="pt-4 flex items-center justify-end gap-3 border-t border-slate-100 dark:border-slate-800">
                 <button
                   type="button"
+                  disabled={isSubmittingHmoCompany}
                   onClick={() => {
                     setShowEditHmoModal(false);
                     setEditingHmoItem(null);
                   }}
-                  className="px-5 py-2.5 rounded-2xl text-xs font-black bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200"
+                  className="px-5 py-2.5 rounded-2xl text-xs font-black bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-6 py-2.5 rounded-2xl text-xs font-black bg-[#008ac9] hover:bg-[#0072b1] text-white shadow-lg shadow-[#008ac9]/30"
+                  disabled={isSubmittingHmoCompany}
+                  className="px-6 py-2.5 rounded-2xl text-xs font-black bg-[#008ac9] hover:bg-[#0072b1] text-white shadow-lg shadow-[#008ac9]/30 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Save Changes ✓
+                  {isSubmittingHmoCompany ? (
+                    <>
+                      <RefreshCw className="h-4 w-4 animate-spin text-white" />
+                      <span>Saving...</span>
+                    </>
+                  ) : (
+                    <>Save Changes ✓</>
+                  )}
                 </button>
               </div>
             </form>
