@@ -42,6 +42,7 @@ import {
   XCircle,
   CheckCircle2,
   Share2,
+  RefreshCw,
 } from "lucide-react";
 import { SpecialistAvatar } from "../components/SpecialistAvatar";
 import { IsaluLogo } from "../components/IsaluLogo";
@@ -158,6 +159,7 @@ export function BookAppointmentPage() {
 
   const [step, setStep] = useState<number>(1);
   const [bookingConfirmed, setBookingConfirmed] = useState<any>(null);
+  const [isSubmittingBooking, setIsSubmittingBooking] = useState<boolean>(false);
 
   const specialistsSectionRef = useRef<HTMLDivElement>(null);
 
@@ -1176,6 +1178,9 @@ export function BookAppointmentPage() {
       return;
     }
 
+    setIsSubmittingBooking(true);
+    await new Promise((resolve) => setTimeout(resolve, 450));
+
     const refCode = generateTicketRef();
     const newBooking = {
       refCode,
@@ -1238,6 +1243,7 @@ export function BookAppointmentPage() {
       window.dispatchEvent(new Event("storage"));
     } catch {}
 
+    setIsSubmittingBooking(false);
     setBookingConfirmed(savedRecord);
     setStep(4);
   };
@@ -1951,21 +1957,36 @@ export function BookAppointmentPage() {
               </div>
             </div>
 
+            {isSubmittingBooking && (
+              <div className="p-4 rounded-2xl bg-sky-50 dark:bg-slate-900 border-2 border-[#008ac9] text-[#008ac9] dark:text-sky-300 text-xs sm:text-sm font-bold flex items-center justify-center gap-3 animate-pulse shadow-md my-4">
+                <RefreshCw className="h-5 w-5 animate-spin text-[#008ac9]" />
+                <span>Processing your appointment request & issuing official ticket... Please wait.</span>
+              </div>
+            )}
+
             <div className="flex justify-between pt-2">
               <button
                 type="button"
+                disabled={isSubmittingBooking}
                 onClick={() => setStep(2)}
-                className="px-5 py-2.5 rounded-xl border-2 border-slate-300 dark:border-slate-700 font-extrabold text-xs text-slate-900 dark:text-white hover:bg-slate-200 dark:hover:bg-slate-800 transition-all"
+                className="px-5 py-2.5 rounded-xl border-2 border-slate-300 dark:border-slate-700 font-extrabold text-xs text-slate-900 dark:text-white hover:bg-slate-200 dark:hover:bg-slate-800 transition-all disabled:opacity-50"
               >
                 Back
               </button>
               <button
                 type="button"
-                disabled={!selectedDate || !selectedTime}
+                disabled={!selectedDate || !selectedTime || isSubmittingBooking}
                 onClick={handleBookingSubmit}
                 className="bg-[#008ac9] hover:bg-[#0072b1] disabled:opacity-50 text-white px-8 py-3.5 text-sm font-black rounded-2xl flex items-center gap-2 shadow-lg border-2 border-sky-300/40 transition-all"
               >
-                Confirm & Issue Official Ticket ✓
+                {isSubmittingBooking ? (
+                  <>
+                    <RefreshCw className="h-4 w-4 animate-spin text-white" />
+                    <span>Submitting Request... Please Wait</span>
+                  </>
+                ) : (
+                  <>Confirm & Issue Official Ticket ✓</>
+                )}
               </button>
             </div>
           </div>

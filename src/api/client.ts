@@ -13,14 +13,28 @@ const API_BASE_URL = `http://${API_HOSTNAME}:8000/api`;
 export function getStoredAuthToken(): string | null {
   if (typeof window === "undefined") return null;
 
+  const isValidJwt = (t: any): boolean => {
+    if (!t || typeof t !== "string") return false;
+    const trimmed = t.trim();
+    if (
+      !trimmed ||
+      trimmed.startsWith("{") ||
+      trimmed.startsWith("token-") ||
+      trimmed.startsWith("refresh-")
+    ) {
+      return false;
+    }
+    return true;
+  };
+
   // 1. Check direct string token stored in sessionStorage / localStorage
   const directJwt =
     sessionStorage.getItem("isalu_staff_jwt") ||
     localStorage.getItem("isalu_staff_jwt") ||
     localStorage.getItem("isalu_access_token");
 
-  if (directJwt && typeof directJwt === "string" && directJwt.trim() && !directJwt.startsWith("{")) {
-    return directJwt.trim();
+  if (isValidJwt(directJwt)) {
+    return directJwt!.trim();
   }
 
   // 2. Check JSON objects in localStorage / sessionStorage
@@ -41,7 +55,7 @@ export function getStoredAuthToken(): string | null {
           parsed.access ||
           parsed.token ||
           parsed.access_token;
-        if (token && typeof token === "string" && token.trim()) {
+        if (isValidJwt(token)) {
           return token.trim();
         }
       } catch {}
@@ -71,32 +85,61 @@ async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promi
     });
 
     if (!response.ok) {
+      let errorData: any = null;
+      try {
+        errorData = await response.json();
+      } catch {}
+
+      const serverMsg =
+        errorData?.error ||
+        errorData?.detail ||
+        (typeof errorData === "string" ? errorData : null);
+
+      const isAuthEndpoint = endpoint.includes("/auth/");
+
       // 401 Unauthorized / Token Expired handling
       if (response.status === 401) {
-        console.error(`[401 Unauthorized] Session expired for endpoint: ${endpoint}`);
+        if (isAuthEndpoint) {
+          return {
+            error: serverMsg || "Invalid login credentials. Please check your username and password.",
+            status: 401,
+            isAuthError: true,
+          } as unknown as T;
+        }
 
-        // Purge expired tokens
-        if (typeof window !== "undefined") {
-          sessionStorage.removeItem("isalu_staff_jwt");
-          sessionStorage.removeItem("isalu_staff_authenticated");
-          localStorage.removeItem("isalu_auth_tokens");
-          localStorage.removeItem("isalu_access_token");
+        if (token) {
+          console.error(`[401 Unauthorized] Session expired for endpoint: ${endpoint}`);
 
-          // Dispatch event to surface 401 to UI
-          window.dispatchEvent(
-            new CustomEvent("isalu_auth_401", {
-              detail: {
-                endpoint,
-                message: "Session Expired: Your security token has expired. Please log in again to perform staff actions.",
-              },
-            })
-          );
+          // Purge expired tokens
+          if (typeof window !== "undefined") {
+            sessionStorage.removeItem("isalu_staff_jwt");
+            sessionStorage.removeItem("isalu_staff_authenticated");
+            localStorage.removeItem("isalu_auth_tokens");
+            localStorage.removeItem("isalu_access_token");
+
+            // Dispatch event to surface 401 to UI
+            window.dispatchEvent(
+              new CustomEvent("isalu_auth_401", {
+                detail: {
+                  endpoint,
+                  message: "Session Expired: Your security token has expired. Please log in again to perform staff actions.",
+                },
+              })
+            );
+          }
         }
 
         return {
-          error: "Session Expired: Please log in again to authorize this action.",
+          error: serverMsg || "Session Expired: Please log in again to authorize this action.",
           status: 401,
           isAuthError: true,
+        } as unknown as T;
+      }
+
+      if (serverMsg) {
+        return {
+          error: serverMsg,
+          status: response.status,
         } as unknown as T;
       }
 

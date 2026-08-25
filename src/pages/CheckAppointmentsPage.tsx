@@ -911,13 +911,17 @@ export function CheckAppointmentsPage() {
     };
   }, [searchParams]);
 
-  const handleSearch = (e: React.FormEvent) => {
+  const [isSearching, setIsSearching] = useState(false);
+
+  const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!searchQuery.trim()) {
       setHasSearched(false);
       setFilteredBookings([]);
       return;
     }
+    setIsSearching(true);
+    await new Promise((resolve) => setTimeout(resolve, 300));
     const q = searchQuery.toLowerCase().trim();
     const results = bookings.filter(
       (b) =>
@@ -927,6 +931,7 @@ export function CheckAppointmentsPage() {
     );
     setHasSearched(true);
     setFilteredBookings(results);
+    setIsSearching(false);
   };
 
   const isActionDisabled = (booking: any): { disabled: boolean; reason: string; badgeLabel: string; type: "checkedin" | "completed" | "cleared" | "hmo" | "cancelled" | "none" } => {
@@ -1163,19 +1168,35 @@ export function CheckAppointmentsPage() {
               <Search className="absolute left-4 top-3.5 h-5 w-5 text-slate-500" />
               <input
                 type="text"
+                disabled={isSearching}
                 placeholder="Reference Code or Phone..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-12 pr-4 py-3.5 rounded-2xl bg-white dark:bg-slate-900 border-2 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white text-sm font-bold shadow-md focus:outline-none focus:ring-2 focus:ring-[#008ac9] transition-all"
+                className="w-full pl-12 pr-4 py-3.5 rounded-2xl bg-white dark:bg-slate-900 border-2 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white text-sm font-bold shadow-md focus:outline-none focus:ring-2 focus:ring-[#008ac9] transition-all disabled:opacity-60"
               />
             </div>
             <button
               type="submit"
-              className="px-6 py-3.5 bg-[#008ac9] hover:bg-[#0072b1] text-white font-black rounded-2xl text-sm shadow-lg border border-[#008ac9] transition-all"
+              disabled={isSearching}
+              className="px-6 py-3.5 bg-[#008ac9] hover:bg-[#0072b1] text-white font-black rounded-2xl text-sm shadow-lg border border-[#008ac9] transition-all flex items-center justify-center gap-2 disabled:opacity-60"
             >
-              Lookup
+              {isSearching ? (
+                <>
+                  <RefreshCw className="h-4 w-4 animate-spin text-white" />
+                  <span>Searching...</span>
+                </>
+              ) : (
+                <>Lookup</>
+              )}
             </button>
           </form>
+
+          {isSearching && (
+            <div className="p-3.5 rounded-2xl bg-sky-50 dark:bg-slate-900 border-2 border-[#008ac9] text-[#008ac9] dark:text-sky-300 text-xs font-bold flex items-center justify-center gap-2.5 animate-pulse max-w-md mx-auto mt-3 shadow-sm">
+              <RefreshCw className="h-4 w-4 animate-spin text-[#008ac9]" />
+              <span>Searching verified ticket records... Please wait.</span>
+            </div>
+          )}
         </div>
 
         {/* State 1: Prompt before searching */}
@@ -1589,6 +1610,13 @@ export function CheckAppointmentsPage() {
                         className="w-full px-4 py-2.5 rounded-2xl bg-white dark:bg-slate-950 border-2 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white text-xs font-medium focus:outline-none focus:ring-2 focus:ring-[#008ac9]"
                       />
                     </div>
+
+                    {isSubmittingReschedule && (
+                      <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-slate-900 border-2 border-amber-500 text-amber-800 dark:text-amber-300 text-xs font-bold flex items-center justify-center gap-2.5 animate-pulse shadow-sm my-2">
+                        <RefreshCw className="h-4 w-4 animate-spin text-amber-600" />
+                        <span>Updating doctor consultation schedule & issuing revised appointment ticket... Please wait.</span>
+                      </div>
+                    )}
 
                     {/* Form Action Controls */}
                     <div className="pt-4 border-t-2 border-slate-200 dark:border-slate-800 flex items-center justify-end gap-3">

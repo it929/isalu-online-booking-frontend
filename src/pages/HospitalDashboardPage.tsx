@@ -1526,6 +1526,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
   const [editDocStatus, setEditDocStatus] = useState("Active");
   const [editDocAcceptedTypes, setEditDocAcceptedTypes] = useState<string[]>(["Private Self-Pay", "HMO Insurance"]);
   const [editDocFormError, setEditDocFormError] = useState("");
+  const [isSubmittingDoctor, setIsSubmittingDoctor] = useState(false);
 
   const handleOpenEditDoctor = (doc: any) => {
     setEditingDoctor(doc);
@@ -1548,6 +1549,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
       return;
     }
 
+    setIsSubmittingDoctor(true);
     const targetId = editingDoctor.id || editingDoctor.doc_id;
     const formattedName = editDocName.trim().startsWith("Dr.") ? editDocName.trim() : `Dr. ${editDocName.trim()}`;
 
@@ -1585,8 +1587,9 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
         const updatedSched = {
           ...sched,
           doctorName: formattedName,
+          doctor_name: formattedName,
           specialty: editDocSpecialty,
-          room: editDocRoom.trim(),
+          room: editDocRoom.trim() || sched.room,
         };
         updateScheduleAPI(sched.id, updatedSched);
         return updatedSched;
@@ -1596,6 +1599,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
     setSpecialistSchedules(updatedSchedules);
     localStorage.setItem("isalu_specialist_schedules", JSON.stringify(updatedSchedules));
 
+    setIsSubmittingDoctor(false);
     setEditingDoctor(null);
     setToastAlert({
       title: "Doctor Record Updated! ✓",
@@ -4328,6 +4332,13 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
           </div>
 
           <form onSubmit={handleAdminLogin} className="space-y-4">
+            {isLoggingIn && (
+              <div className="p-3.5 rounded-2xl bg-sky-50 dark:bg-slate-900 border-2 border-[#008ac9] text-[#008ac9] dark:text-sky-300 text-xs font-bold flex items-center justify-center gap-2.5 animate-pulse shadow-sm">
+                <RefreshCw className="h-4 w-4 animate-spin text-[#008ac9]" />
+                <span>{loginStageText || "Verifying staff credentials... Please wait."}</span>
+              </div>
+            )}
+
             {loginError && (
               <div className="p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-950/80 border-2 border-rose-300 text-rose-700 dark:text-rose-300 text-xs font-bold animate-fadeIn">
                 ⚠️ {loginError}
@@ -7932,19 +7943,35 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                   </select>
                 </div>
 
+                {isSubmittingDoctor && (
+                  <div className="p-3 rounded-2xl bg-sky-50 dark:bg-slate-900 border-2 border-[#008ac9] text-[#008ac9] dark:text-sky-300 text-xs font-bold flex items-center justify-center gap-2.5 animate-pulse shadow-sm">
+                    <RefreshCw className="h-4 w-4 animate-spin text-[#008ac9]" />
+                    <span>Saving doctor profile & updating department roster... Please wait.</span>
+                  </div>
+                )}
+
                 <div className="flex justify-end gap-2 pt-4 border-t border-slate-200 dark:border-slate-800">
                   <button
                     type="button"
+                    disabled={isSubmittingDoctor}
                     onClick={() => setEditingDoctor(null)}
-                    className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-extrabold text-slate-700 dark:text-slate-300"
+                    className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-extrabold text-slate-700 dark:text-slate-300 disabled:opacity-50"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    className="px-5 py-2 rounded-xl bg-[#008ac9] hover:bg-[#0072b1] text-white font-black text-xs shadow-md"
+                    disabled={isSubmittingDoctor}
+                    className="px-5 py-2.5 rounded-xl bg-[#008ac9] hover:bg-[#0072b1] text-white font-black text-xs shadow-md flex items-center gap-2 disabled:opacity-50"
                   >
-                    Save Changes ✓
+                    {isSubmittingDoctor ? (
+                      <>
+                        <RefreshCw className="h-4 w-4 animate-spin text-white" />
+                        <span>Saving Profile...</span>
+                      </>
+                    ) : (
+                      <>Save Changes ✓</>
+                    )}
                   </button>
                 </div>
               </form>
