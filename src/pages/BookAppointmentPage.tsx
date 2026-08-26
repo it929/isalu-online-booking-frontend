@@ -227,7 +227,7 @@ export function BookAppointmentPage() {
       }
     }
     syncData();
-  }, []);
+  }, [selectedDept]);
 
   useEffect(() => {
     if (initialDoctor) {
@@ -248,127 +248,36 @@ export function BookAppointmentPage() {
   const matchesDept = (doc: any, deptId: string) => {
     if (!deptId || deptId === "all") return true;
 
-    const targetId = String(deptId).toLowerCase().trim();
-    const docDeptId = String(doc.departmentId || doc.department_id || doc.department || "").toLowerCase().trim();
+    // 1. Resolve Currently Selected Department ID
+    const rawTarget = String(deptId).toLowerCase().trim();
+    const deptObj =
+      departmentsList.find((d: any) => {
+        const id = String(d.id || d.dept_id || "").toLowerCase().trim();
+        const name = String(d.name || "").toLowerCase().trim();
+        return id === rawTarget || name === rawTarget;
+      }) ||
+      DEPARTMENTS.find((d) => d.id.toLowerCase() === rawTarget || d.name.toLowerCase() === rawTarget);
 
-    // 1. Direct Department ID exact match (primary source of truth)
-    if (docDeptId) {
-      const cleanDocDeptId = docDeptId.replace(/[^a-z0-9]/g, "");
-      const cleanTargetId = targetId.replace(/[^a-z0-9]/g, "");
-      if (cleanDocDeptId === cleanTargetId) {
-        return true;
-      }
+    const targetDeptId = deptObj ? String(deptObj.id || deptObj.dept_id || rawTarget).toLowerCase().trim() : rawTarget;
+    const cleanTargetId = targetDeptId.replace(/[^a-z0-9]/g, "");
+
+    // 2. Resolve Doctor's Department Foreign Key ID
+    let rawDocDeptId = "";
+    if (typeof doc.department === "string") {
+      rawDocDeptId = doc.department;
+    } else if (doc.department && typeof doc.department === "object") {
+      rawDocDeptId = doc.department.dept_id || doc.department.id || "";
     }
+    if (!rawDocDeptId && doc.departmentId) rawDocDeptId = String(doc.departmentId);
+    if (!rawDocDeptId && doc.department_id) rawDocDeptId = String(doc.department_id);
 
-    // 2. Lookup Department Object
-    const deptObj = departmentsList.find((d: any) => {
-      const id = String(d.id || d.dept_id || "").toLowerCase().trim();
-      const name = String(d.name || "").toLowerCase().trim();
-      return id === targetId || name === targetId;
-    }) || DEPARTMENTS.find((d) => d.id.toLowerCase() === targetId || d.name.toLowerCase() === targetId);
+    const docDeptId = rawDocDeptId.toLowerCase().trim();
+    const cleanDocDeptId = docDeptId.replace(/[^a-z0-9]/g, "");
 
-    const deptName = deptObj ? String(deptObj.name).toLowerCase().trim() : targetId;
-    const docSpec = String(doc.specialty || "").toLowerCase().trim();
+    if (!cleanDocDeptId) return false;
 
-    // 3. SPECIFIC CLINIC DISAMBIGUATION (Check specific sub-specialties BEFORE general surgery)
-
-    // ENT & Head/Neck Surgery
-    const isTargetEnt = targetId.includes("ent") || deptName.includes("ent") || deptName.includes("ear") || deptName.includes("throat");
-    if (isTargetEnt) {
-      return docSpec.includes("ent") || docSpec.includes("ear") || docSpec.includes("throat") || docSpec.includes("neck") || docSpec.includes("laryngo") || docDeptId === "ent";
-    }
-
-    // Gastroenterology
-    const isTargetGastro = targetId.includes("gastro") || deptName.includes("gastro") || deptName.includes("digest");
-    if (isTargetGastro) {
-      return docSpec.includes("gastro") || docSpec.includes("gut") || docSpec.includes("endos") || docSpec.includes("liver") || docDeptId === "gastroenterology";
-    }
-
-    // Orthopedics / Orthopedic Surgery
-    const isTargetOrtho = targetId.includes("ortho") || deptName.includes("ortho") || deptName.includes("bone");
-    if (isTargetOrtho) {
-      return docSpec.includes("ortho") || docSpec.includes("bone") || docSpec.includes("joint") || docDeptId === "orthopedics";
-    }
-
-    // Paediatric Surgery
-    const isTargetPaedSurg = targetId.includes("paediatric-surgery") || targetId.includes("pediatric-surgery");
-    if (isTargetPaedSurg) {
-      return (docSpec.includes("paed") || docSpec.includes("pediat")) && docSpec.includes("surg");
-    }
-
-    // Paediatrics / Child Health
-    const isTargetPaed = targetId.includes("pedia") || targetId.includes("paedia") || deptName.includes("child") || deptName.includes("paediat");
-    if (isTargetPaed) {
-      return docSpec.includes("pedia") || docSpec.includes("paedia") || docSpec.includes("child") || docDeptId === "pediatrics" || docDeptId === "paediatrics";
-    }
-
-    // General Surgery (STRICTLY General Surgery, not ENT or Orthopedics)
-    const isTargetGeneralSurgery = targetId === "general-surgery" || targetId === "surgery" || deptName === "general surgery";
-    if (isTargetGeneralSurgery) {
-      return docSpec.includes("general surgery") || docSpec.includes("surgical") || (docSpec.includes("surg") && !docSpec.includes("ent") && !docSpec.includes("ortho") && !docSpec.includes("pedia") && !docSpec.includes("neuro"));
-    }
-
-    // General Physician
-    const isTargetPhysician = targetId === "general-physician" || (deptName.includes("physician") && !deptName.includes("chest"));
-    if (isTargetPhysician) {
-      return (docSpec.includes("physician") || docSpec.includes("general med") || docSpec.includes("primary care")) && !docSpec.includes("chest") && !docSpec.includes("pulmon") && !docSpec.includes("surg");
-    }
-
-    // Neurology vs Urology
-    const isTargetNeuro = targetId.includes("neuro") || deptName.includes("neuro");
-    if (isTargetNeuro) {
-      return docSpec.includes("neuro") || docSpec.includes("brain") || docDeptId === "neurology";
-    }
-
-    const isTargetUro = targetId.includes("urol") || deptName.includes("urol");
-    if (isTargetUro) {
-      return (docSpec.includes("urol") || docSpec.includes("urinary")) && !docSpec.includes("neuro");
-    }
-
-    // Cardiology
-    const isTargetCardio = targetId.includes("cardio") || deptName.includes("cardio") || deptName.includes("heart");
-    if (isTargetCardio) {
-      return docSpec.includes("cardio") || docSpec.includes("heart") || docDeptId === "cardiology";
-    }
-
-    // Obstetrics & Gynaecology
-    const isTargetObgyn = targetId.includes("gynae") || targetId.includes("obgyn") || deptName.includes("gynaec") || deptName.includes("women");
-    if (isTargetObgyn) {
-      return docSpec.includes("gynae") || docSpec.includes("obgyn") || docSpec.includes("gynaec") || docSpec.includes("women") || docDeptId === "gynaecology";
-    }
-
-    // Chest Physician / Pulmonology
-    const isTargetPulmo = targetId.includes("pulmon") || deptName.includes("chest") || deptName.includes("lung");
-    if (isTargetPulmo) {
-      return docSpec.includes("pulmon") || docSpec.includes("chest") || docSpec.includes("lung") || docDeptId === "pulmonology";
-    }
-
-    // Nephrology
-    const isTargetNephro = targetId.includes("nephro") || deptName.includes("kidney") || deptName.includes("renal");
-    if (isTargetNephro) {
-      return docSpec.includes("nephro") || docSpec.includes("kidney") || docSpec.includes("renal") || docDeptId === "nephrology";
-    }
-
-    // Haematology
-    const isTargetHaemat = targetId.includes("haemat") || targetId.includes("hemat") || deptName.includes("blood");
-    if (isTargetHaemat) {
-      return docSpec.includes("haemat") || docSpec.includes("hemat") || docSpec.includes("blood") || docDeptId === "haematology";
-    }
-
-    // Endocrinology
-    const isTargetEndo = targetId.includes("endocrin") || deptName.includes("hormon") || deptName.includes("diabetes");
-    if (isTargetEndo) {
-      return docSpec.includes("endocrin") || docSpec.includes("hormon") || docSpec.includes("diabetes") || docDeptId === "endocrinology";
-    }
-
-    // Dermatology
-    const isTargetDerma = targetId.includes("derma") || deptName.includes("skin");
-    if (isTargetDerma) {
-      return docSpec.includes("derma") || docSpec.includes("skin") || docDeptId === "dermatology";
-    }
-
-    // Fallback: Exact match only
-    return docSpec === deptName || docSpec === targetId;
+    // 3. STRICT EQUALITY CHECK: Doctor's department ID must equal currently selected department ID
+    return cleanDocDeptId === cleanTargetId || docDeptId === targetDeptId || docDeptId === rawTarget;
   };
 
   const selectedDeptObj = departmentsList.find(

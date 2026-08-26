@@ -155,8 +155,9 @@ async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promi
 }
 
 // 1. Doctors API
-export async function getDoctorsAPI(): Promise<any[] | null> {
-  return apiRequest<any[]>("/doctors/");
+export async function getDoctorsAPI(deptId?: string): Promise<any[] | null> {
+  const query = deptId && deptId !== "all" ? `?department=${encodeURIComponent(deptId)}` : "";
+  return apiRequest<any[]>(`/doctors/${query}`);
 }
 
 export async function createDoctorAPI(doctorData: any): Promise<any | null> {
@@ -377,3 +378,30 @@ export async function deleteDepartmentAPI(deptId: string): Promise<boolean> {
   });
   return res !== null;
 }
+
+// 10. Roles API
+export async function getRolesAPI(): Promise<any[] | null> {
+  return apiRequest<any[]>("/roles/");
+}
+
+export async function createRoleAPI(roleData: any): Promise<any | null> {
+  return apiRequest<any>("/roles/", {
+    method: "POST",
+    body: JSON.stringify(roleData),
+  });
+}
+
+export async function updateRoleAPI(roleId: string, roleData: any): Promise<any | null> {
+  return apiRequest<any>(`/roles/${roleId}/`, {
+    method: "PATCH",
+    body: JSON.stringify(roleData),
+  });
+}
+
+export async function deleteRoleAPI(roleId: string): Promise<boolean> {
+  const res = await apiRequest<any>(`/roles/${roleId}/`, {
+    method: "DELETE",
+  });
+  return res !== null;
+}
+

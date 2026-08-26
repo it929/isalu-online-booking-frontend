@@ -950,6 +950,7 @@ export function CheckAppointmentsPage() {
     if (!booking) return { disabled: false, reason: "", badgeLabel: "", type: "none" };
 
     const st = String(booking.status || "").toLowerCase();
+    const payType = String(booking.paymentType || booking.payment_type || "Private Self-Pay");
     const paySt = String(booking.paymentStatus || booking.payment_status || "").toLowerCase();
     const hmoSt = String(booking.hmoStatus || booking.hmo_status || "").toLowerCase();
 
@@ -962,10 +963,12 @@ export function CheckAppointmentsPage() {
     if (st.includes("cancelled")) {
       return { disabled: true, reason: "Appointment Cancelled", badgeLabel: "Appointment Cancelled", type: "cancelled" };
     }
-    const isHmoTicket = booking.paymentType === "HMO Insurance" || Boolean(booking.hmoName && booking.hmoName !== "N/A");
-    const hmoName = booking.hmoName && booking.hmoName !== "N/A" ? booking.hmoName : (booking.hmo_name && booking.hmo_name !== "N/A" ? booking.hmo_name : "HMO");
 
-    if (hmoSt === "approved" || hmoSt.includes("approved") || (isHmoTicket && (paySt.includes("cleared") || paySt.includes("hmo")))) {
+    const isHmoTicket = payType === "HMO Insurance";
+    const hmoName = booking.hmoName && booking.hmoName !== "N/A" ? booking.hmoName : (booking.hmo_name && booking.hmo_name !== "N/A" ? booking.hmo_name : "HMO Insurance");
+    const isHmoApproved = isHmoTicket && (hmoSt === "approved" || hmoSt === "hmo approved");
+
+    if (isHmoApproved) {
       return {
         disabled: true,
         reason: `Approved by ${hmoName}`,
@@ -975,14 +978,6 @@ export function CheckAppointmentsPage() {
     }
 
     if (paySt.includes("cleared") || paySt === "paid") {
-      if (isHmoTicket) {
-        return {
-          disabled: true,
-          reason: `Approved by ${hmoName}`,
-          badgeLabel: `Approved by ${hmoName}`,
-          type: "hmo",
-        };
-      }
       return { disabled: true, reason: "Payment Cleared by Cashdesk", badgeLabel: "Paid & Cleared by Cashdesk", type: "cleared" };
     }
 

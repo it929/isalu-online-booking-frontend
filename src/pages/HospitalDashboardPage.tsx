@@ -74,6 +74,10 @@ import {
   deleteHmoCompanyAPI,
   createSystemUserAPI,
   updateSystemUserAPI,
+  getRolesAPI,
+  createRoleAPI,
+  updateRoleAPI,
+  deleteRoleAPI,
   loginStaffAPI,
   updateBookingAPI,
   createCustomTimeSlotAPI,
@@ -203,7 +207,7 @@ export function HospitalDashboardPage() {
 
   const isDeskAllowed = (desk: DeskType): boolean => {
     if (!currentUser || !currentUser.role) return false;
-    const roleStr = (currentUser.role || "").toLowerCase();
+    const roleStr = (currentUser.role || "").toLowerCase().trim();
 
     // Super Administrator / Hospital Administrator / Chief Admin -> Full access to all desks
     if (
@@ -211,12 +215,28 @@ export function HospitalDashboardPage() {
       roleStr.includes("hospital administrator") ||
       roleStr.includes("chief") ||
       roleStr.includes("super admin") ||
-      roleStr === "admin"
+      roleStr.includes("system administrator") ||
+      roleStr === "admin" ||
+      roleStr === "superadmin"
     ) {
       return true;
     }
 
-    // Clinic Module, Manage Users, and Disabled Bookings Archive strictly require Super Administrator access
+    // Check dynamic custom roles defined in roles state
+    const matchedRole = roles.find((r: any) => (r.name || "").toLowerCase().trim() === roleStr);
+    if (matchedRole) {
+      const allowedList = matchedRole.allowedDesks || matchedRole.allowed_desks || [];
+      if (desk === "clinic" || desk === "users" || desk === "disabled_bookings") {
+        return allowedList.includes(desk);
+      }
+      if (allowedList.length > 0) {
+        return allowedList.includes(desk);
+      }
+      const prim = matchedRole.primaryDesk || matchedRole.primary_desk;
+      if (prim) return prim === desk;
+    }
+
+    // Clinic Module, Manage Users, and Disabled Bookings Archive strictly require Super Administrator access by default
     if (desk === "clinic" || desk === "users" || desk === "disabled_bookings") {
       return false;
     }
@@ -336,6 +356,7 @@ export function HospitalDashboardPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [hmoProviderFilter, setHmoProviderFilter] = useState("all");
+  const [clinicFilter, setClinicFilter] = useState("all");
 
   // Attached Referral Document Opener / Viewer State
   const [selectedReferralBooking, setSelectedReferralBooking] = useState<any | null>(null);
@@ -588,6 +609,150 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
   const [userRoleFilter, setUserRoleFilter] = useState("all");
   const [userStatusFilter, setUserStatusFilter] = useState("all");
 
+  // User & Roles Management Module State
+  const [userSubTab, setUserSubTab] = useState<"users" | "roles">("users");
+  const [roles, setRoles] = useState<any[]>(() => {
+    const saved = localStorage.getItem("isalu_system_roles");
+    if (saved) {
+      try { return JSON.parse(saved); } catch {}
+    }
+    return [
+      { id: "role-1", name: "Super Administrator", description: "Full administrative control over all hospital operations.", primaryDesk: "analytics", allowedDesks: ["helpdesk", "hmo", "cashdesk", "analytics", "monitor", "users", "clinic", "all_patients", "checked_in_patients", "hmo_enrollees", "private_patients", "create_specialist_schedule", "disabled_bookings"], isSystemRole: true, status: "Active" },
+      { id: "role-2", name: "Helpdesk Officer", description: "Front-desk reception patient intake and queue checking.", primaryDesk: "helpdesk", allowedDesks: ["helpdesk", "all_patients", "checked_in_patients"], isSystemRole: true, status: "Active" },
+      { id: "role-3", name: "HMO Approval Officer", description: "Verification of HMO insurance policies and pre-auth codes.", primaryDesk: "hmo", allowedDesks: ["hmo", "hmo_enrollees"], isSystemRole: true, status: "Active" },
+      { id: "role-4", name: "Cashdesk Billing Officer", description: "Private self-pay payments clearance and invoicing.", primaryDesk: "cashdesk", allowedDesks: ["cashdesk", "private_patients"], isSystemRole: true, status: "Active" },
+      { id: "role-5", name: "Monitor Desk Operator", description: "Real-time consultation queue monitoring.", primaryDesk: "monitor", allowedDesks: ["monitor"], isSystemRole: true, status: "Active" },
+      { id: "role-6", name: "Queue Analytics Officer", description: "Executive intelligence and department metrics.", primaryDesk: "analytics", allowedDesks: ["analytics"], isSystemRole: true, status: "Active" },
+    ];
+  });
+
+  const [showCreateRoleModal, setShowCreateRoleModal] = useState(false);
+  const [newRoleName, setNewRoleName] = useState("");
+  const [newRoleDescription, setNewRoleDescription] = useState("");
+  const [newRolePrimaryDesk, setNewRolePrimaryDesk] = useState("helpdesk");
+  const [newRoleAllowedDesks, setNewRoleAllowedDesks] = useState<string[]>(["helpdesk", "all_patients", "checked_in_patients"]);
+  const [roleFormError, setRoleFormError] = useState("");
+
+  const [editingRole, setEditingRole] = useState<any | null>(null);
+  const [editRoleName, setEditRoleName] = useState("");
+  const [editRoleDescription, setEditRoleDescription] = useState("");
+  const [editRolePrimaryDesk, setEditRolePrimaryDesk] = useState("helpdesk");
+  const [editRoleAllowedDesks, setEditRoleAllowedDesks] = useState<string[]>([]);
+  const [editRoleError, setEditRoleError] = useState("");
+
+  const loadRoles = async () => {
+    const remote = await getRolesAPI();
+    if (remote && Array.isArray(remote) && remote.length > 0) {
+      setRoles(remote);
+      localStorage.setItem("isalu_system_roles", JSON.stringify(remote));
+    }
+  };
+
+  const handleCreateRole = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newRoleName.trim()) {
+      setRoleFormError("Please enter a role title/name.");
+      return;
+    }
+    const roleId = `role-${Date.now()}`;
+    const newRoleObj = {
+      id: roleId,
+      role_id: roleId,
+      name: newRoleName.trim(),
+      description: newRoleDescription.trim(),
+      primaryDesk: newRolePrimaryDesk,
+      primary_desk: newRolePrimaryDesk,
+      allowedDesks: newRoleAllowedDesks,
+      allowed_desks: newRoleAllowedDesks,
+      isSystemRole: false,
+      is_system_role: false,
+      status: "Active",
+    };
+
+    const res = await createRoleAPI(newRoleObj);
+    const created = res || newRoleObj;
+    const remoteRoles = await getRolesAPI();
+    const updated = remoteRoles && remoteRoles.length > 0 ? remoteRoles : [created, ...roles];
+    setRoles(updated);
+    localStorage.setItem("isalu_system_roles", JSON.stringify(updated));
+
+    setNewRoleName("");
+    setNewRoleDescription("");
+    setRoleFormError("");
+    setShowCreateRoleModal(false);
+    setToastAlert({
+      title: "Custom Role Created ✓",
+      description: `New role '${created.name}' registered successfully.`,
+      type: "success",
+    });
+  };
+
+  const handleStartEditRole = (role: any) => {
+    setEditingRole(role);
+    setEditRoleName(role.name || "");
+    setEditRoleDescription(role.description || "");
+    setEditRolePrimaryDesk(role.primaryDesk || role.primary_desk || "helpdesk");
+    setEditRoleAllowedDesks(role.allowedDesks || role.allowed_desks || ["helpdesk"]);
+    setEditRoleError("");
+  };
+
+  const handleSaveEditRole = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingRole) return;
+    if (!editRoleName.trim()) {
+      setEditRoleError("Role title cannot be empty.");
+      return;
+    }
+    const targetId = editingRole.id || editingRole.role_id;
+    const updatedData = {
+      name: editRoleName.trim(),
+      description: editRoleDescription.trim(),
+      primaryDesk: editRolePrimaryDesk,
+      primary_desk: editRolePrimaryDesk,
+      allowedDesks: editRoleAllowedDesks,
+      allowed_desks: editRoleAllowedDesks,
+    };
+
+    await updateRoleAPI(targetId, updatedData);
+    const remoteRoles = await getRolesAPI();
+    const updated = (remoteRoles && remoteRoles.length > 0)
+      ? remoteRoles
+      : roles.map((r) => ((r.id === targetId || r.role_id === targetId) ? { ...r, ...updatedData } : r));
+
+    setRoles(updated);
+    localStorage.setItem("isalu_system_roles", JSON.stringify(updated));
+    setEditingRole(null);
+    setToastAlert({
+      title: "Role Configuration Updated ✓",
+      description: `Permissions updated for ${editRoleName.trim()}.`,
+      type: "success",
+    });
+  };
+
+  const handleDeleteRole = async (role: any) => {
+    if (role.isSystemRole || role.is_system_role) {
+      setToastAlert({
+        title: "System Role Protected 🛡️",
+        description: `Built-in role '${role.name}' is a system core role and cannot be deleted.`,
+        type: "warning",
+      });
+      return;
+    }
+    const targetId = role.id || role.role_id;
+    await deleteRoleAPI(targetId);
+    const remoteRoles = await getRolesAPI();
+    const updated = remoteRoles && remoteRoles.length > 0 ? remoteRoles : roles.filter((r) => r.id !== targetId && r.role_id !== targetId);
+    setRoles(updated);
+    localStorage.setItem("isalu_system_roles", JSON.stringify(updated));
+    setToastAlert({
+      title: "Role Removed",
+      description: `Custom role '${role.name}' deleted.`,
+      type: "info",
+    });
+  };
+
+  const userRoleFilterOptions = roles;
+
   const [hmoOrgSearchQuery, setHmoOrgSearchQuery] = useState("");
   const [hmoOrgCurrentPage, setHmoOrgCurrentPage] = useState(1);
   const [hmoOrgItemsPerPage, setHmoOrgItemsPerPage] = useState(10);
@@ -616,6 +781,30 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
     if (remote && Array.isArray(remote)) {
       setSystemUsers(remote);
       localStorage.setItem("isalu_system_users", JSON.stringify(remote));
+
+      // Sync active session user profile if role was updated on another system
+      const savedProfile = sessionStorage.getItem("isalu_staff_user_profile");
+      if (savedProfile) {
+        try {
+          const parsedCur = JSON.parse(savedProfile);
+          const curEmail = (parsedCur?.email || "").toLowerCase().trim();
+          const curName = (parsedCur?.name || "").toLowerCase().trim();
+          const matched = remote.find(
+            (u: any) =>
+              (u.email && u.email.toLowerCase().trim() === curEmail) ||
+              (u.name && u.name.toLowerCase().trim() === curName)
+          );
+          if (matched && matched.role && (matched.role !== parsedCur.role || matched.desk !== parsedCur.desk)) {
+            const updatedProf = {
+              ...parsedCur,
+              role: matched.role,
+              desk: matched.desk || getPrimaryDeskForRole(matched.role),
+            };
+            sessionStorage.setItem("isalu_staff_user_profile", JSON.stringify(updatedProf));
+            setCurrentUser(updatedProf);
+          }
+        } catch {}
+      }
     } else if (localParsed.length > 0) {
       setSystemUsers(localParsed);
     }
@@ -685,6 +874,8 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
     });
   };
 
+  const [isCreatingUser, setIsCreatingUser] = useState(false);
+
   const handleAddSystemUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newUserName.trim() || !newUserEmail.trim() || !newUserPassword.trim()) {
@@ -697,41 +888,46 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
       return;
     }
 
-    const userIdStr = `usr-${Date.now()}`;
-    const newUser = {
-      id: userIdStr,
-      user_id: userIdStr,
-      name: newUserName.trim(),
-      email: newUserEmail.trim(),
-      password: newUserPassword.trim(),
-      role: newUserRole,
-      desk: newUserRole.replace("Officer", "").replace("Operator", "").trim(),
-      status: "Active",
-      last_active: "Just created",
-      lastActive: "Just created",
-    };
+    setIsCreatingUser(true);
+    try {
+      const userIdStr = `usr-${Date.now()}`;
+      const newUser = {
+        id: userIdStr,
+        user_id: userIdStr,
+        name: newUserName.trim(),
+        email: newUserEmail.trim(),
+        password: newUserPassword.trim(),
+        role: newUserRole,
+        desk: newUserRole.replace("Officer", "").replace("Operator", "").trim(),
+        status: "Active",
+        last_active: "Just created",
+        lastActive: "Just created",
+      };
 
-    const res = await createSystemUserAPI(newUser);
-    const createdRecord = res || newUser;
+      const res = await createSystemUserAPI(newUser);
+      const createdRecord = res || newUser;
 
-    const remoteUsers = await getSystemUsersAPI();
-    const updated = remoteUsers && remoteUsers.length > 0 ? remoteUsers : [createdRecord, ...systemUsers];
+      const remoteUsers = await getSystemUsersAPI();
+      const updated = remoteUsers && remoteUsers.length > 0 ? remoteUsers : [createdRecord, ...systemUsers];
 
-    setSystemUsers(updated);
-    broadcastUserChange(updated);
+      setSystemUsers(updated);
+      broadcastUserChange(updated);
 
-    setNewUserName("");
-    setNewUserEmail("");
-    setNewUserPassword("");
-    setNewUserConfirmPassword("");
-    setUserFormError("");
-    setShowAddUserModal(false);
+      setNewUserName("");
+      setNewUserEmail("");
+      setNewUserPassword("");
+      setNewUserConfirmPassword("");
+      setUserFormError("");
+      setShowAddUserModal(false);
 
-    setToastAlert({
-      title: "User Account Created Successfully! ✓",
-      description: `New ${newUserRole} account for ${newUser.name} is active and saved.`,
-      type: "success",
-    });
+      setToastAlert({
+        title: "User Account Created Successfully! ✓",
+        description: `New ${newUserRole} account for ${newUser.name} is active and saved.`,
+        type: "success",
+      });
+    } finally {
+      setIsCreatingUser(false);
+    }
   };
 
   const DEFAULT_HMO_COMPANIES = [
@@ -1482,7 +1678,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
     setPrivatePatientsCurrentPage(1);
     setDocDirCurrentPage(1);
     setUsersDirCurrentPage(1);
-  }, [searchQuery, statusFilter, hmoProviderFilter, docDirectorySearch, docDirectoryStatusFilter, docDirectoryDeptFilter]);
+  }, [searchQuery, statusFilter, hmoProviderFilter, clinicFilter, docDirectorySearch, docDirectoryStatusFilter, docDirectoryDeptFilter]);
 
   // Specialist Timetables & Shift Roster Search, Filter & Pagination State
   const [schedSearchQuery, setSchedSearchQuery] = useState("");
@@ -2557,10 +2753,13 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
       setLoginStageText("Syncing Staff Duty Permissions...");
       await new Promise((resolve) => setTimeout(resolve, 350));
 
+      const assignedRole = res.user?.role || "Hospital Staff";
+      const primaryDesk = getPrimaryDeskForRole(assignedRole);
+
       const profile = {
         name: res.user?.name || loginUsername,
-        role: res.user?.role || "Hospital Staff",
-        desk: res.user?.desk || "Staff Duty Desk",
+        role: assignedRole,
+        desk: res.user?.desk || primaryDesk,
         email: res.user?.email || loginUsername,
       };
 
@@ -2576,6 +2775,8 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
       setIsAuthenticated(true);
       setIsLoggingIn(false);
       setLoginError("");
+      setActiveDesk(primaryDesk as DeskType);
+      setSearchParams({ desk: primaryDesk });
       return;
     }
 
@@ -2649,11 +2850,19 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
 
   // Role-Based Access Control (RBAC) Desk Helpers
   const getPrimaryDeskForRole = (role: string = "") => {
-    const r = role.toLowerCase();
+    const r = role.toLowerCase().trim();
+    if (r.includes("super") || r.includes("administrator") || r.includes("chief") || r === "admin" || r === "superadmin") return "analytics";
+
+    const matchedRole = roles.find((ro: any) => (ro.name || "").toLowerCase().trim() === r);
+    if (matchedRole && (matchedRole.primaryDesk || matchedRole.primary_desk)) {
+      return matchedRole.primaryDesk || matchedRole.primary_desk;
+    }
+
     if (r.includes("helpdesk") || r.includes("reception")) return "helpdesk";
-    if (r.includes("hmo")) return "hmo";
-    if (r.includes("cashdesk") || r.includes("cashier") || r.includes("billing")) return "cashdesk";
-    if (r.includes("monitor")) return "monitor";
+    if (r.includes("hmo") || r.includes("insurance")) return "hmo";
+    if (r.includes("cash") || r.includes("cashier") || r.includes("billing")) return "cashdesk";
+    if (r.includes("monitor") || r.includes("controller")) return "monitor";
+    if (r.includes("analytics") || r.includes("executive")) return "analytics";
     return "helpdesk";
   };
 
@@ -4535,7 +4744,32 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
         if (remoteUsers && Array.isArray(remoteUsers)) {
           setSystemUsers(remoteUsers);
           localStorage.setItem("isalu_system_users", JSON.stringify(remoteUsers));
+
+          // Sync active session user profile if role was updated on another system
+          const savedProfile = sessionStorage.getItem("isalu_staff_user_profile");
+          if (savedProfile) {
+            try {
+              const parsedCur = JSON.parse(savedProfile);
+              const curEmail = (parsedCur?.email || "").toLowerCase().trim();
+              const curName = (parsedCur?.name || "").toLowerCase().trim();
+              const matched = remoteUsers.find(
+                (u: any) =>
+                  (u.email && u.email.toLowerCase().trim() === curEmail) ||
+                  (u.name && u.name.toLowerCase().trim() === curName)
+              );
+              if (matched && matched.role && (matched.role !== parsedCur.role || matched.desk !== parsedCur.desk)) {
+                const updatedProf = {
+                  ...parsedCur,
+                  role: matched.role,
+                  desk: matched.desk || getPrimaryDeskForRole(matched.role),
+                };
+                sessionStorage.setItem("isalu_staff_user_profile", JSON.stringify(updatedProf));
+                setCurrentUser(updatedProf);
+              }
+            } catch {}
+          }
         }
+        await loadRoles();
       } catch (err) {
         console.warn("syncBackendData error:", err);
       }
@@ -4793,9 +5027,42 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
     }
 
     const matchesHmo =
-      hmoProviderFilter === "all" ? true : b.hmoName === hmoProviderFilter;
+      hmoProviderFilter === "all"
+        ? true
+        : (() => {
+            const selectedHmo = hmoProviderFilter.toLowerCase().trim();
+            const bHmoName = (b.hmoName || b.hmo_name || b.hmoProvider || "").toLowerCase().trim();
+            return bHmoName === selectedHmo || bHmoName.includes(selectedHmo);
+          })();
 
-    return matchesStatus && matchesHmo;
+    const matchesClinic =
+      clinicFilter === "all"
+        ? true
+        : (() => {
+            const spec = (b.doctorSpecialty || b.doctor_specialty || "").toLowerCase();
+            const docId = b.doctorId || b.doctor_id || "";
+            const docObj = doctorsList.find((d) => d.doc_id === docId || d.id === docId);
+            const docDept = (docObj?.department_id || docObj?.departmentId || "").toLowerCase();
+            const docSpec = (docObj?.specialty || "").toLowerCase();
+            const selected = clinicFilter.toLowerCase();
+            const targetClinic = clinics.find(
+              (c) => (c.name || "").toLowerCase() === selected || (c.id || c.dept_id || "").toLowerCase() === selected
+            );
+            const targetName = (targetClinic?.name || selected).toLowerCase();
+            const targetId = (targetClinic?.id || targetClinic?.dept_id || selected).toLowerCase();
+
+            return (
+              spec.includes(targetName) ||
+              spec.includes(targetId) ||
+              docDept === targetId ||
+              docSpec.includes(targetName) ||
+              (targetId === "gynaecology" && (spec.includes("gynaec") || spec.includes("obs"))) ||
+              (targetId === "ent" && (spec.includes("ent") || spec.includes("ear"))) ||
+              (targetId === "pulmonology" && (spec.includes("pulmon") || spec.includes("chest")))
+            );
+          })();
+
+    return matchesStatus && matchesHmo && matchesClinic;
   });
 
   const totalHelpdeskPages = Math.ceil(filteredBookings.length / helpdeskItemsPerPage) || 1;
@@ -4831,7 +5098,7 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
   );
 
   // 5. Checked-In Consultation Patients Directory Pagination
-  const checkedInList = bookings.filter((b) => b.status === "Checked In");
+  const checkedInList = filteredBookings.filter((b) => b.status === "Checked In");
   const totalCheckedInPages = Math.ceil(checkedInList.length / checkedInItemsPerPage) || 1;
   const currentCheckedInPage = Math.min(checkedInCurrentPage, totalCheckedInPages);
   const paginatedCheckedInBookings = checkedInList.slice(
@@ -4840,7 +5107,7 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
   );
 
   // 6. HMO Enrollees Directory Pagination
-  const hmoEnrolleesList = bookings.filter((b) => b.paymentType === "HMO Insurance" || b.hmoName);
+  const hmoEnrolleesList = filteredBookings.filter((b) => b.paymentType === "HMO Insurance" || b.hmoName);
   const totalHmoEnrolleesPages = Math.ceil(hmoEnrolleesList.length / hmoEnrolleesItemsPerPage) || 1;
   const currentHmoEnrolleesPage = Math.min(hmoEnrolleesCurrentPage, totalHmoEnrolleesPages);
   const paginatedHmoEnrolleesBookings = hmoEnrolleesList.slice(
@@ -4849,7 +5116,7 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
   );
 
   // 7. Private Self-Pay Enrollees Directory Pagination
-  const privatePatientsList = bookings.filter((b) => b.paymentType === "Private Self-Pay" || !b.paymentType);
+  const privatePatientsList = filteredBookings.filter((b) => b.paymentType === "Private Self-Pay" || !b.paymentType || !b.paymentType.includes("HMO"));
   const totalPrivatePatientsPages = Math.ceil(privatePatientsList.length / privatePatientsItemsPerPage) || 1;
   const currentPrivatePatientsPage = Math.min(privatePatientsCurrentPage, totalPrivatePatientsPages);
   const paginatedPrivatePatientsBookings = privatePatientsList.slice(
@@ -5455,7 +5722,7 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
         )}
 
         {/* Search & Filter Bar */}
-        {["helpdesk", "hmo", "cashdesk"].includes(activeDesk) && (
+        {["helpdesk", "hmo", "cashdesk", "all_patients", "checked_in_patients", "hmo_enrollees", "private_patients"].includes(activeDesk) && (
           <div className="bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 rounded-3xl p-5 shadow-sm mb-6 flex flex-col md:flex-row gap-4 justify-between items-center">
             <div className="relative w-full md:w-96">
               <Search className="absolute left-3.5 top-3 h-4 w-4 text-slate-400" />
@@ -5469,6 +5736,32 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
             </div>
 
             <div className="flex flex-wrap gap-2.5 w-full md:w-auto">
+              <select
+                value={clinicFilter}
+                onChange={(e) => setClinicFilter(e.target.value)}
+                className="px-3.5 py-2.5 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-extrabold text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-[#008ac9]"
+              >
+                <option value="all">🏥 All Clinics & Departments</option>
+                {clinics.map((c) => (
+                  <option key={c.id || c.dept_id || c.name} value={c.name}>
+                    🏥 {c.name}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                value={hmoProviderFilter}
+                onChange={(e) => setHmoProviderFilter(e.target.value)}
+                className="px-3.5 py-2.5 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-extrabold text-purple-700 dark:text-purple-300 focus:ring-2 focus:ring-purple-500"
+              >
+                <option value="all">🛡️ All HMO Providers</option>
+                {hmoCompanies.map((hmo) => (
+                  <option key={hmo.id || hmo.hmo_id || hmo.name} value={hmo.name}>
+                    🛡️ {hmo.name}
+                  </option>
+                ))}
+              </select>
+
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
@@ -5506,29 +5799,15 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                   </>
                 )}
 
-                {activeDesk === "monitor" && (
+                {["all_patients", "checked_in_patients", "hmo_enrollees", "private_patients"].includes(activeDesk) && (
                   <>
-                    <option value="all">All Queue Statuses</option>
-                    <option value="today">📅 Today's Queue</option>
-                    <option value="completed">✅ Completed Consultations</option>
-                    <option value="hmo">🛡️ HMO Insurance Patients</option>
-                    <option value="private">💳 Private Self-Pay Patients</option>
+                    <option value="all">All Patient Records</option>
+                    <option value="today">📅 Today's Appointments</option>
+                    <option value="checked_in">🩺 Checked In</option>
+                    <option value="completed">Done / Completed</option>
                   </>
                 )}
               </select>
-
-              {activeDesk === "hmo" && (
-                <select
-                  value={hmoProviderFilter}
-                  onChange={(e) => setHmoProviderFilter(e.target.value)}
-                  className="px-3.5 py-2.5 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-extrabold text-slate-800 dark:text-slate-200"
-                >
-                  <option value="all">All HMO Providers</option>
-                  {hmoCompanies.map((hmo) => (
-                    <option key={hmo.id || hmo.name} value={hmo.name}>{hmo.name}</option>
-                  ))}
-                </select>
-              )}
             </div>
           </div>
         )}
@@ -6078,6 +6357,19 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
               </div>
 
               <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-2 w-full xl:w-auto">
+                <select
+                  value={clinicFilter}
+                  onChange={(e) => setClinicFilter(e.target.value)}
+                  className="px-3.5 py-2.5 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-extrabold text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-[#008ac9]"
+                >
+                  <option value="all">🏥 Filter Analytics by Clinic (All Clinics)</option>
+                  {clinics.map((c) => (
+                    <option key={c.id || c.dept_id || c.name} value={c.name}>
+                      🏥 {c.name}
+                    </option>
+                  ))}
+                </select>
+
                 <button
                   type="button"
                   onClick={() => handleGenerateAiReport("Generate Full Executive Board Report")}
@@ -7024,6 +7316,32 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                   </div>
 
                   <select
+                    value={clinicFilter}
+                    onChange={(e) => setClinicFilter(e.target.value)}
+                    className="w-full sm:w-auto px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-xs font-extrabold text-slate-800 dark:text-slate-200"
+                  >
+                    <option value="all">🏥 All Clinics</option>
+                    {clinics.map((c) => (
+                      <option key={c.id || c.dept_id || c.name} value={c.name}>
+                        🏥 {c.name}
+                      </option>
+                    ))}
+                  </select>
+
+                  <select
+                    value={hmoProviderFilter}
+                    onChange={(e) => setHmoProviderFilter(e.target.value)}
+                    className="w-full sm:w-auto px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-xs font-extrabold text-purple-700 dark:text-purple-300 focus:ring-2 focus:ring-purple-500"
+                  >
+                    <option value="all">🛡️ All HMO Providers</option>
+                    {hmoCompanies.map((hmo) => (
+                      <option key={hmo.id || hmo.hmo_id || hmo.name} value={hmo.name}>
+                        🛡️ {hmo.name}
+                      </option>
+                    ))}
+                  </select>
+
+                  <select
                     value={statusFilter}
                     onChange={(e) => setStatusFilter(e.target.value)}
                     className="w-full sm:w-auto px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-xs font-extrabold text-slate-800 dark:text-slate-200"
@@ -7300,15 +7618,15 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
         {/* 6. USER & STAFF MANAGEMENT MODULE VIEW */}
         {activeDesk === "users" && (
           <div className="space-y-6 animate-fadeIn">
-            {/* Header & Add User Button */}
+            {/* Header & Add User / Role Buttons */}
             <div className="bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
               <div>
-                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-sky-100 dark:bg-slate-800 text-[#008ac9] text-xs font-black border border-[#008ac9]/30 mb-2">
-                  <UserCog className="h-4 w-4" /> System Administration Module
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-purple-100 dark:bg-purple-950/70 text-purple-700 dark:text-purple-300 text-xs font-black border border-purple-300 mb-2">
+                  <ShieldCheck className="h-4 w-4" /> System Users & RBAC Roles Registry
                 </div>
-                <h2 className="text-2xl font-black text-slate-900 dark:text-white">Hospital Staff & User Accounts Management</h2>
+                <h2 className="text-2xl font-black text-slate-900 dark:text-white">Hospital Staff & User Roles Management</h2>
                 <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mt-0.5">
-                  Manage staff login accounts, grant operational permissions across Helpdesk, HMO Approval Desk, Cashdesk, and Monitor Desk.
+                  Manage staff login accounts and configure custom system roles with granular desk access permissions.
                 </p>
               </div>
 
@@ -7321,165 +7639,177 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                 </button>
                 <button
                   onClick={() => setShowAddUserModal(true)}
-                  className="px-5 py-3 bg-[#008ac9] hover:bg-[#0072b1] text-white font-black text-xs rounded-2xl shadow-lg shadow-[#008ac9]/25 transition-all flex items-center gap-2 border border-[#008ac9]"
+                  className="px-4 py-3 bg-[#008ac9] hover:bg-[#0072b1] text-white font-black text-xs rounded-2xl shadow-lg shadow-[#008ac9]/25 transition-all flex items-center gap-2 border border-[#008ac9]"
                 >
-                  <UserPlus className="h-4 w-4" /> + Add New System User
+                  <UserPlus className="h-4 w-4" /> + Add System User
                 </button>
                 <button
-                  type="button"
-                  onClick={exportSystemUsersToPDF}
-                  className="px-4 py-3 bg-sky-50 hover:bg-sky-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-[#008ac9] dark:text-sky-300 font-extrabold text-xs rounded-2xl border border-[#008ac9]/30 transition-all flex items-center gap-1.5 shadow-sm cursor-pointer"
-                  title="Export System User Accounts Directory to PDF"
+                  onClick={() => setShowCreateRoleModal(true)}
+                  className="px-4 py-3 bg-purple-600 hover:bg-purple-700 text-white font-black text-xs rounded-2xl shadow-lg shadow-purple-600/25 transition-all flex items-center gap-2 border border-purple-600"
                 >
-                  <Download className="h-4 w-4" />
-                  <span>Export PDF</span>
+                  <ShieldCheck className="h-4 w-4" /> + Create Custom Role
                 </button>
               </div>
             </div>
 
-            {/* Users Accounts List Grid */}
-            <div className="bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
-              <div className="flex flex-col md:flex-row md:items-center justify-between border-b-2 border-slate-100 dark:border-slate-800 pb-4 gap-4">
-                <div>
-                  <h3 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
-                    <Users className="h-5 w-5 text-[#008ac9]" /> Registered System Users & Staff Roster
-                  </h3>
-                  <p className="text-xs font-semibold text-slate-500 mt-0.5">
-                    Filter by role, search name/email, edit user details or toggle account access.
-                  </p>
+            {/* Sub-Tab Navigation Bar: User Accounts vs User Roles */}
+            <div className="flex items-center gap-2 border-b-2 border-slate-200 dark:border-slate-800 pb-1">
+              <button
+                type="button"
+                onClick={() => setUserSubTab("users")}
+                className={`px-5 py-2.5 rounded-2xl text-xs font-black transition-all flex items-center gap-2 border-2 ${
+                  userSubTab === "users"
+                    ? "bg-[#008ac9] text-white border-[#008ac9] shadow-md"
+                    : "bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:bg-slate-50"
+                }`}
+              >
+                <Users className="h-4 w-4" /> User Accounts Directory ({systemUsers.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setUserSubTab("roles")}
+                className={`px-5 py-2.5 rounded-2xl text-xs font-black transition-all flex items-center gap-2 border-2 ${
+                  userSubTab === "roles"
+                    ? "bg-purple-600 text-white border-purple-600 shadow-md"
+                    : "bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:bg-slate-50"
+                }`}
+              >
+                <ShieldCheck className="h-4 w-4" /> User Roles & Access Control Table ({roles.length})
+              </button>
+            </div>
+
+            {/* TAB 1: USER ACCOUNTS DIRECTORY */}
+            {userSubTab === "users" && (
+              <div className="bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
+                <div className="flex flex-col md:flex-row md:items-center justify-between border-b-2 border-slate-100 dark:border-slate-800 pb-4 gap-4">
+                  <div>
+                    <h3 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
+                      <Users className="h-5 w-5 text-[#008ac9]" /> Registered System Users & Staff Roster
+                    </h3>
+                    <p className="text-xs font-semibold text-slate-500 mt-0.5">
+                      Filter by role, search name/email, edit user details or toggle account access.
+                    </p>
+                  </div>
+                  <span className="px-3 py-1 rounded-full bg-sky-50 dark:bg-slate-800 text-[#008ac9] font-black text-xs border border-[#008ac9]/30 shrink-0">
+                    {filteredSystemUsers.length} Staff Accounts
+                  </span>
                 </div>
-                <span className="px-3 py-1 rounded-full bg-sky-50 dark:bg-slate-800 text-[#008ac9] font-black text-xs border border-[#008ac9]/30 shrink-0">
-                  {filteredSystemUsers.length} Staff Accounts
-                </span>
-              </div>
 
-              {/* Search & Filter Toolbar */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3 bg-slate-50 dark:bg-slate-950/70 rounded-2xl border border-slate-200 dark:border-slate-800">
-                <div className="relative">
-                  <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400 pointer-events-none" />
-                  <input
-                    type="text"
-                    placeholder="Search staff name, email, role, desk..."
-                    value={userSearchQuery}
-                    onChange={(e) => setUserSearchQuery(e.target.value)}
-                    className="w-full pl-9 pr-3 py-2 text-xs font-bold rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-[#008ac9]"
-                  />
+                {/* Search & Filter Toolbar */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3 bg-slate-50 dark:bg-slate-950/70 rounded-2xl border border-slate-200 dark:border-slate-800">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400 pointer-events-none" />
+                    <input
+                      type="text"
+                      placeholder="Search staff name, email, role, desk..."
+                      value={userSearchQuery}
+                      onChange={(e) => setUserSearchQuery(e.target.value)}
+                      className="w-full pl-9 pr-3 py-2 text-xs font-bold rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-[#008ac9]"
+                    />
+                  </div>
+
+                  <div>
+                    <select
+                      value={userRoleFilter}
+                      onChange={(e) => setUserRoleFilter(e.target.value)}
+                      className="w-full px-3 py-2 text-xs font-bold rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-[#008ac9]"
+                    >
+                      <option value="all">All Roles</option>
+                      {roles.map((r: any) => (
+                        <option key={r.id || r.role_id || r.name} value={r.name}>{r.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <select
+                      value={userStatusFilter}
+                      onChange={(e) => setUserStatusFilter(e.target.value)}
+                      className="w-full px-3 py-2 text-xs font-bold rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-[#008ac9]"
+                    >
+                      <option value="all">All Statuses (Active & Disabled)</option>
+                      <option value="active">Active Staff Accounts Only ✓</option>
+                      <option value="disabled">Disabled Accounts Only 🚫</option>
+                    </select>
+                  </div>
                 </div>
 
-                <div>
-                  <select
-                    value={userRoleFilter}
-                    onChange={(e) => setUserRoleFilter(e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-bold rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-[#008ac9]"
-                  >
-                    <option value="all">All Roles</option>
-                    <option value="administrator">Super / Hospital Administrator</option>
-                    <option value="helpdesk">Helpdesk Officer</option>
-                    <option value="hmo">HMO Approval Officer</option>
-                    <option value="cashdesk">Cashdesk Billing Officer</option>
-                    <option value="monitor">Monitor Operator</option>
-                  </select>
-                </div>
-
-                <div>
-                  <select
-                    value={userStatusFilter}
-                    onChange={(e) => setUserStatusFilter(e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-bold rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-[#008ac9]"
-                  >
-                    <option value="all">All Statuses (Active & Disabled)</option>
-                    <option value="active">Active Staff Accounts Only ✓</option>
-                    <option value="disabled">Disabled Accounts Only 🚫</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs font-bold">
-                  <thead>
-                    <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-400 uppercase text-[10px] tracking-wider">
-                      <th className="pb-3 px-3">Staff Name</th>
-                      <th className="pb-3 px-3">Email Address / Username</th>
-                      <th className="pb-3 px-3">Assigned System Role</th>
-                      <th className="pb-3 px-3">Primary Desk Access</th>
-                      <th className="pb-3 px-3">Account Status</th>
-                      <th className="pb-3 px-3">Last Active</th>
-                      <th className="pb-3 px-3 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                    {paginatedUsersList.map((u) => (
-                      <tr key={u.id} className="hover:bg-slate-50 dark:hover:bg-slate-950/60 transition-colors">
-                        <td className="py-4 px-3 font-black text-slate-900 dark:text-white">
-                          <div className="flex items-center gap-2.5">
-                            <div className="p-2 rounded-xl bg-sky-100 dark:bg-slate-800 text-[#008ac9] font-black">
-                              <User className="h-4 w-4" />
-                            </div>
-                            <span>{u.name}</span>
-                          </div>
-                        </td>
-                        <td className="py-4 px-3 font-extrabold text-slate-600 dark:text-slate-300">
-                          {u.email}
-                        </td>
-                        <td className="py-4 px-3">
-                          <span className={`px-2.5 py-1 rounded-xl text-[11px] font-black inline-block ${
-                            u.role === "Super Administrator"
-                              ? "bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300 border border-purple-300"
-                              : u.role === "Helpdesk Officer"
-                              ? "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300 border border-sky-300"
-                              : u.role === "HMO Approval Officer"
-                              ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300"
-                              : u.role === "Cashdesk Billing Officer"
-                              ? "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300"
-                              : "bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-200 border border-slate-300"
-                          }`}>
-                            {u.role}
-                          </span>
-                        </td>
-                        <td className="py-4 px-3 font-bold text-slate-700 dark:text-slate-300">
-                          {u.desk}
-                        </td>
-                        <td className="py-4 px-3">
-                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black ${
-                            u.status === "Active"
-                              ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300"
-                              : "bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300 border border-rose-300"
-                          }`}>
-                            {u.status === "Active" ? "Active ✓" : "Disabled 🚫"}
-                          </span>
-                        </td>
-                        <td className="py-4 px-3 text-slate-500 font-semibold text-[11px]">
-                          {u.lastActive}
-                        </td>
-                        <td className="py-4 px-3 text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            <button
-                              onClick={() => handleStartEditUser(u)}
-                              title="Edit User Details & Password"
-                              className="px-2.5 py-1 rounded-xl text-[11px] font-black transition-all border bg-sky-50 hover:bg-sky-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-[#008ac9] border-sky-300 dark:border-slate-700 flex items-center gap-1.5 shadow-sm"
-                            >
-                              <Pencil className="h-3.5 w-3.5" />
-                              <span>Edit</span>
-                            </button>
-
-                            {u.role !== "Super Administrator" ? (
-                              <button
-                                onClick={() => handleRequestToggleUserDisable(u)}
-                                className={`px-3 py-1 rounded-xl text-[11px] font-black transition-all border ${
-                                  u.status === "Active"
-                                    ? "bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-300"
-                                    : "bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300"
-                                }`}
-                              >
-                                {u.status === "Active" ? "Disable" : "Enable"}
-                              </button>
-                            ) : (
-                              <span className="text-[11px] font-bold text-slate-400 italic px-2">Protected</span>
-                            )}
-                          </div>
-                        </td>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs font-bold">
+                    <thead>
+                      <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-400 uppercase text-[10px] tracking-wider">
+                        <th className="pb-3 px-3">Staff Name</th>
+                        <th className="pb-3 px-3">Email Address / Username</th>
+                        <th className="pb-3 px-3">Assigned System Role</th>
+                        <th className="pb-3 px-3">Primary Desk Access</th>
+                        <th className="pb-3 px-3">Account Status</th>
+                        <th className="pb-3 px-3">Last Active</th>
+                        <th className="pb-3 px-3 text-right">Actions</th>
                       </tr>
-                    ))}
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                      {paginatedUsersList.map((u) => (
+                        <tr key={u.id} className="hover:bg-slate-50 dark:hover:bg-slate-950/60 transition-colors">
+                          <td className="py-4 px-3 font-black text-slate-900 dark:text-white">
+                            <div className="flex items-center gap-2.5">
+                              <div className="p-2 rounded-xl bg-sky-100 dark:bg-slate-800 text-[#008ac9] font-black">
+                                <User className="h-4 w-4" />
+                              </div>
+                              <span>{u.name}</span>
+                            </div>
+                          </td>
+                          <td className="py-4 px-3 font-extrabold text-slate-600 dark:text-slate-300">
+                            {u.email}
+                          </td>
+                          <td className="py-4 px-3">
+                            <span className="px-2.5 py-1 rounded-xl text-[11px] font-black inline-block bg-sky-100 text-sky-800 dark:bg-slate-800 dark:text-sky-300 border border-sky-300 dark:border-slate-700">
+                              {u.role}
+                            </span>
+                          </td>
+                          <td className="py-4 px-3 font-bold text-slate-700 dark:text-slate-300">
+                            {u.desk}
+                          </td>
+                          <td className="py-4 px-3">
+                            <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black ${
+                              u.status === "Active"
+                                ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300"
+                                : "bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300 border border-rose-300"
+                            }`}>
+                              {u.status === "Active" ? "Active ✓" : "Disabled 🚫"}
+                            </span>
+                          </td>
+                          <td className="py-4 px-3 text-slate-500 font-semibold text-[11px]">
+                            {u.lastActive}
+                          </td>
+                          <td className="py-4 px-3 text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <button
+                                onClick={() => handleStartEditUser(u)}
+                                title="Edit User Details & Password"
+                                className="px-2.5 py-1 rounded-xl text-[11px] font-black transition-all border bg-sky-50 hover:bg-sky-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-[#008ac9] border-sky-300 dark:border-slate-700 flex items-center gap-1.5 shadow-sm"
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                                <span>Edit</span>
+                              </button>
+
+                              {u.role !== "Super Administrator" ? (
+                                <button
+                                  onClick={() => handleRequestToggleUserDisable(u)}
+                                  className={`px-3 py-1 rounded-xl text-[11px] font-black transition-all border ${
+                                    u.status === "Active"
+                                      ? "bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-300"
+                                      : "bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300"
+                                  }`}
+                                >
+                                  {u.status === "Active" ? "Disable" : "Enable"}
+                                </button>
+                              ) : (
+                                <span className="text-[11px] font-bold text-slate-400 italic px-2">Protected</span>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
                   </tbody>
                 </table>
               </div>
@@ -7493,7 +7823,103 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                 (val) => { setUsersDirItemsPerPage(val); setUsersDirCurrentPage(1); },
                 "user accounts"
               )}
-            </div>
+              </div>
+            )}
+
+            {/* TAB 2: ROLES & ACCESS CONTROL REGISTRY */}
+            {userSubTab === "roles" && (
+              <div className="bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
+                <div className="flex items-center justify-between border-b-2 border-slate-100 dark:border-slate-800 pb-4">
+                  <div>
+                    <h3 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
+                      <ShieldCheck className="h-5 w-5 text-purple-600" /> Defined System & Custom Roles Table
+                    </h3>
+                    <p className="text-xs font-semibold text-slate-500 mt-0.5">
+                      Configure role names, descriptions, primary desk navigation, and allowed desk permissions.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowCreateRoleModal(true)}
+                    className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-black text-xs rounded-xl shadow-md flex items-center gap-1.5"
+                  >
+                    <Plus className="h-4 w-4" /> Create Role
+                  </button>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs font-bold">
+                    <thead>
+                      <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-400 uppercase text-[10px] tracking-wider">
+                        <th className="pb-3 px-3">Role Title</th>
+                        <th className="pb-3 px-3">Type</th>
+                        <th className="pb-3 px-3">Description</th>
+                        <th className="pb-3 px-3">Primary Desk</th>
+                        <th className="pb-3 px-3">Allowed Desk Access</th>
+                        <th className="pb-3 px-3 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                      {roles.map((r: any) => {
+                        const allowed = r.allowedDesks || r.allowed_desks || [];
+                        const isSystem = r.isSystemRole || r.is_system_role;
+                        return (
+                          <tr key={r.id || r.role_id} className="hover:bg-slate-50 dark:hover:bg-slate-950/60 transition-colors">
+                            <td className="py-4 px-3 font-black text-slate-900 dark:text-white">
+                              {r.name}
+                            </td>
+                            <td className="py-4 px-3">
+                              <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black ${
+                                isSystem
+                                  ? "bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300 border border-purple-300"
+                                  : "bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-300 border border-teal-300"
+                              }`}>
+                                {isSystem ? "Built-in System Role 🛡️" : "Custom Role ✨"}
+                              </span>
+                            </td>
+                            <td className="py-4 px-3 text-slate-600 dark:text-slate-400 font-medium text-xs max-w-xs">
+                              {r.description || "No description provided."}
+                            </td>
+                            <td className="py-4 px-3 font-extrabold text-[#008ac9]">
+                              {r.primaryDesk || r.primary_desk || "helpdesk"}
+                            </td>
+                            <td className="py-4 px-3">
+                              <div className="flex flex-wrap gap-1">
+                                {allowed.map((d: string) => (
+                                  <span key={d} className="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-md text-[10px] font-bold border border-slate-200 dark:border-slate-700">
+                                    {d}
+                                  </span>
+                                ))}
+                              </div>
+                            </td>
+                            <td className="py-4 px-3 text-right">
+                              <div className="flex items-center justify-end gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => handleStartEditRole(r)}
+                                  className="px-2.5 py-1 rounded-xl text-[11px] font-black bg-sky-50 text-[#008ac9] border border-sky-300 hover:bg-sky-100 flex items-center gap-1"
+                                >
+                                  <Pencil className="h-3.5 w-3.5" /> Edit
+                                </button>
+                                {!isSystem && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteRole(r)}
+                                    className="px-2.5 py-1 rounded-xl text-[11px] font-black bg-rose-50 text-rose-700 border border-rose-300 hover:bg-rose-100 flex items-center gap-1"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" /> Delete
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -8420,8 +8846,8 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                     className="w-full px-3 py-2 text-xs font-bold rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-[#008ac9]"
                   >
                     <option value="all">All Specialties / Departments</option>
-                    {DEPARTMENTS.map((dept) => (
-                      <option key={dept.id} value={dept.name}>
+                    {clinics.map((dept) => (
+                      <option key={dept.id || dept.dept_id || dept.name} value={dept.name}>
                         {dept.name}
                       </option>
                     ))}
@@ -8705,8 +9131,8 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                     className="w-full px-3 py-2 text-xs font-bold rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-[#008ac9]"
                   >
                     <option value="all">All Specialties / Departments</option>
-                    {DEPARTMENTS.map((dept) => (
-                      <option key={dept.id} value={dept.id}>
+                    {clinics.map((dept) => (
+                      <option key={dept.id || dept.dept_id || dept.name} value={dept.id || dept.dept_id || dept.name}>
                         {dept.name}
                       </option>
                     ))}
@@ -10806,14 +11232,33 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
         {/* Modal: Add New System User */}
         {showAddUserModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
-            <div className="bg-white dark:bg-slate-900 border-2 border-[#008ac9] rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl space-y-4">
+            <div className="bg-white dark:bg-slate-900 border-2 border-[#008ac9] rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl space-y-4 relative overflow-hidden">
+              {/* Preloader Overlay when creating system user */}
+              {isCreatingUser && (
+                <div className="absolute inset-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md rounded-3xl z-30 flex flex-col items-center justify-center p-6 text-center space-y-4 animate-fadeIn">
+                  <div className="relative flex items-center justify-center">
+                    <div className="absolute inset-0 rounded-full bg-[#008ac9]/20 animate-ping" />
+                    <div className="relative p-4 bg-sky-50 dark:bg-slate-800 rounded-3xl border-2 border-[#008ac9]/40 shadow-xl">
+                      <RefreshCw className="h-8 w-8 text-[#008ac9] animate-spin" />
+                    </div>
+                  </div>
+                  <div className="space-y-1 max-w-xs">
+                    <h4 className="text-base font-black text-slate-900 dark:text-white">Creating System User Account...</h4>
+                    <p className="text-xs font-bold text-slate-500">
+                      Saving staff credentials to Django User table & linking <span className="text-[#008ac9] font-black">{newUserRole}</span> permissions...
+                    </p>
+                  </div>
+                </div>
+              )}
+
               <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-3">
                 <h3 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
                   <UserPlus className="h-5 w-5 text-[#008ac9]" /> Add New System User
                 </h3>
                 <button
+                  disabled={isCreatingUser}
                   onClick={() => setShowAddUserModal(false)}
-                  className="text-slate-400 hover:text-slate-600 font-bold text-lg"
+                  className="text-slate-400 hover:text-slate-600 font-bold text-lg disabled:opacity-50"
                 >
                   ✕
                 </button>
@@ -10832,10 +11277,11 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                   <input
                     type="text"
                     required
+                    disabled={isCreatingUser}
                     placeholder="e.g. Dr. Samuel Adebayo"
                     value={newUserName}
                     onChange={(e) => setNewUserName(e.target.value)}
-                    className="w-full p-3 rounded-xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white font-bold text-xs focus:ring-2 focus:ring-[#008ac9]"
+                    className="w-full p-3 rounded-xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white font-bold text-xs focus:ring-2 focus:ring-[#008ac9] disabled:opacity-60"
                   />
                 </div>
 
@@ -10844,10 +11290,11 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                   <input
                     type="email"
                     required
+                    disabled={isCreatingUser}
                     placeholder="e.g. samuel@isaluhospitals.com"
                     value={newUserEmail}
                     onChange={(e) => setNewUserEmail(e.target.value)}
-                    className="w-full p-3 rounded-xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white font-bold text-xs focus:ring-2 focus:ring-[#008ac9]"
+                    className="w-full p-3 rounded-xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white font-bold text-xs focus:ring-2 focus:ring-[#008ac9] disabled:opacity-60"
                   />
                 </div>
 
@@ -10864,18 +11311,20 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                     <input
                       type={showNewUserPassword ? "text" : "password"}
                       required
+                      disabled={isCreatingUser}
                       placeholder="••••••••"
                       value={newUserPassword}
                       onChange={(e) => {
                         setNewUserPassword(e.target.value);
                         setUserFormError("");
                       }}
-                      className="w-full p-3 pr-10 rounded-xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white font-bold text-xs focus:ring-2 focus:ring-[#008ac9]"
+                      className="w-full p-3 pr-10 rounded-xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white font-bold text-xs focus:ring-2 focus:ring-[#008ac9] disabled:opacity-60"
                     />
                     <button
                       type="button"
+                      disabled={isCreatingUser}
                       onClick={() => setShowNewUserPassword(!showNewUserPassword)}
-                      className="absolute right-3 top-3 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                      className="absolute right-3 top-3 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 disabled:opacity-50"
                     >
                       {showNewUserPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
@@ -10921,18 +11370,20 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                     <input
                       type={showNewUserConfirmPassword ? "text" : "password"}
                       required
+                      disabled={isCreatingUser}
                       placeholder="••••••••"
                       value={newUserConfirmPassword}
                       onChange={(e) => {
                         setNewUserConfirmPassword(e.target.value);
                         setUserFormError("");
                       }}
-                      className="w-full p-3 pr-10 rounded-xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white font-bold text-xs focus:ring-2 focus:ring-[#008ac9]"
+                      className="w-full p-3 pr-10 rounded-xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white font-bold text-xs focus:ring-2 focus:ring-[#008ac9] disabled:opacity-60"
                     />
                     <button
                       type="button"
+                      disabled={isCreatingUser}
                       onClick={() => setShowNewUserConfirmPassword(!showNewUserConfirmPassword)}
-                      className="absolute right-3 top-3 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                      className="absolute right-3 top-3 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 disabled:opacity-50"
                     >
                       {showNewUserConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
@@ -10943,30 +11394,42 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                   <label className="text-xs font-black text-slate-900 dark:text-white mb-1 block">Assigned Staff Role *</label>
                   <select
                     value={newUserRole}
+                    disabled={isCreatingUser}
                     onChange={(e) => setNewUserRole(e.target.value)}
-                    className="w-full p-3 rounded-xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white font-bold text-xs focus:ring-2 focus:ring-[#008ac9]"
+                    className="w-full p-3 rounded-xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white font-bold text-xs focus:ring-2 focus:ring-[#008ac9] disabled:opacity-60"
                   >
-                    <option value="Helpdesk Officer">Helpdesk Officer (Reception)</option>
-                    <option value="HMO Approval Officer">HMO Approval Officer</option>
-                    <option value="Cashdesk Billing Officer">Cashdesk Billing Officer</option>
-                    <option value="Monitor Desk Operator">Monitor Desk Operator</option>
-                    <option value="Hospital Administrator">Hospital Administrator</option>
+                    {roles.map((r: any) => (
+                      <option key={r.id || r.role_id || r.name} value={r.name}>
+                        {r.name} ({r.primaryDesk || r.primary_desk || "desk"})
+                      </option>
+                    ))}
                   </select>
                 </div>
 
                 <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
                   <button
                     type="button"
+                    disabled={isCreatingUser}
                     onClick={() => setShowAddUserModal(false)}
-                    className="px-4 py-2.5 rounded-xl border border-slate-300 text-xs font-bold text-slate-700 dark:text-slate-300"
+                    className="px-4 py-2.5 rounded-xl border border-slate-300 text-xs font-bold text-slate-700 dark:text-slate-300 disabled:opacity-50"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    className="px-5 py-2.5 bg-[#008ac9] hover:bg-[#0072b1] text-white font-black text-xs rounded-xl shadow-md flex items-center gap-1.5"
+                    disabled={isCreatingUser}
+                    className="px-5 py-2.5 bg-[#008ac9] hover:bg-[#0072b1] text-white font-black text-xs rounded-xl shadow-md flex items-center gap-1.5 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
                   >
-                    <UserPlus className="h-4 w-4" /> Create User Account
+                    {isCreatingUser ? (
+                      <>
+                        <RefreshCw className="h-4 w-4 animate-spin text-white" />
+                        <span>Creating User Account...</span>
+                      </>
+                    ) : (
+                      <>
+                        <UserPlus className="h-4 w-4" /> Create User Account
+                      </>
+                    )}
                   </button>
                 </div>
               </form>
@@ -11058,11 +11521,11 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                     onChange={(e) => setEditUserRole(e.target.value)}
                     className="w-full p-3 rounded-xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white font-bold text-xs focus:ring-2 focus:ring-[#008ac9]"
                   >
-                    <option value="Helpdesk Officer">Helpdesk Officer (Reception)</option>
-                    <option value="HMO Approval Officer">HMO Approval Officer</option>
-                    <option value="Cashdesk Billing Officer">Cashdesk Billing Officer</option>
-                    <option value="Monitor Desk Operator">Monitor Desk Operator</option>
-                    <option value="Hospital Administrator">Hospital Administrator</option>
+                    {roles.map((r: any) => (
+                      <option key={r.id || r.role_id || r.name} value={r.name}>
+                        {r.name} ({r.primaryDesk || r.primary_desk || "desk"})
+                      </option>
+                    ))}
                   </select>
                 </div>
 
@@ -11079,6 +11542,234 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                     className="px-5 py-2.5 bg-[#008ac9] hover:bg-[#0072b1] text-white font-black text-xs rounded-xl shadow-md flex items-center gap-1.5"
                   >
                     <CheckCircle2 className="h-4 w-4" /> Save Account Changes
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Modal: Create New Custom Role */}
+        {showCreateRoleModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
+            <div className="bg-white dark:bg-slate-900 border-2 border-purple-600 rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl space-y-4">
+              <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-3">
+                <h3 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
+                  <ShieldCheck className="h-5 w-5 text-purple-600" /> Create Custom Role
+                </h3>
+                <button
+                  onClick={() => setShowCreateRoleModal(false)}
+                  className="text-slate-400 hover:text-slate-600 font-bold text-lg cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <form onSubmit={handleCreateRole} className="space-y-3.5">
+                {roleFormError && (
+                  <div className="p-3 bg-rose-50 dark:bg-rose-950/80 text-rose-700 dark:text-rose-300 text-xs font-bold rounded-xl border border-rose-300 flex items-center gap-2">
+                    <AlertCircle className="h-4 w-4 text-rose-500 shrink-0" />
+                    <span>{roleFormError}</span>
+                  </div>
+                )}
+
+                <div>
+                  <label className="text-xs font-black text-slate-900 dark:text-white mb-1 block">Role Name / Title *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Pediatrics Intake Nurse"
+                    value={newRoleName}
+                    onChange={(e) => setNewRoleName(e.target.value)}
+                    className="w-full p-3 rounded-xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white font-bold text-xs focus:ring-2 focus:ring-purple-600"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-black text-slate-900 dark:text-white mb-1 block">Role Description</label>
+                  <textarea
+                    rows={2}
+                    placeholder="Describe duty scope and operational access for this role..."
+                    value={newRoleDescription}
+                    onChange={(e) => setNewRoleDescription(e.target.value)}
+                    className="w-full p-3 rounded-xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white font-bold text-xs focus:ring-2 focus:ring-purple-600"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-black text-slate-900 dark:text-white mb-1 block">Primary Desk Access *</label>
+                  <select
+                    value={newRolePrimaryDesk}
+                    onChange={(e) => setNewRolePrimaryDesk(e.target.value)}
+                    className="w-full p-3 rounded-xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white font-bold text-xs focus:ring-2 focus:ring-purple-600"
+                  >
+                    <option value="helpdesk">Helpdesk Reception Desk</option>
+                    <option value="hmo">HMO Approval Desk</option>
+                    <option value="cashdesk">Cashdesk Invoicing Desk</option>
+                    <option value="monitor">Queue Monitor Desk</option>
+                    <option value="analytics">Executive Analytics Desk</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs font-black text-slate-900 dark:text-white mb-1 block">Allowed Desks Permissions</label>
+                  <div className="grid grid-cols-2 gap-2 text-xs font-bold p-3 bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800">
+                    {[
+                      { id: "helpdesk", label: "Helpdesk Reception" },
+                      { id: "hmo", label: "HMO Approval" },
+                      { id: "cashdesk", label: "Cashdesk Billing" },
+                      { id: "monitor", label: "Queue Monitor" },
+                      { id: "analytics", label: "Executive Analytics" },
+                      { id: "all_patients", label: "Master Patients Directory" },
+                      { id: "checked_in_patients", label: "Checked-In Queue" },
+                      { id: "hmo_enrollees", label: "HMO Enrollees" },
+                      { id: "private_patients", label: "Private Self-Pay" },
+                    ].map((item) => (
+                      <label key={item.id} className="flex items-center gap-1.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={newRoleAllowedDesks.includes(item.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setNewRoleAllowedDesks([...newRoleAllowedDesks, item.id]);
+                            } else {
+                              setNewRoleAllowedDesks(newRoleAllowedDesks.filter((d) => d !== item.id));
+                            }
+                          }}
+                          className="rounded text-purple-600 focus:ring-purple-500"
+                        />
+                        <span className="text-[11px] font-bold text-slate-800 dark:text-slate-200">{item.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setShowCreateRoleModal(false)}
+                    className="px-4 py-2.5 rounded-xl border border-slate-300 text-xs font-bold text-slate-700 dark:text-slate-300"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white font-black text-xs rounded-xl shadow-md flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <ShieldCheck className="h-4 w-4" /> Save Role
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Modal: Edit Role Details & Permissions */}
+        {editingRole && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
+            <div className="bg-white dark:bg-slate-900 border-2 border-purple-600 rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl space-y-4">
+              <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-3">
+                <h3 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
+                  <Pencil className="h-5 w-5 text-purple-600" /> Edit Role: {editingRole.name}
+                </h3>
+                <button
+                  onClick={() => setEditingRole(null)}
+                  className="text-slate-400 hover:text-slate-600 font-bold text-lg cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <form onSubmit={handleSaveEditRole} className="space-y-3.5">
+                {editRoleError && (
+                  <div className="p-3 bg-rose-50 dark:bg-rose-950/80 text-rose-700 dark:text-rose-300 text-xs font-bold rounded-xl border border-rose-300 flex items-center gap-2">
+                    <AlertCircle className="h-4 w-4 text-rose-500 shrink-0" />
+                    <span>{editRoleError}</span>
+                  </div>
+                )}
+
+                <div>
+                  <label className="text-xs font-black text-slate-900 dark:text-white mb-1 block">Role Name / Title *</label>
+                  <input
+                    type="text"
+                    required
+                    value={editRoleName}
+                    onChange={(e) => setEditRoleName(e.target.value)}
+                    className="w-full p-3 rounded-xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white font-bold text-xs focus:ring-2 focus:ring-purple-600"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-black text-slate-900 dark:text-white mb-1 block">Role Description</label>
+                  <textarea
+                    rows={2}
+                    value={editRoleDescription}
+                    onChange={(e) => setEditRoleDescription(e.target.value)}
+                    className="w-full p-3 rounded-xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white font-bold text-xs focus:ring-2 focus:ring-purple-600"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-black text-slate-900 dark:text-white mb-1 block">Primary Desk Access *</label>
+                  <select
+                    value={editRolePrimaryDesk}
+                    onChange={(e) => setEditRolePrimaryDesk(e.target.value)}
+                    className="w-full p-3 rounded-xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white font-bold text-xs focus:ring-2 focus:ring-purple-600"
+                  >
+                    <option value="helpdesk">Helpdesk Reception Desk</option>
+                    <option value="hmo">HMO Approval Desk</option>
+                    <option value="cashdesk">Cashdesk Invoicing Desk</option>
+                    <option value="monitor">Queue Monitor Desk</option>
+                    <option value="analytics">Executive Analytics Desk</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs font-black text-slate-900 dark:text-white mb-1 block">Allowed Desks Permissions</label>
+                  <div className="grid grid-cols-2 gap-2 text-xs font-bold p-3 bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800">
+                    {[
+                      { id: "helpdesk", label: "Helpdesk Reception" },
+                      { id: "hmo", label: "HMO Approval" },
+                      { id: "cashdesk", label: "Cashdesk Billing" },
+                      { id: "monitor", label: "Queue Monitor" },
+                      { id: "analytics", label: "Executive Analytics" },
+                      { id: "all_patients", label: "Master Patients Directory" },
+                      { id: "checked_in_patients", label: "Checked-In Queue" },
+                      { id: "hmo_enrollees", label: "HMO Enrollees" },
+                      { id: "private_patients", label: "Private Self-Pay" },
+                    ].map((item) => (
+                      <label key={item.id} className="flex items-center gap-1.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={editRoleAllowedDesks.includes(item.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setEditRoleAllowedDesks([...editRoleAllowedDesks, item.id]);
+                            } else {
+                              setEditRoleAllowedDesks(editRoleAllowedDesks.filter((d) => d !== item.id));
+                            }
+                          }}
+                          className="rounded text-purple-600 focus:ring-purple-500"
+                        />
+                        <span className="text-[11px] font-bold text-slate-800 dark:text-slate-200">{item.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setEditingRole(null)}
+                    className="px-4 py-2.5 rounded-xl border border-slate-300 text-xs font-bold text-slate-700 dark:text-slate-300"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white font-black text-xs rounded-xl shadow-md flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Pencil className="h-4 w-4" /> Save Role Changes
                   </button>
                 </div>
               </form>

@@ -74,8 +74,22 @@ export function DoctorsPage() {
     const isDeptNeuro = selectedDept.toLowerCase().includes("neuro") || deptNameLower.includes("neuro");
     const isDeptUro = (selectedDept.toLowerCase().includes("urol") || deptNameLower.includes("urol")) && !isDeptNeuro;
 
-    let matchesDept = doc.departmentId === selectedDept || doc.department_id === selectedDept;
-    if (!matchesDept) {
+    let rawDeptId = "";
+    if (typeof doc.department === "string") rawDeptId = doc.department;
+    else if (doc.department && typeof doc.department === "object") rawDeptId = doc.department.dept_id || doc.department.id || doc.department.name || "";
+    if (!rawDeptId && doc.departmentId) rawDeptId = String(doc.departmentId);
+    if (!rawDeptId && doc.department_id) rawDeptId = String(doc.department_id);
+
+    const docDeptId = rawDeptId.toLowerCase().trim();
+    const targetDeptId = selectedDept.toLowerCase().trim();
+
+    let matchesDept = false;
+    if (docDeptId) {
+      matchesDept =
+        docDeptId === targetDeptId ||
+        (docDeptId === "general-physician" && targetDeptId === "general") ||
+        (docDeptId === "general" && targetDeptId === "general-physician");
+    } else {
       if (isDeptUro) matchesDept = isDocUro;
       else if (isDeptNeuro) matchesDept = isDocNeuro;
       else {

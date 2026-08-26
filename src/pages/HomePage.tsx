@@ -571,10 +571,22 @@ export function HomePage() {
     const dName = String(deptName).toLowerCase().trim();
 
     const matched = allDoctors.filter((doc: any) => {
-      const docDeptId = String(doc.departmentId || doc.department_id || doc.department || "").toLowerCase().trim();
+      let rawDeptId = "";
+      if (typeof doc.department === "string") rawDeptId = doc.department;
+      else if (doc.department && typeof doc.department === "object") rawDeptId = doc.department.dept_id || doc.department.id || doc.department.name || "";
+      if (!rawDeptId && doc.departmentId) rawDeptId = String(doc.departmentId);
+      if (!rawDeptId && doc.department_id) rawDeptId = String(doc.department_id);
+
+      const docDeptId = rawDeptId.toLowerCase().trim();
       const docSpec = String(doc.specialty || "").toLowerCase().trim();
 
-      if (docDeptId && (docDeptId === dId || docDeptId.includes(dId) || dId.includes(docDeptId))) return true;
+      const cleanDocDeptId = docDeptId.replace(/[^a-z0-9]/g, "");
+      const cleanDId = dId.replace(/[^a-z0-9]/g, "");
+      const cleanDName = dName.replace(/[^a-z0-9]/g, "");
+
+      if (cleanDocDeptId) {
+        return cleanDocDeptId === cleanDId || cleanDocDeptId === cleanDName;
+      }
       if (docSpec && (docSpec.includes(dName) || dName.includes(docSpec))) return true;
       return false;
     });
@@ -592,10 +604,22 @@ export function HomePage() {
       const active = !doc.status || doc.status === "Active" || !doc.status.includes("Disabled");
       if (!active) return false;
 
-      const docDeptId = String(doc.departmentId || doc.department_id || doc.department || "").toLowerCase().trim();
+      let rawDeptId = "";
+      if (typeof doc.department === "string") rawDeptId = doc.department;
+      else if (doc.department && typeof doc.department === "object") rawDeptId = doc.department.dept_id || doc.department.id || doc.department.name || "";
+      if (!rawDeptId && doc.departmentId) rawDeptId = String(doc.departmentId);
+      if (!rawDeptId && doc.department_id) rawDeptId = String(doc.department_id);
+
+      const docDeptId = rawDeptId.toLowerCase().trim();
       const docSpec = String(doc.specialty || "").toLowerCase().trim();
 
-      if (docDeptId && (docDeptId === dId || docDeptId.includes(dId) || dId.includes(docDeptId))) return true;
+      const cleanDocDeptId = docDeptId.replace(/[^a-z0-9]/g, "");
+      const cleanDId = dId.replace(/[^a-z0-9]/g, "");
+      const cleanDName = dName.replace(/[^a-z0-9]/g, "");
+
+      if (cleanDocDeptId) {
+        return cleanDocDeptId === cleanDId || cleanDocDeptId === cleanDName;
+      }
       if (docSpec && (docSpec.includes(dName) || dName.includes(docSpec))) return true;
       return false;
     });
@@ -680,10 +704,22 @@ export function HomePage() {
       const active = !doc.status || doc.status === "Active" || !doc.status.includes("Disabled");
       if (!active) return false;
 
-      const docDeptId = String(doc.departmentId || doc.department_id || doc.department || "").toLowerCase().trim();
+      let rawDeptId = "";
+      if (typeof doc.department === "string") rawDeptId = doc.department;
+      else if (doc.department && typeof doc.department === "object") rawDeptId = doc.department.dept_id || doc.department.id || doc.department.name || "";
+      if (!rawDeptId && doc.departmentId) rawDeptId = String(doc.departmentId);
+      if (!rawDeptId && doc.department_id) rawDeptId = String(doc.department_id);
+
+      const docDeptId = rawDeptId.toLowerCase().trim();
       const docSpec = String(doc.specialty || "").toLowerCase().trim();
 
-      if (docDeptId && (docDeptId === dId || docDeptId.includes(dId) || dId.includes(docDeptId))) return true;
+      const cleanDocDeptId = docDeptId.replace(/[^a-z0-9]/g, "");
+      const cleanDId = dId.replace(/[^a-z0-9]/g, "");
+      const cleanDName = dName.replace(/[^a-z0-9]/g, "");
+
+      if (cleanDocDeptId) {
+        return cleanDocDeptId === cleanDId || cleanDocDeptId === cleanDName;
+      }
       if (docSpec && (docSpec.includes(dName) || dName.includes(docSpec))) return true;
       return false;
     });

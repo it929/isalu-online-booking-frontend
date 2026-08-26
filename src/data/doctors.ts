@@ -327,7 +327,7 @@ export const DOCTORS: Doctor[] = [
     fullName: "Dr. Folashade Adebayo",
     acronym: "Specialist B",
     specialty: "General Physician",
-    departmentId: "general-physician",
+    departmentId: "general",
     qualification: "MBBS, FMCP",
     qualifications: "MBBS, FMCP",
     experienceYears: 11,
