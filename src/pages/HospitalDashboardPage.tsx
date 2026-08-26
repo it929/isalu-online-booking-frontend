@@ -426,6 +426,129 @@ ADMINISTRATIVE VERIFICATION:
     setTimeout(() => URL.revokeObjectURL(url), 1500);
   };
 
+  const handleExportWaitingQueuePDF = () => {
+    const waitingPatients = filteredBookings.filter((b) => {
+      const st = (b.status || "").toLowerCase().trim();
+      return st !== "completed" && st !== "cancelled" && st !== "done" && st !== "discharged";
+    });
+
+    const doc = new jsPDF();
+    const nowStr = new Date().toLocaleString();
+
+    // Hospital Header Banner
+    doc.setFillColor(0, 138, 201);
+    doc.rect(0, 0, 210, 28, "F");
+
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(16);
+    doc.text("ISALU HOSPITALS OGBA", 14, 13);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.text("UPCOMING WAITING ROOM QUEUE & CLINICAL ROSTER", 14, 21);
+    doc.text(`Generated: ${nowStr}`, 130, 21);
+
+    // Summary Box
+    doc.setDrawColor(200, 200, 200);
+    doc.setFillColor(248, 250, 252);
+    doc.roundedRect(14, 34, 182, 16, 3, 3, "FD");
+
+    doc.setTextColor(15, 23, 42);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.text(`Total Waiting Patients: ${waitingPatients.length}`, 20, 44);
+
+    const hmoCount = waitingPatients.filter((b) => (b.paymentType || b.payment_type || "").includes("HMO")).length;
+    const selfPayCount = waitingPatients.length - hmoCount;
+    doc.setFont("helvetica", "normal");
+    doc.text(`HMO Enrollees: ${hmoCount}   |   Private Self-Pay: ${selfPayCount}`, 90, 44);
+
+    let y = 58;
+
+    // Table Header
+    doc.setFillColor(15, 23, 42);
+    doc.rect(14, y, 182, 8, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8);
+    doc.text("#", 17, y + 5.5);
+    doc.text("REF CODE", 25, y + 5.5);
+    doc.text("PATIENT NAME & PHONE", 55, y + 5.5);
+    doc.text("PATIENT TYPE / HMO", 110, y + 5.5);
+    doc.text("ATTENDING SPECIALIST", 150, y + 5.5);
+
+    y += 8;
+
+    if (waitingPatients.length === 0) {
+      doc.setTextColor(100, 116, 139);
+      doc.setFont("helvetica", "italic");
+      doc.setFontSize(10);
+      doc.text("No patients currently waiting in queue.", 14, y + 10);
+    } else {
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8);
+
+      waitingPatients.forEach((b, idx) => {
+        if (y > 270) {
+          doc.addPage();
+          y = 20;
+
+          // Header on new page
+          doc.setFillColor(15, 23, 42);
+          doc.rect(14, y, 182, 8, "F");
+          doc.setTextColor(255, 255, 255);
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(8);
+          doc.text("#", 17, y + 5.5);
+          doc.text("REF CODE", 25, y + 5.5);
+          doc.text("PATIENT NAME & PHONE", 55, y + 5.5);
+          doc.text("PATIENT TYPE / HMO", 110, y + 5.5);
+          doc.text("ATTENDING SPECIALIST", 150, y + 5.5);
+          y += 8;
+          doc.setFont("helvetica", "normal");
+        }
+
+        if (idx % 2 === 0) {
+          doc.setFillColor(241, 245, 249);
+          doc.rect(14, y, 182, 10, "F");
+        }
+
+        doc.setTextColor(15, 23, 42);
+        doc.text(String(idx + 1), 17, y + 6.5);
+        doc.setFont("helvetica", "bold");
+        doc.text(String(b.refCode || b.ref_code || "N/A"), 25, y + 6.5);
+        doc.setFont("helvetica", "normal");
+
+        const pName = String(b.patientName || b.patient_name || "Patient").substring(0, 24);
+        const pPhone = String(b.patientPhone || b.patient_phone || "");
+        doc.text(`${pName}${pPhone ? ` (${pPhone})` : ""}`, 55, y + 6.5);
+
+        const pType = String(b.paymentType || b.payment_type || "Private Self-Pay");
+        const hName = String(b.hmoName || b.hmo_name || "");
+        const pTypeStr = pType.includes("HMO") ? `HMO (${hName || "Insurance"})` : "Private Self-Pay";
+        doc.text(pTypeStr.substring(0, 22), 110, y + 6.5);
+
+        const docName = String(getDoctorRealName(b)).substring(0, 22);
+        doc.text(docName, 150, y + 6.5);
+
+        y += 10;
+      });
+    }
+
+    doc.setDrawColor(226, 232, 240);
+    doc.line(14, 280, 196, 280);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8);
+    doc.setTextColor(0, 138, 201);
+    doc.text("ISALU HOSPITALS OGBA — OFFICIAL WAITING ROOM QUEUE ROSTER", 14, 286);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(100, 116, 139);
+    doc.text("Confidential Clinical Record", 155, 286);
+
+    doc.save(`Isalu_Waiting_Room_Queue_${new Date().toISOString().split("T")[0]}.pdf`);
+  };
+
   const handleOpenReferralInNewTab = (b: any) => {
     if (!b) return;
 
@@ -1300,92 +1423,27 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
   };
 
   // Clinic & Department Management Module State
-  const [clinics, setClinics] = useState<any[]>(() => {
-    const saved = localStorage.getItem("isalu_clinics_list");
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch {}
-    }
-    return DEPARTMENTS.map((d) => ({
-      id: d.id,
-      dept_id: d.id,
-      name: d.name.includes("Clinic") || d.name.includes("Department") || d.name.includes("Care") ? d.name : `${d.name} Clinic`,
-      description: d.description,
-      iconName: d.iconName || "Building2",
-      icon_name: d.iconName || "Building2",
-      doctorCount: d.doctorCount || 2,
-      doctor_count: d.doctorCount || 2,
-      status: "Active",
-      location: "Main Hospital Complex - Suite Wing",
-    }));
-  });
-
-  const mergeClinicsData = (defaultDepts: any[], localList: any[], remoteList: any[]) => {
-    const mergedMap = new Map<string, any>();
-
-    (defaultDepts || []).forEach((d) => {
-      const key = (d.id || d.dept_id || d.name || "").toLowerCase().trim();
-      if (key) {
-        mergedMap.set(key, {
-          id: d.id,
-          dept_id: d.id,
-          name: d.name.includes("Clinic") || d.name.includes("Department") || d.name.includes("Care") ? d.name : `${d.name} Clinic`,
-          description: d.description || "Specialized clinical consultation services.",
-          iconName: d.iconName || d.icon_name || "Building2",
-          icon_name: d.iconName || d.icon_name || "Building2",
-          doctorCount: d.doctorCount || d.doctor_count || 2,
-          doctor_count: d.doctorCount || d.doctor_count || 2,
-          status: d.status || "Active",
-          location: d.location || "Main Hospital Complex - Suite Wing",
-        });
-      }
-    });
-
-    (localList || []).forEach((l) => {
-      const key = (l.id || l.dept_id || l.name || "").toLowerCase().trim();
-      if (key) {
-        const existing = mergedMap.get(key) || {};
-        mergedMap.set(key, { ...existing, ...l });
-      }
-    });
-
-    (remoteList || []).forEach((r) => {
-      const key = (r.id || r.dept_id || r.deptId || r.name || "").toLowerCase().trim();
-      if (key) {
-        const existing = mergedMap.get(key) || {};
-        mergedMap.set(key, {
-          ...existing,
-          ...r,
-          id: r.id || r.dept_id || existing.id,
-          dept_id: r.dept_id || r.id || existing.dept_id,
-          name: r.name || existing.name,
-          description: r.description || existing.description,
-          iconName: r.icon_name || r.iconName || existing.iconName || "Building2",
-          icon_name: r.icon_name || r.iconName || existing.icon_name || "Building2",
-          doctorCount: r.doctor_count ?? r.doctorCount ?? existing.doctorCount ?? 0,
-          doctor_count: r.doctor_count ?? r.doctorCount ?? existing.doctor_count ?? 0,
-          status: r.status || existing.status || "Active",
-          location: r.location || existing.location || "Main Hospital Complex - Suite Wing",
-        });
-      }
-    });
-
-    return Array.from(mergedMap.values());
-  };
+  const [clinics, setClinics] = useState<any[]>([]);
 
   const loadClinics = async () => {
-    const localStr = localStorage.getItem("isalu_clinics_list") || localStorage.getItem("isalu_hospital_departments");
-    let localParsed: any[] = [];
-    if (localStr) {
-      try { localParsed = JSON.parse(localStr); } catch {}
+    const remote = await getDepartmentsAPI({ include_disabled: true });
+    if (remote && Array.isArray(remote)) {
+      const mapped = remote.map((d: any) => ({
+        id: d.dept_id || d.id,
+        dept_id: d.dept_id || d.id,
+        name: d.name,
+        description: d.description || "Specialized clinical consultation services.",
+        iconName: d.icon_name || d.iconName || "Building2",
+        icon_name: d.icon_name || d.iconName || "Building2",
+        doctorCount: d.doctor_count ?? d.doctorCount ?? 0,
+        doctor_count: d.doctor_count ?? d.doctorCount ?? 0,
+        status: d.status,
+        location: d.location || "Main Hospital Complex - Suite Wing",
+      }));
+      setClinics(mapped);
+      localStorage.setItem("isalu_clinics_list", JSON.stringify(mapped));
+      localStorage.setItem("isalu_hospital_departments", JSON.stringify(mapped));
     }
-
-    const remote = await getDepartmentsAPI();
-    const merged = mergeClinicsData(DEPARTMENTS, localParsed, remote || []);
-    setClinics(merged);
-    localStorage.setItem("isalu_clinics_list", JSON.stringify(merged));
-    localStorage.setItem("isalu_hospital_departments", JSON.stringify(merged));
   };
 
   useEffect(() => {
@@ -1474,11 +1532,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
     };
 
     const res = await createDepartmentAPI(newClinic);
-    const createdRecord = res || newClinic;
-
-    const updated = mergeClinicsData(DEPARTMENTS, [createdRecord, ...clinics], []);
-    setClinics(updated);
-    broadcastClinicChange(updated);
+    await loadClinics();
 
     setNewClinicName("");
     setNewClinicId("");
@@ -1491,7 +1545,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
 
     setToastAlert({
       title: "Clinic Created Successfully! 🏥",
-      description: `${createdRecord.name} module registered and available across the hospital system.`,
+      description: `${newClinic.name} module registered and available across the hospital system.`,
       type: "success",
     });
   };
@@ -1708,7 +1762,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
 
     let matchesStatus = true;
     if (schedStatusFilter === "active") {
-      matchesStatus = !sched.status || sched.status.includes("Active") || !sched.status.includes("Disabled");
+      matchesStatus = sched.status !== false && (typeof sched.status !== "string" || !sched.status.includes("Disabled"));
     } else if (schedStatusFilter === "disabled") {
       matchesStatus = Boolean(sched.status?.includes("Disabled"));
     }
@@ -1846,7 +1900,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
 
     let matchesStatus = true;
     if (docDirectoryStatusFilter === "active") {
-      matchesStatus = !doc.status || doc.status === "Active" || !doc.status.includes("Disabled");
+      matchesStatus = doc.status !== false && (typeof doc.status !== "string" || !doc.status.includes("Disabled"));
     } else if (docDirectoryStatusFilter === "disabled") {
       matchesStatus = Boolean(doc.status?.includes("Disabled"));
     }
@@ -1922,7 +1976,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
   };
 
   const handleToggleDoctorStatus = (doc: any) => {
-    const isDisabling = doc.status === "Active" || !doc.status || !doc.status.includes("Disabled");
+    const isDisabling = doc.status !== false && (typeof doc.status !== "string" || !doc.status.includes("Disabled"));
     const targetId = doc.id || doc.doc_id;
 
     setConfirmModalConfig({
@@ -2663,7 +2717,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
   };
 
   const handleToggleScheduleStatus = (sched: any) => {
-    const isDisabling = sched.status === "Active On Duty" || !sched.status || !sched.status.includes("Disabled");
+    const isDisabling = sched.status !== false && (typeof sched.status !== "string" || !sched.status.includes("Disabled"));
     const targetId = sched.id || sched.sched_id;
 
     setConfirmModalConfig({
@@ -2991,7 +3045,7 @@ Analytical Scope: Doctor Performance, Patient Volume & Duty Roster
    • Scheduled / Pending    : ${docBookings.length - docCompleted - docCheckedIn} patients awaiting turn
 
 3. AI DOCTOR AUDIT RECOMMENDATIONS:
-   ✔ Sync doctor duty roster with Django REST API PostgreSQL health records.
+   ✔ Sync doctor duty roster with Health Records REST API.
    ✔ Ensure attached referral documents (ANSWER KEYS.docx) are reviewed prior to intake.
    ✔ Maintain target average consultation throughput of 15-20 minutes per patient.
 ================================================================================`;
@@ -3135,7 +3189,7 @@ Analytical Focus: Referral Attachments, Clinical Notes & Record Verification
 
 2. REFERRAL FILE AUDIT & HEALTH RECORDS:
    • Helpdesk File Verification  : 100% Verified by Administrative Staff
-   • Electronic Health Records   : Synced with Django REST API PostgreSQL DB
+   • Electronic Health Records   : Synced with Hospital REST API Database
    • Patient Compliance Score    : 96.8% Documentation Accuracy
 
 3. AI DOCUMENT MANAGEMENT ACTIONS:
@@ -3188,7 +3242,7 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
 ).join("\n") : "   • No exact patient records matching query text; analyzed macro clinical dataset."}
 
 3. AI EXECUTIVE SEARCH RECOMMENDATIONS:
-   ✔ Search query "${p}" analyzed across Django REST API database and Local Storage registry.
+   ✔ Search query "${p}" analyzed across Hospital Database and Local Storage registry.
    ✔ Filter records on the Hospital Management Dashboard using the search toolbar above.
    ✔ Export matching data logs into PDF or Excel spreadsheet for clinical board review.
 ================================================================================`;
@@ -3596,7 +3650,7 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
     const referralDocCount = bookings.filter((b) => Boolean(b.referralDocName || b.referral_doc_name)).length;
 
     const activeStaffCount = systemUsers.filter((u) => u.status === "Active").length;
-    const activeShiftsCount = specialistSchedules.filter((s) => s.status === "Active On Duty" || !s.status || !s.status.includes("Disabled")).length;
+    const activeShiftsCount = specialistSchedules.filter((s) => s.status !== false && (typeof s.status !== "string" || !s.status.includes("Disabled"))).length;
 
     const clearanceRate = totalBookings > 0 ? Math.round((clearedPaymentCount / totalBookings) * 100) : 0;
     const hmoRatio = totalBookings > 0 ? Math.round((hmoEnrolleeCount / totalBookings) * 100) : 0;
@@ -4697,18 +4751,7 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
           setBookings(localBookings);
         }
 
-        const remoteDepts = await getDepartmentsAPI();
-        if (remoteDepts && Array.isArray(remoteDepts)) {
-          const localStr = localStorage.getItem("isalu_clinics_list") || localStorage.getItem("isalu_hospital_departments");
-          let localParsed: any[] = [];
-          if (localStr) {
-            try { localParsed = JSON.parse(localStr); } catch {}
-          }
-          const merged = mergeClinicsData(DEPARTMENTS, localParsed, remoteDepts);
-          setClinics(merged);
-          localStorage.setItem("isalu_clinics_list", JSON.stringify(merged));
-          localStorage.setItem("isalu_hospital_departments", JSON.stringify(merged));
-        }
+        await loadClinics();
 
         const remoteDoctors = await getDoctorsAPI();
         if (remoteDoctors && Array.isArray(remoteDoctors)) {
@@ -5132,30 +5175,41 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
     currentDocDirPage * docDirItemsPerPage
   );
 
-  // 9. User & Staff Management Directory Pagination
-  const filteredSystemUsers = systemUsers.filter((u) => {
-    const nameStr = (u.name || "").toLowerCase();
-    const emailStr = (u.email || "").toLowerCase();
-    const roleStr = (u.role || "").toLowerCase();
-    const deskStr = (u.desk || "").toLowerCase();
-    const q = userSearchQuery.toLowerCase().trim();
+  // 9. User & Staff Management Directory Pagination (Sorted by Recently Created First)
+  const filteredSystemUsers = [...systemUsers]
+    .sort((a, b) => {
+      const dateA = a.created_at || a.createdAt || "";
+      const dateB = b.created_at || b.createdAt || "";
+      if (dateA && dateB) {
+        return new Date(dateB).getTime() - new Date(dateA).getTime();
+      }
+      const numA = parseInt(String(a.id || "").replace(/\D/g, "") || "0", 10);
+      const numB = parseInt(String(b.id || "").replace(/\D/g, "") || "0", 10);
+      return numB - numA;
+    })
+    .filter((u) => {
+      const nameStr = (u.name || "").toLowerCase();
+      const emailStr = (u.email || "").toLowerCase();
+      const roleStr = (u.role || "").toLowerCase();
+      const deskStr = (u.desk || "").toLowerCase();
+      const q = userSearchQuery.toLowerCase().trim();
 
-    const matchesSearch = !q || nameStr.includes(q) || emailStr.includes(q) || roleStr.includes(q) || deskStr.includes(q);
+      const matchesSearch = !q || nameStr.includes(q) || emailStr.includes(q) || roleStr.includes(q) || deskStr.includes(q);
 
-    let matchesRole = true;
-    if (userRoleFilter !== "all") {
-      matchesRole = roleStr.includes(userRoleFilter.toLowerCase());
-    }
+      let matchesRole = true;
+      if (userRoleFilter !== "all") {
+        matchesRole = roleStr.includes(userRoleFilter.toLowerCase());
+      }
 
-    let matchesStatus = true;
-    if (userStatusFilter === "active") {
-      matchesStatus = u.status === "Active" || !u.status;
-    } else if (userStatusFilter === "disabled") {
-      matchesStatus = u.status === "Disabled";
-    }
+      let matchesStatus = true;
+      if (userStatusFilter === "active") {
+        matchesStatus = u.status === "Active" || !u.status;
+      } else if (userStatusFilter === "disabled") {
+        matchesStatus = u.status === "Disabled";
+      }
 
-    return matchesSearch && matchesRole && matchesStatus;
-  });
+      return matchesSearch && matchesRole && matchesStatus;
+    });
 
   const totalUsersDirPages = Math.ceil(filteredSystemUsers.length / usersDirItemsPerPage) || 1;
   const currentUsersDirPage = Math.min(usersDirCurrentPage, totalUsersDirPages);
@@ -5295,7 +5349,7 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
 
   const activeStaffCount = systemUsers.filter((u) => u.status === "Active").length;
   const disabledStaffCount = systemUsers.filter((u) => u.status === "Disabled").length;
-  const activeShiftsCount = specialistSchedules.filter((s) => s.status === "Active On Duty" || !s.status || !s.status.includes("Disabled")).length;
+  const activeShiftsCount = specialistSchedules.filter((s) => s.status !== false && (typeof s.status !== "string" || !s.status.includes("Disabled"))).length;
 
   if (!isAuthenticated) {
     return (
@@ -7261,37 +7315,10 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
         {/* 5. MONITOR DESK (LIVE HOSPITAL WAITING ROOM & TV SCREEN) VIEW */}
         {activeDesk === "monitor" && (
           <div className="space-y-6 animate-fadeIn">
-            {/* TV Screen Banner */}
-            <div className="bg-gradient-to-r from-slate-900 via-[#011627] to-slate-900 border border-[#008ac9]/60 rounded-2xl p-4 sm:p-5 text-white shadow-lg relative overflow-hidden">
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 relative z-10">
-                <div className="space-y-0.5">
-                  <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-[#008ac9]/25 text-sky-300 text-[10px] font-black border border-sky-400/30 mb-1">
-                    <Tv className="h-3.5 w-3.5 text-sky-400" /> LIVE WAITING ROOM & CLINIC FLOOR MONITOR
-                  </div>
-                  <h2 className="text-xl sm:text-2xl font-black tracking-tight text-white">Isalu Hospitals Queue Monitor</h2>
-                  <p className="text-[11px] sm:text-xs font-medium text-slate-300">
-                    Real-time TV screen display for clinic waiting areas, reception floor monitors, and doctor consultation rooms.
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-2.5 shrink-0">
-                  <div className="bg-white/10 backdrop-blur-md px-3.5 py-1.5 rounded-xl border border-white/20 text-center">
-                    <span className="block text-[9px] font-extrabold uppercase text-slate-400">Current Time</span>
-                    <span className="text-xs font-black text-sky-300">{new Date().toLocaleTimeString()}</span>
-                  </div>
-                  <div className="bg-emerald-500/20 backdrop-blur-md px-3.5 py-1.5 rounded-xl border border-emerald-400/40 text-center">
-                    <span className="block text-[9px] font-extrabold uppercase text-emerald-300">Live Status</span>
-                    <span className="text-xs font-black text-emerald-400 flex items-center gap-1">
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-ping"></span> Live Broadcast
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Waiting Room Queue / Next Patients */}
+            {/* Waiting Room Queue / Next Patients (Moved to Top of Monitor Desk) */}
             <div className="bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
-              <div className="flex flex-col lg:flex-row lg:items-center justify-between border-b-2 border-slate-100 dark:border-slate-800 pb-4 gap-4">
+              {/* Row 1: Header Title & Subtitle with Export PDF beside it */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b-2 border-slate-100 dark:border-slate-800 pb-4 gap-4">
                 <div className="flex items-center gap-3">
                   <div className="p-3 bg-sky-100 dark:bg-slate-800 text-[#008ac9] rounded-2xl shrink-0">
                     <Clock className="h-6 w-6" />
@@ -7302,49 +7329,79 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                   </div>
                 </div>
 
-                {/* Embedded Search & Filter Controls directly inside the card header */}
-                <div className="flex flex-col sm:flex-row items-center gap-3 w-full lg:w-auto">
-                  <div className="relative w-full sm:w-72">
-                    <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-                    <input
-                      type="text"
-                      placeholder="Search ref, patient, phone..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white text-xs font-bold focus:ring-2 focus:ring-[#008ac9]"
-                    />
-                  </div>
+                {/* Export PDF & Badge right beside title */}
+                <div className="flex items-center gap-3 shrink-0">
+                  <span className="px-3.5 py-1.5 rounded-full bg-sky-100 dark:bg-slate-800 text-[#008ac9] font-black text-xs border border-[#008ac9]/30 whitespace-nowrap">
+                    {filteredBookings.filter((b) => {
+                      const st = (b.status || "").toLowerCase().trim();
+                      return st !== "completed" && st !== "cancelled" && st !== "done" && st !== "discharged";
+                    }).length} Waiting Patients
+                  </span>
 
+                  <button
+                    type="button"
+                    onClick={handleExportWaitingQueuePDF}
+                    className="px-4 py-2 bg-gradient-to-r from-[#008ac9] to-sky-600 hover:from-[#0072b1] hover:to-sky-700 text-white font-black text-xs shadow-md flex items-center gap-2 transition-all cursor-pointer border border-sky-400/40 shrink-0 rounded-xl"
+                    title="Export Current Waiting Room Queue to Official PDF Roster"
+                  >
+                    <Download className="h-4 w-4 text-white" />
+                    <span>Export PDF 📄</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Row 2: Search & Filter Toolbar below the header */}
+              <div className="flex flex-col md:flex-row items-center gap-3 w-full bg-slate-50 dark:bg-slate-950 p-3 rounded-2xl border border-slate-200 dark:border-slate-800">
+                <div className="relative w-full md:flex-1">
+                  <Search className="absolute left-3.5 top-2.5 h-4 w-4 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Search ref code, patient name, phone..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full pl-10 pr-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs font-bold focus:ring-2 focus:ring-[#008ac9]"
+                  />
+                </div>
+
+                <div className="flex flex-wrap sm:flex-nowrap items-center gap-2.5 w-full md:w-auto">
                   <select
                     value={clinicFilter}
                     onChange={(e) => setClinicFilter(e.target.value)}
-                    className="w-full sm:w-auto px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-xs font-extrabold text-slate-800 dark:text-slate-200"
+                    className="w-full sm:w-auto px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-extrabold text-slate-800 dark:text-slate-200"
                   >
                     <option value="all">🏥 All Clinics</option>
-                    {clinics.map((c) => (
-                      <option key={c.id || c.dept_id || c.name} value={c.name}>
-                        🏥 {c.name}
-                      </option>
-                    ))}
+                    {clinics.map((c: any) => {
+                      const name = typeof c === "string" ? c : c.name || c.dept_name || c.id || "Clinic";
+                      const key = typeof c === "string" ? c : c.id || c.dept_id || name;
+                      return (
+                        <option key={key} value={name}>
+                          🏥 {name}
+                        </option>
+                      );
+                    })}
                   </select>
 
                   <select
                     value={hmoProviderFilter}
                     onChange={(e) => setHmoProviderFilter(e.target.value)}
-                    className="w-full sm:w-auto px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-xs font-extrabold text-purple-700 dark:text-purple-300 focus:ring-2 focus:ring-purple-500"
+                    className="w-full sm:w-auto px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-extrabold text-purple-700 dark:text-purple-300 focus:ring-2 focus:ring-purple-500"
                   >
                     <option value="all">🛡️ All HMO Providers</option>
-                    {hmoCompanies.map((hmo) => (
-                      <option key={hmo.id || hmo.hmo_id || hmo.name} value={hmo.name}>
-                        🛡️ {hmo.name}
-                      </option>
-                    ))}
+                    {hmoCompanies.map((hmo: any) => {
+                      const name = typeof hmo === "string" ? hmo : hmo.name || hmo.hmo_name || hmo.id || "HMO Provider";
+                      const key = typeof hmo === "string" ? hmo : hmo.id || hmo.hmo_id || name;
+                      return (
+                        <option key={key} value={name}>
+                          🛡️ {name}
+                        </option>
+                      );
+                    })}
                   </select>
 
                   <select
                     value={statusFilter}
                     onChange={(e) => setStatusFilter(e.target.value)}
-                    className="w-full sm:w-auto px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-xs font-extrabold text-slate-800 dark:text-slate-200"
+                    className="w-full sm:w-auto px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-extrabold text-slate-800 dark:text-slate-200"
                   >
                     <option value="all">All Queue Statuses</option>
                     <option value="today">📅 Today's Queue</option>
@@ -7352,13 +7409,6 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                     <option value="hmo">🛡️ HMO Insurance Patients</option>
                     <option value="private">💳 Private Self-Pay Patients</option>
                   </select>
-
-                  <span className="px-3 py-1.5 rounded-full bg-sky-100 dark:bg-slate-800 text-[#008ac9] font-black text-xs border border-[#008ac9]/30 whitespace-nowrap">
-                    {filteredBookings.filter((b) => {
-                      const st = (b.status || "").toLowerCase().trim();
-                      return st !== "completed" && st !== "cancelled" && st !== "done" && st !== "discharged";
-                    }).length} Waiting Patients
-                  </span>
                 </div>
               </div>
 
@@ -7382,9 +7432,17 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                       const st = (b.status || "").toLowerCase().trim();
                       return st !== "completed" && st !== "cancelled" && st !== "done" && st !== "discharged";
                     })
-                    .map((b) => {
-                    const isHmoApproved = b.paymentType === "HMO Insurance" && b.hmoStatus === "Approved";
-                    const isPayCleared = (b.paymentType === "Private Self-Pay" || !b.paymentType) && b.paymentStatus === "Cleared";
+                    .map((b, bIdx) => {
+                    const refCode = b.refCode || b.ref_code || `ISALU-REF-${bIdx + 1}`;
+                    const paymentType = b.paymentType || b.payment_type || "Private Self-Pay";
+                    const hmoStatus = b.hmoStatus || b.hmo_status || "N/A";
+                    const paymentStatus = b.paymentStatus || b.payment_status || "Pending";
+                    const patientName = b.patientName || b.patient_name || "Patient";
+                    const patientPhone = b.patientPhone || b.patient_phone || "";
+                    const hmoName = b.hmoName || b.hmo_name || "";
+
+                    const isHmoApproved = paymentType === "HMO Insurance" && (hmoStatus === "Approved" || hmoStatus.toLowerCase().includes("approved"));
+                    const isPayCleared = (paymentType === "Private Self-Pay" || !paymentType) && (paymentStatus === "Cleared" || paymentStatus.toLowerCase().includes("cleared") || paymentStatus.toLowerCase().includes("paid"));
                     const isEligibleForCheckIn = isHmoApproved || isPayCleared;
 
                     const docDisplay = getDoctorRealName(b);
@@ -7394,12 +7452,12 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
 
                     return (
                       <div
-                        key={b.refCode}
+                        key={refCode}
                         className="bg-slate-50 dark:bg-slate-950 border-2 border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm hover:border-[#008ac9] transition-all flex flex-col justify-between space-y-3"
                       >
                         <div className="flex items-center justify-between">
                           <span className="text-lg font-black text-[#008ac9] dark:text-sky-400 tracking-wider">
-                            {b.refCode}
+                            {refCode}
                           </span>
                           <span
                             className={`px-2.5 py-0.5 rounded-full font-black text-[10px] ${
@@ -7414,17 +7472,17 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
 
                         <div>
                           <div className="text-sm font-black text-slate-900 dark:text-white flex items-center justify-between">
-                            <span>{b.patientName}</span>
-                            {b.patientPhone && <span className="text-[11px] font-bold text-slate-500">{b.patientPhone}</span>}
+                            <span>{patientName}</span>
+                            {patientPhone && <span className="text-[11px] font-bold text-slate-500">{patientPhone}</span>}
                           </div>
                           <div className="mt-1.5 space-y-2">
                             {/* Colorful Modern Patient Type Badge */}
                             <div>
-                              {b.paymentType === "HMO Insurance" ? (
+                              {paymentType === "HMO Insurance" ? (
                                 <span className="inline-flex items-center gap-2 px-3 py-1 rounded-xl text-xs font-black bg-gradient-to-r from-purple-600 via-indigo-600 to-violet-600 text-white shadow-md shadow-purple-500/25 border border-purple-400/40 tracking-wide">
                                   <ShieldCheck className="h-4 w-4 text-white shrink-0" />
                                   <span>HMO INSURANCE</span>
-                                  {b.hmoName && <span className="bg-white/25 text-white px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider">• {b.hmoName}</span>}
+                                  {hmoName && <span className="bg-white/25 text-white px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider">• {hmoName}</span>}
                                 </span>
                               ) : (
                                 <span className="inline-flex items-center gap-2 px-3 py-1 rounded-xl text-xs font-black bg-gradient-to-r from-cyan-600 via-teal-600 to-emerald-600 text-white shadow-md shadow-teal-500/25 border border-teal-400/40 tracking-wide">
@@ -7438,7 +7496,7 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                               <span className="text-xs font-black text-[#008ac9] dark:text-sky-400">
                                 🩺 {docDisplay}
                               </span>
-                              {docAcronym && docAcronym.toLowerCase() !== docDisplay.toLowerCase() && (
+                              {docAcronym && String(docAcronym).toLowerCase() !== String(docDisplay).toLowerCase() && (
                                 <span className="px-2 py-0.5 rounded-md bg-sky-100 dark:bg-sky-950/80 text-[#008ac9] dark:text-sky-300 text-[10px] font-black border border-sky-300 dark:border-sky-800 shadow-2xs">
                                   {docAcronym}
                                 </span>
@@ -7453,18 +7511,18 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
 
                         <div className="pt-2 border-t border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-600 dark:text-slate-400 flex flex-col gap-2">
                           <div className="flex justify-between text-[11px]">
-                            <span>📅 {b.date}</span>
-                            <span>🕒 {b.time}</span>
+                            <span>📅 {b.date || "N/A"}</span>
+                            <span>🕒 {b.time || "N/A"}</span>
                           </div>
 
                           {isEligibleForCheckIn ? (
                             <button
-                              onClick={() => handleMarkCompleted(b.refCode)}
+                              onClick={() => handleMarkCompleted(refCode)}
                               className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-black text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                             >
                               <CheckCircle2 className="h-4 w-4" /> Mark Consultation Completed ✓
                             </button>
-                          ) : b.paymentType === "HMO Insurance" ? (
+                          ) : paymentType === "HMO Insurance" ? (
                             <div className="w-full py-2.5 bg-amber-100 dark:bg-amber-950/70 border border-amber-300 text-amber-800 dark:text-amber-300 font-extrabold text-[11px] rounded-xl text-center flex items-center justify-center gap-1.5">
                               ⏳ Ineligible: Awaiting HMO Pre-Auth Approval
                             </div>
@@ -7479,6 +7537,34 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                   })}
                 </div>
               )}
+            </div>
+
+            {/* TV Screen Banner */}
+            <div className="bg-gradient-to-r from-slate-900 via-[#011627] to-slate-900 border border-[#008ac9]/60 rounded-2xl p-4 sm:p-5 text-white shadow-lg relative overflow-hidden">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 relative z-10">
+                <div className="space-y-0.5">
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-[#008ac9]/25 text-sky-300 text-[10px] font-black border border-sky-400/30 mb-1">
+                    <Tv className="h-3.5 w-3.5 text-sky-400" /> LIVE WAITING ROOM & CLINIC FLOOR MONITOR
+                  </div>
+                  <h2 className="text-xl sm:text-2xl font-black tracking-tight text-white">Isalu Hospitals Queue Monitor</h2>
+                  <p className="text-[11px] sm:text-xs font-medium text-slate-300">
+                    Real-time TV screen display for clinic waiting areas, reception floor monitors, and doctor consultation rooms.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2.5 shrink-0">
+                  <div className="bg-white/10 backdrop-blur-md px-3.5 py-1.5 rounded-xl border border-white/20 text-center">
+                    <span className="block text-[9px] font-extrabold uppercase text-slate-400">Current Time</span>
+                    <span className="text-xs font-black text-[#008ac9]">{new Date().toLocaleTimeString()}</span>
+                  </div>
+                  <div className="bg-emerald-500/20 backdrop-blur-md px-3.5 py-1.5 rounded-xl border border-emerald-400/40 text-center">
+                    <span className="block text-[9px] font-extrabold uppercase text-emerald-300">Live Status</span>
+                    <span className="text-xs font-black text-emerald-400 flex items-center gap-1">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-ping"></span> Live Broadcast
+                    </span>
+                  </div>
+                </div>
+              </div>
             </div>
 
             {/* Completed Consultations / Concluded Appointments */}
@@ -7779,7 +7865,7 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                             </span>
                           </td>
                           <td className="py-4 px-3 text-slate-500 font-semibold text-[11px]">
-                            {u.lastActive}
+                            {u.last_login || u.lastLogin || u.last_active || u.lastActive || "Never logged in"}
                           </td>
                           <td className="py-4 px-3 text-right">
                             <div className="flex items-center justify-end gap-2">
@@ -9780,7 +9866,7 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                       <div className="absolute left-0 right-0 mt-1 max-h-48 overflow-y-auto rounded-2xl bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 shadow-2xl z-50 p-1 divide-y divide-slate-100 dark:divide-slate-800">
                         {doctorsList.filter(
                           (d) =>
-                            (!d.status || d.status === "Active" || !d.status.includes("Disabled")) &&
+                            (d.status !== false && (typeof d.status !== "string" || !d.status.includes("Disabled"))) &&
                             (d.name.toLowerCase().includes(schedDoctorSearch.toLowerCase()) ||
                               (d.fullName && d.fullName.toLowerCase().includes(schedDoctorSearch.toLowerCase())) ||
                               (d.acronym && d.acronym.toLowerCase().includes(schedDoctorSearch.toLowerCase())) ||
@@ -9803,7 +9889,7 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                           doctorsList
                             .filter(
                               (d) =>
-                                (!d.status || d.status === "Active" || !d.status.includes("Disabled")) &&
+                                (d.status !== false && (typeof d.status !== "string" || !d.status.includes("Disabled"))) &&
                                 (d.name.toLowerCase().includes(schedDoctorSearch.toLowerCase()) ||
                                   (d.fullName && d.fullName.toLowerCase().includes(schedDoctorSearch.toLowerCase())) ||
                                   (d.acronym && d.acronym.toLowerCase().includes(schedDoctorSearch.toLowerCase())) ||
@@ -11245,7 +11331,7 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                   <div className="space-y-1 max-w-xs">
                     <h4 className="text-base font-black text-slate-900 dark:text-white">Creating System User Account...</h4>
                     <p className="text-xs font-bold text-slate-500">
-                      Saving staff credentials to Django User table & linking <span className="text-[#008ac9] font-black">{newUserRole}</span> permissions...
+                      Saving staff credentials to System User table & linking <span className="text-[#008ac9] font-black">{newUserRole}</span> permissions...
                     </p>
                   </div>
                 </div>

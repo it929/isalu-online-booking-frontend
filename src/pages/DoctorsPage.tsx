@@ -6,56 +6,44 @@ import { SpecialistAvatar } from "../components/SpecialistAvatar";
 import { getDoctorsAPI, getDepartmentsAPI } from "../api/client";
 
 export function DoctorsPage() {
-  const [departmentsList, setDepartmentsList] = useState<any[]>(() => {
-    const saved = localStorage.getItem("isalu_hospital_departments");
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (parsed && Array.isArray(parsed) && parsed.length > 0) return parsed;
-      } catch {}
-    }
-    return DEPARTMENTS;
-  });
-
-  const [selectedDept, setSelectedDept] = useState(departmentsList[0]?.id || "endocrinology");
+  const [departmentsList, setDepartmentsList] = useState<any[]>([]);
+  const [selectedDept, setSelectedDept] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
-  const [allDoctors, setAllDoctors] = useState<any[]>(() => {
-    const saved = localStorage.getItem("isalu_hospital_doctors");
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (parsed && Array.isArray(parsed) && parsed.length > 0) return parsed;
-      } catch {}
-    }
-    localStorage.removeItem("isalu_hospital_doctors");
-    return [];
-  });
+  const [allDoctors, setAllDoctors] = useState<any[]>([]);
 
   useEffect(() => {
     async function syncData() {
       const remoteDepts = await getDepartmentsAPI();
       if (remoteDepts && remoteDepts.length > 0) {
-        const mapped = remoteDepts.map((d: any) => ({
-          id: d.dept_id || d.id,
-          name: d.name,
-          description: d.description || "",
-          iconName: d.icon_name || d.iconName || "Stethoscope",
-          doctorCount: d.doctor_count || d.doctorCount || 0,
-        }));
+        const mapped = remoteDepts
+          .filter((d: any) => d.status !== false && d.status !== 'Disabled' && d.status !== 'Inactive')
+          .map((d: any) => ({
+            id: d.dept_id || d.id,
+            dept_id: d.dept_id || d.id,
+            name: d.name,
+            description: d.description || "",
+            iconName: d.icon_name || d.iconName || "Stethoscope",
+            doctorCount: d.doctor_count || d.doctorCount || 0,
+            status: d.status !== undefined ? d.status : true,
+          }));
         setDepartmentsList(mapped);
-        localStorage.setItem("isalu_hospital_departments", JSON.stringify(mapped));
+        if (!selectedDept || selectedDept === "all") {
+          setSelectedDept(mapped[0]?.id || "all");
+        }
       }
       const remoteDoctors = await getDoctorsAPI();
       if (remoteDoctors && Array.isArray(remoteDoctors)) {
         setAllDoctors(remoteDoctors);
-        localStorage.setItem("isalu_hospital_doctors", JSON.stringify(remoteDoctors));
       }
     }
     syncData();
   }, []);
 
   const getDoctorSlotStats = (doctorId: string, timeSlotsCount: number) => {
-    const existingBookings = (JSON.parse(localStorage.getItem("isalu_bookings") || localStorage.getItem("medicare_bookings") || "[]") || []) as any[];
+    let existingBookings: any[] = [];
+    try {
+      existingBookings = JSON.parse(localStorage.getItem("isalu_bookings") || localStorage.getItem("medicare_bookings") || "[]") || [];
+    } catch {}
     const bookedForDoc = existingBookings.filter((b) => b.doctorId === doctorId && b.status !== "Cancelled").length;
     const totalCapacity = Math.max(8, timeSlotsCount * 2);
     const remaining = Math.max(1, totalCapacity - bookedForDoc);
@@ -63,7 +51,7 @@ export function DoctorsPage() {
   };
 
   const filteredDoctors = allDoctors.filter((doc: any) => {
-    const isNotDisabled = !doc.status || doc.status === "Active" || !doc.status.includes("Disabled");
+    const isNotDisabled = doc.status !== false && (typeof doc.status !== "string" || !doc.status.includes("Disabled"));
     const deptObj = DEPARTMENTS.find((d) => d.id === selectedDept);
     const deptNameLower = deptObj ? deptObj.name.toLowerCase() : selectedDept.toLowerCase();
     const docSpecialtyLower = (doc.specialty || "").toLowerCase();
@@ -153,7 +141,10 @@ export function DoctorsPage() {
         <div ref={doctorsGridRef} className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 scroll-mt-24">
           {filteredDoctors.map((doc: any) => {
             const safeTimeSlots = Array.isArray(doc.timeSlots) ? doc.timeSlots : ["08:00 AM – 12:00 PM", "01:00 PM – 05:00 PM"];
-            const savedSchedules = (JSON.parse(localStorage.getItem("isalu_specialist_schedules") || "[]") || []) as any[];
+            let savedSchedules: any[] = [];
+            try {
+              savedSchedules = JSON.parse(localStorage.getItem("isalu_specialist_schedules") || "[]") || [];
+            } catch {}
             const docSched = savedSchedules.find((s: any) => {
               const sDocId = String(s.doctorId || s.doctor_id || "").toLowerCase().trim();
               const dId = String(doc.id || "").toLowerCase().trim();

@@ -372,28 +372,16 @@ export function HomePage() {
     }
   }, [location.hash]);
   const [departmentsList, setDepartmentsList] = useState<any[]>(() => {
-    const savedClinics = localStorage.getItem("isalu_clinics_list");
-    const savedDepts = localStorage.getItem("isalu_hospital_departments");
-    const saved = savedClinics || savedDepts;
+    const saved = localStorage.getItem("isalu_hospitals_departments");
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (parsed && Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
       } catch {}
     }
     return DEPARTMENTS;
   });
-
-  const [allDoctors, setAllDoctors] = useState<any[]>(() => {
-    const saved = localStorage.getItem("isalu_hospital_doctors");
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (parsed && Array.isArray(parsed) && parsed.length > 0) return parsed;
-      } catch {}
-    }
-    return DOCTORS;
-  });
+  const [allDoctors, setAllDoctors] = useState<any[]>([]);
 
   useEffect(() => {
     async function syncData() {
@@ -404,63 +392,59 @@ export function HomePage() {
 
       if (remoteDoctors && Array.isArray(remoteDoctors) && remoteDoctors.length > 0) {
         setAllDoctors(remoteDoctors);
-        localStorage.setItem("isalu_hospital_doctors", JSON.stringify(remoteDoctors));
       }
 
-      if (remoteDepts && remoteDepts.length > 0) {
-        const savedClinics = (JSON.parse(localStorage.getItem("isalu_clinics_list") || "[]") || []) as any[];
-        const mapped = remoteDepts.map((d: any) => {
-          const dId = d.dept_id || d.id;
-          const targetId = String(dId || "").toLowerCase().trim();
-          const targetName = String(d.name || "").toLowerCase().trim();
-
-          const localMatch = savedClinics.find((sc: any) => {
-            const scId = String(sc.id || sc.dept_id || "").toLowerCase().trim();
-            const scName = String(sc.name || "").toLowerCase().trim();
-            if (scId && targetId && (scId === targetId || scId.includes(targetId) || targetId.includes(scId))) return true;
-            if (scName && targetName && (scName.includes(targetName) || targetName.includes(scName))) return true;
-            return false;
-          });
-          return {
-            id: dId,
+      if (remoteDepts && Array.isArray(remoteDepts) && remoteDepts.length > 0) {
+        const mapped = remoteDepts
+          .filter((d: any) => d.status !== false && d.status !== 'Disabled' && d.status !== 'Inactive')
+          .map((d: any) => ({
+            id: d.dept_id || d.id,
+            dept_id: d.dept_id || d.id,
             name: d.name,
             description: d.description || "Specialized clinical consultations and medical care.",
             iconName: d.icon_name || d.iconName || "Stethoscope",
             doctorCount: d.doctor_count || d.doctorCount || 0,
-            status: localMatch?.status || d.status || "Active",
-          };
-        });
+            status: d.status !== undefined ? d.status : true,
+          }));
 
-        savedClinics.forEach((sc: any) => {
-          const scId = sc.id || sc.dept_id;
-          const scName = (sc.name || "").toLowerCase().trim();
-          const exists = mapped.some((m: any) => m.id === scId || (m.name || "").toLowerCase().trim() === scName);
-          if (!exists) {
-            mapped.push(sc);
-          }
-        });
-
-        setDepartmentsList([...mapped]);
-        localStorage.setItem("isalu_hospital_departments", JSON.stringify(mapped));
+        setDepartmentsList(mapped);
+        localStorage.setItem("isalu_hospitals_departments", JSON.stringify(mapped));
+      } else if (!departmentsList || departmentsList.length === 0) {
+        setDepartmentsList(DEPARTMENTS);
       }
     }
     syncData();
 
-    const updateFromSource = (newClinics?: any[]) => {
+    const updateFromSource = async (newClinics?: any[]) => {
       if (newClinics && Array.isArray(newClinics) && newClinics.length > 0) {
-        setDepartmentsList([...newClinics]);
+        const mapped = newClinics
+          .filter((d: any) => d.status !== false && d.status !== 'Disabled' && d.status !== 'Inactive')
+          .map((d: any) => ({
+            id: d.dept_id || d.id,
+            dept_id: d.dept_id || d.id,
+            name: d.name,
+            description: d.description || "Specialized clinical consultations and medical care.",
+            iconName: d.icon_name || d.iconName || "Stethoscope",
+            doctorCount: d.doctor_count || d.doctorCount || 0,
+            status: d.status !== undefined ? d.status : true,
+          }));
+        setDepartmentsList(mapped);
         return;
       }
-      const savedClinics = localStorage.getItem("isalu_clinics_list");
-      const savedDepts = localStorage.getItem("isalu_hospital_departments");
-      const saved = savedClinics || savedDepts;
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved);
-          if (parsed && Array.isArray(parsed) && parsed.length > 0) {
-            setDepartmentsList([...parsed]);
-          }
-        } catch {}
+      const remote = await getDepartmentsAPI();
+      if (remote && Array.isArray(remote)) {
+        const mapped = remote
+          .filter((d: any) => d.status !== false && d.status !== 'Disabled' && d.status !== 'Inactive')
+          .map((d: any) => ({
+            id: d.dept_id || d.id,
+            dept_id: d.dept_id || d.id,
+            name: d.name,
+            description: d.description || "Specialized clinical consultations and medical care.",
+            iconName: d.icon_name || d.iconName || "Stethoscope",
+            doctorCount: d.doctor_count || d.doctorCount || 0,
+            status: d.status !== undefined ? d.status : true,
+          }));
+        setDepartmentsList(mapped);
       }
     };
 
@@ -601,7 +585,7 @@ export function HomePage() {
     const dName = String(deptName).toLowerCase().trim();
 
     const deptDocs = allDoctors.filter((doc: any) => {
-      const active = !doc.status || doc.status === "Active" || !doc.status.includes("Disabled");
+      const active = doc.status !== false && (typeof doc.status !== "string" || !doc.status.includes("Disabled"));
       if (!active) return false;
 
       let rawDeptId = "";
@@ -626,7 +610,10 @@ export function HomePage() {
 
     if (deptDocs.length === 0) return false;
 
-    const savedSchedules = (JSON.parse(localStorage.getItem("isalu_specialist_schedules") || "[]") || []) as any[];
+    let savedSchedules: any[] = [];
+    try {
+      savedSchedules = JSON.parse(localStorage.getItem("isalu_specialist_schedules") || "[]") || [];
+    } catch {}
 
     // Calculate Tomorrow's Date (Midnight today + 1 day)
     const today = new Date();
@@ -701,7 +688,7 @@ export function HomePage() {
     const dName = String(deptName).toLowerCase().trim();
 
     const deptDocs = allDoctors.filter((doc: any) => {
-      const active = !doc.status || doc.status === "Active" || !doc.status.includes("Disabled");
+      const active = doc.status !== false && (typeof doc.status !== "string" || !doc.status.includes("Disabled"));
       if (!active) return false;
 
       let rawDeptId = "";
@@ -726,7 +713,10 @@ export function HomePage() {
 
     if (deptDocs.length === 0) return "No upcoming schedule";
 
-    const savedSchedules = (JSON.parse(localStorage.getItem("isalu_specialist_schedules") || "[]") || []) as any[];
+    let savedSchedules: any[] = [];
+    try {
+      savedSchedules = JSON.parse(localStorage.getItem("isalu_specialist_schedules") || "[]") || [];
+    } catch {}
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -801,25 +791,15 @@ export function HomePage() {
 
   // Exclude any clinic/department that is not set as active
   const activeDepartmentsList = departmentsList.filter((dept: any) => {
-    const savedClinics = (JSON.parse(localStorage.getItem("isalu_clinics_list") || "[]") || []) as any[];
-    const deptId = String(dept.id || dept.dept_id || "").toLowerCase().trim();
-    const deptName = String(dept.name || "").toLowerCase().trim();
-
-    const localMatch = savedClinics.find((sc: any) => {
-      const scId = String(sc.id || sc.dept_id || "").toLowerCase().trim();
-      const scName = String(sc.name || "").toLowerCase().trim();
-      if (scId && deptId && (scId === deptId || scId.includes(deptId) || deptId.includes(scId))) return true;
-      if (scName && deptName && (scName === deptName || scName.includes(deptName) || deptName.includes(scName))) return true;
-      return false;
-    });
-
-    const effectiveStatus = localMatch?.status || dept.status || "Active";
-    const st = String(effectiveStatus).toLowerCase().trim();
-
-    if (st.includes("maintenance") || st.includes("disable") || st.includes("inactive") || st.includes("off duty")) {
-      return false;
+    if (!dept) return false;
+    if (dept.status === false || dept.status === 0 || dept.status === "false" || dept.status === "0") return false;
+    if (typeof dept.status === "string") {
+      const st = dept.status.toLowerCase().trim();
+      if (st.includes("maintenance") || st.includes("disable") || st.includes("inactive") || st.includes("off duty")) {
+        return false;
+      }
     }
-    return st === "active";
+    return true;
   });
 
   const availableDepartments = activeDepartmentsList.filter((dept) =>

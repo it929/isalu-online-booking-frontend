@@ -1,6 +1,15 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
+    <script>
+      window.addEventListener('error', function(e) {
+        console.error('Global Window Error:', e.error || e.message);
+        var root = document.getElementById('root');
+        if (root && (!root.children || root.children.length === 0)) {
+          root.innerHTML = '<div style="padding:2rem;font-family:sans-serif;background:#0f172a;color:#f8fafc;min-height:100vh;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;"><h1 style="color:#f43f5e;margin-bottom:1rem;">JavaScript Execution Error</h1><p style="color:#cbd5e1;max-width:600px;background:#1e293b;padding:1rem;border-radius:1rem;font-family:monospace;font-size:0.9rem;border:1px solid #334155;word-break:break-all;">' + (e.message || e.error) + '</p><button onclick="localStorage.clear();sessionStorage.clear();window.location.reload();" style="margin-top:1.5rem;padding:0.75rem 1.5rem;background:#008ac9;color:white;border:none;border-radius:0.75rem;font-weight:bold;cursor:pointer;">Clear Storage & Reload</button></div>';
+        }
+      });
+    </script>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -14,3 +23,4 @@
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
+

@@ -11,6 +11,21 @@ import { CheckAppointmentsPage } from "./pages/CheckAppointmentsPage";
 import { HospitalDashboardPage } from "./pages/HospitalDashboardPage";
 
 export function App() {
+  React.useEffect(() => {
+    try {
+      if (typeof window !== "undefined" && window.localStorage) {
+        const isCleared = localStorage.getItem("isalu_cache_v5_cleared");
+        if (!isCleared) {
+          localStorage.removeItem("isalu_hospital_doctors");
+          localStorage.removeItem("isalu_hospital_departments");
+          localStorage.removeItem("isalu_clinics_list");
+          localStorage.setItem("isalu_cache_v5_cleared", "true");
+          console.log("[Cache Reset] Cleared stale localStorage doctor and department caches.");
+        }
+      }
+    } catch {}
+  }, []);
+
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 relative">
       <Header />

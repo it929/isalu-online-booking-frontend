@@ -174,50 +174,51 @@ export function BookAppointmentPage() {
     }, 80);
   };
 
-  const [departmentsList, setDepartmentsList] = useState<any[]>(() => {
-    const savedClinics = localStorage.getItem("isalu_clinics_list");
-    const savedDepts = localStorage.getItem("isalu_hospital_departments");
-    const saved = savedClinics || savedDepts;
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (parsed && Array.isArray(parsed) && parsed.length > 0) return parsed;
-      } catch {}
-    }
-    return DEPARTMENTS;
-  });
+  const [departmentsList, setDepartmentsList] = useState<any[]>([]);
 
-  const [allDoctors, setAllDoctors] = useState<Doctor[]>(() => {
-    const saved = localStorage.getItem("isalu_hospital_doctors");
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (parsed && Array.isArray(parsed) && parsed.length > 0) return parsed;
-      } catch {}
+  const sanitizeDoctor = (doc: any) => {
+    let rawTypes = doc.acceptedPatientTypes || doc.accepted_patient_types;
+    if (!rawTypes || !Array.isArray(rawTypes) || rawTypes.length === 0) {
+      rawTypes = ["Private Self-Pay", "HMO Insurance"];
     }
-    localStorage.removeItem("isalu_hospital_doctors");
-    return [];
-  });
+    let rawDeptId = "";
+    if (typeof doc.department === "string") rawDeptId = doc.department;
+    else if (doc.department && typeof doc.department === "object") rawDeptId = doc.department.dept_id || doc.department.id || "";
+    if (!rawDeptId && doc.departmentId) rawDeptId = String(doc.departmentId);
+    if (!rawDeptId && doc.department_id) rawDeptId = String(doc.department_id);
+
+    return {
+      ...doc,
+      departmentId: rawDeptId,
+      department_id: rawDeptId,
+      acceptedPatientTypes: rawTypes,
+      accepted_patient_types: rawTypes,
+    };
+  };
+
+  const [allDoctors, setAllDoctors] = useState<Doctor[]>([]);
 
   useEffect(() => {
     async function syncData() {
       const remoteDepts = await getDepartmentsAPI();
       if (remoteDepts && remoteDepts.length > 0) {
-        const mapped = remoteDepts.map((d: any) => ({
-          id: d.dept_id || d.id,
-          name: d.name,
-          description: d.description || "",
-          iconName: d.icon_name || d.iconName || "Stethoscope",
-          doctorCount: d.doctor_count || d.doctorCount || 0,
-          status: d.status || "Active",
-        }));
+        const mapped = remoteDepts
+          .filter((d: any) => d.status !== false && d.status !== 'Disabled' && d.status !== 'Inactive')
+          .map((d: any) => ({
+            id: d.dept_id || d.id,
+            dept_id: d.dept_id || d.id,
+            name: d.name,
+            description: d.description || "",
+            iconName: d.icon_name || d.iconName || "Stethoscope",
+            doctorCount: d.doctor_count || d.doctorCount || 0,
+            status: d.status !== undefined ? d.status : true,
+          }));
         setDepartmentsList(mapped);
-        localStorage.setItem("isalu_hospital_departments", JSON.stringify(mapped));
       }
       const remoteDoctors = await getDoctorsAPI();
-      if (remoteDoctors && Array.isArray(remoteDoctors)) {
-        setAllDoctors(remoteDoctors);
-        localStorage.setItem("isalu_hospital_doctors", JSON.stringify(remoteDoctors));
+      if (remoteDoctors && Array.isArray(remoteDoctors) && remoteDoctors.length > 0) {
+        const sanitized = remoteDoctors.map(sanitizeDoctor);
+        setAllDoctors(sanitized);
       }
 
       const remoteSchedules = await getSchedulesAPI();
@@ -248,25 +249,65 @@ export function BookAppointmentPage() {
   const matchesDept = (doc: any, deptId: string) => {
     if (!deptId || deptId === "all") return true;
 
-    // 1. Target Department ID (Strict ID Only)
-    const targetDeptId = String(deptId).toLowerCase().trim().replace(/[^a-z0-9]/g, "");
+    const targetDept = departmentsList.find(
+      (d: any) =>
+        String(d.id || d.dept_id || "").toLowerCase().trim() === String(deptId).toLowerCase().trim() ||
+        String(d.name || "").toLowerCase().trim() === String(deptId).toLowerCase().trim()
+    ) || DEPARTMENTS.find(
+      (d: any) =>
+        String(d.id || "").toLowerCase().trim() === String(deptId).toLowerCase().trim() ||
+        String(d.name || "").toLowerCase().trim() === String(deptId).toLowerCase().trim()
+    );
 
-    // 2. Doctor's Assigned Department Foreign Key ID (Strict ID Only)
+    const targetDeptId = String(deptId).toLowerCase().trim();
+    const targetDeptKey = targetDept ? String(targetDept.id || targetDept.dept_id || "").toLowerCase().trim() : targetDeptId;
+    const targetDeptName = targetDept ? String(targetDept.name || "").toLowerCase().trim() : targetDeptId;
+
+    const cleanTargetDeptId = targetDeptId.replace(/[^a-z0-9]/g, "");
+    const cleanTargetDeptKey = targetDeptKey.replace(/[^a-z0-9]/g, "");
+    const cleanTargetDeptName = targetDeptName.replace(/[^a-z0-9]/g, "");
+
+    // Extract Foreign Key Department ID / Record from Doctor model
     let rawDocDeptId = "";
-    if (typeof doc.department === "string") {
-      rawDocDeptId = doc.department;
-    } else if (doc.department && typeof doc.department === "object") {
-      rawDocDeptId = doc.department.dept_id || doc.department.id || "";
+    let rawDocDeptName = "";
+
+    if (typeof doc.department === "object" && doc.department !== null) {
+      rawDocDeptId = String(doc.department.dept_id || doc.department.id || doc.department.pk || "").toLowerCase().trim();
+      rawDocDeptName = String(doc.department.name || "").toLowerCase().trim();
+    } else if (typeof doc.department === "string" || typeof doc.department === "number") {
+      rawDocDeptId = String(doc.department).toLowerCase().trim();
     }
-    if (!rawDocDeptId && doc.departmentId) rawDocDeptId = String(doc.departmentId);
-    if (!rawDocDeptId && doc.department_id) rawDocDeptId = String(doc.department_id);
 
-    const docDeptId = rawDocDeptId.toLowerCase().trim().replace(/[^a-z0-9]/g, "");
+    if (!rawDocDeptId && doc.departmentId) rawDocDeptId = String(doc.departmentId).toLowerCase().trim();
+    if (!rawDocDeptId && doc.department_id) rawDocDeptId = String(doc.department_id).toLowerCase().trim();
 
-    if (!docDeptId) return false;
+    const cleanDocDeptId = rawDocDeptId.replace(/[^a-z0-9]/g, "");
+    const cleanDocDeptName = rawDocDeptName.replace(/[^a-z0-9]/g, "");
 
-    // 3. STRICT ID EQUALITY CHECK: Doctor's department ID must equal target department ID
-    return docDeptId === targetDeptId;
+    // Strict Department Foreign Key Comparison (Does NOT match by doc.specialty text)
+    if (cleanDocDeptId) {
+      if (
+        cleanDocDeptId === cleanTargetDeptId ||
+        cleanDocDeptId === cleanTargetDeptKey ||
+        cleanDocDeptId === cleanTargetDeptName ||
+        (cleanTargetDeptKey && cleanDocDeptId.includes(cleanTargetDeptKey)) ||
+        (cleanTargetDeptId && cleanDocDeptId.includes(cleanTargetDeptId))
+      ) {
+        return true;
+      }
+    }
+
+    if (cleanDocDeptName) {
+      if (
+        cleanDocDeptName === cleanTargetDeptName ||
+        cleanDocDeptName === cleanTargetDeptId ||
+        cleanDocDeptName === cleanTargetDeptKey
+      ) {
+        return true;
+      }
+    }
+
+    return false;
   };
 
   const selectedDeptObj = departmentsList.find(
@@ -279,12 +320,18 @@ export function BookAppointmentPage() {
 
   // Helper to calculate live slots countdown per doctor for a specific date
   const getDoctorSlotStatsForDate = (doctorId: string, dateStr: string) => {
-    const existingBookings = (JSON.parse(localStorage.getItem("isalu_bookings") || localStorage.getItem("medicare_bookings") || "[]") || []) as any[];
+    let existingBookings: any[] = [];
+    try {
+      existingBookings = JSON.parse(localStorage.getItem("isalu_bookings") || localStorage.getItem("medicare_bookings") || "[]") || [];
+    } catch {}
     const bookedOnDate = existingBookings.filter(
       (b) => b.doctorId === doctorId && b.date === dateStr && b.status !== "Cancelled"
     ).length;
 
-    const savedSchedules = (JSON.parse(localStorage.getItem("isalu_specialist_schedules") || "[]") || []) as any[];
+    let savedSchedules: any[] = [];
+    try {
+      savedSchedules = JSON.parse(localStorage.getItem("isalu_specialist_schedules") || "[]") || [];
+    } catch {}
     const matchedSched = savedSchedules.find((s) => s.doctorId === doctorId || s.doctorId === selectedDoctor?.doc_id);
 
     let maxCapacity = 15;
@@ -310,7 +357,10 @@ export function BookAppointmentPage() {
 
   // Helper to calculate live slots countdown per doctor
   const getDoctorSlotStats = (doctorId: string, timeSlotsCount: number) => {
-    const existingBookings = (JSON.parse(localStorage.getItem("isalu_bookings") || localStorage.getItem("medicare_bookings") || "[]") || []) as any[];
+    let existingBookings: any[] = [];
+    try {
+      existingBookings = JSON.parse(localStorage.getItem("isalu_bookings") || localStorage.getItem("medicare_bookings") || "[]") || [];
+    } catch {}
     const bookedForDoc = existingBookings.filter((b) => b.doctorId === doctorId && b.status !== "Cancelled").length;
     const totalCapacity = Math.max(8, timeSlotsCount * 2);
     const remaining = Math.max(1, totalCapacity - bookedForDoc);
@@ -321,7 +371,10 @@ export function BookAppointmentPage() {
     if (!doctor) return [];
 
     // 1. Check saved specialist schedules from localStorage & API roster
-    const savedSchedules = (JSON.parse(localStorage.getItem("isalu_specialist_schedules") || "[]") || []) as any[];
+    let savedSchedules: any[] = [];
+    try {
+      savedSchedules = JSON.parse(localStorage.getItem("isalu_specialist_schedules") || "[]") || [];
+    } catch {}
     const docSchedules = savedSchedules.filter((s) => {
       const sDocId = String(s.doctorId || s.doctor_id || "").toLowerCase().trim();
       const dId = String(doctor.id || "").toLowerCase().trim();
@@ -365,13 +418,21 @@ export function BookAppointmentPage() {
       return [docDays.trim()];
     }
 
-    return [];
+    // 3. Fallback: Standard Weekday Schedule if no custom roster configured
+    return ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
   };
 
   const isDoctorOnDutyInNext24Hours = (doctor: Doctor | undefined): boolean => {
     if (!doctor) return false;
-    const active = !doctor.status || doctor.status === "Active" || !doctor.status.includes("Disabled");
-    if (!active) return false;
+    const isDocDisabled =
+      doctor.status === false ||
+      doctor.status === "Disabled" ||
+      doctor.status === "Inactive" ||
+      String(doctor.status || "").toLowerCase().includes("disable") ||
+      String(doctor.status || "").toLowerCase().includes("false") ||
+      (doctor as any).is_active === false;
+
+    if (isDocDisabled) return false;
 
     // Calculate Tomorrow's Date (Midnight today + 1 day)
     const today = new Date();
@@ -411,8 +472,15 @@ export function BookAppointmentPage() {
   const getNextAvailableDateForDoctor = (doctor: Doctor | undefined): string => {
     if (!doctor) return "No upcoming schedule";
 
-    const active = !doctor.status || doctor.status === "Active" || !doctor.status.includes("Disabled");
-    if (!active) return "Doctor inactive";
+    const isDocDisabled =
+      doctor.status === false ||
+      doctor.status === "Disabled" ||
+      doctor.status === "Inactive" ||
+      String(doctor.status || "").toLowerCase().includes("disable") ||
+      String(doctor.status || "").toLowerCase().includes("false") ||
+      (doctor as any).is_active === false;
+
+    if (isDocDisabled) return "Doctor inactive";
 
     const dutyDays = getDoctorEffectiveAvailableDays(doctor);
     if (!dutyDays || dutyDays.length === 0) return "No upcoming schedule";
@@ -459,9 +527,11 @@ export function BookAppointmentPage() {
   const filteredDoctors = allDoctors.filter((doc) => {
     // 1. Doctor Status check (Must not be disabled or inactive)
     const isDocDisabled =
+      doc.status === false ||
       doc.status === "Disabled" ||
       doc.status === "Inactive" ||
       String(doc.status || "").toLowerCase().includes("disable") ||
+      String(doc.status || "").toLowerCase().includes("false") ||
       (doc as any).is_active === false;
 
     if (isDocDisabled) return false;
@@ -476,7 +546,8 @@ export function BookAppointmentPage() {
     if (!matchesDepartment) return false;
 
     // 4. Patient Category Acceptance check
-    const acceptedTypes = (doc as any).acceptedPatientTypes || (doc as any).accepted_patient_types || ["Private Self-Pay", "HMO Insurance"];
+    const rawTypes = (doc as any).acceptedPatientTypes || (doc as any).accepted_patient_types;
+    const acceptedTypes = (rawTypes && Array.isArray(rawTypes) && rawTypes.length > 0) ? rawTypes : ["Private Self-Pay", "HMO Insurance"];
     return acceptedTypes.includes(patientType);
   });
 
@@ -552,7 +623,10 @@ export function BookAppointmentPage() {
     const dayShort = dateObj.toLocaleDateString("en-US", { weekday: "short" });
 
     // 1. Check saved specialist schedules from localStorage or API
-    const savedSchedules = (JSON.parse(localStorage.getItem("isalu_specialist_schedules") || "[]") || []) as any[];
+    let savedSchedules: any[] = [];
+    try {
+      savedSchedules = JSON.parse(localStorage.getItem("isalu_specialist_schedules") || "[]") || [];
+    } catch {}
     const matchedSched = savedSchedules.find(
       (s) => s.doctorId === doctor.id || s.doctorId === (doctor as any).doc_id || s.doctorName?.includes(doctor.name)
     );

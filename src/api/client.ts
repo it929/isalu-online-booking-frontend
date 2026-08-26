@@ -354,8 +354,9 @@ export async function loginStaffAPI(username: string, password: string): Promise
 }
 
 // 9. Departments API
-export async function getDepartmentsAPI(): Promise<any[] | null> {
-  return apiRequest<any[]>("/departments/");
+export async function getDepartmentsAPI(options?: { include_disabled?: boolean }): Promise<any[] | null> {
+  const query = options?.include_disabled ? "?include_disabled=true" : "";
+  return apiRequest<any[]>(`/departments/${query}`);
 }
 
 export async function createDepartmentAPI(deptData: any): Promise<any | null> {

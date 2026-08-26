@@ -17,7 +17,7 @@ export interface Doctor {
   image: string;
   bio: string;
   roomNumber: string;
-  status?: string;
+  status?: string | boolean;
   doc_id?: string;
 }
 
@@ -293,6 +293,13 @@ export const DEPARTMENTS: Department[] = [
     name: "Oncology & Cancer Care",
     description: "Cancer diagnosis, tumor care, chemotherapy, and oncological management.",
     iconName: "Ribbon",
+    doctorCount: 1,
+  },
+  {
+    id: "ophthalmology",
+    name: "Ophthalmology & Eye Care",
+    description: "Comprehensive eye exams, vision care, and eye surgeries.",
+    iconName: "Eye",
     doctorCount: 1,
   },
 ];
