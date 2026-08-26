@@ -83,21 +83,10 @@ export function DoctorsPage() {
     const docDeptId = rawDeptId.toLowerCase().trim();
     const targetDeptId = selectedDept.toLowerCase().trim();
 
-    let matchesDept = false;
-    if (docDeptId) {
-      matchesDept =
-        docDeptId === targetDeptId ||
-        (docDeptId === "general-physician" && targetDeptId === "general") ||
-        (docDeptId === "general" && targetDeptId === "general-physician");
-    } else {
-      if (isDeptUro) matchesDept = isDocUro;
-      else if (isDeptNeuro) matchesDept = isDocNeuro;
-      else {
-        matchesDept =
-          (deptObj && docSpecialtyLower.includes(deptNameLower)) ||
-          (deptObj && deptNameLower.includes(docSpecialtyLower));
-      }
-    }
+    const cleanDocDeptId = docDeptId.replace(/[^a-z0-9]/g, "");
+    const cleanTargetDeptId = targetDeptId.replace(/[^a-z0-9]/g, "");
+
+    let matchesDept = cleanDocDeptId ? cleanDocDeptId === cleanTargetDeptId : false;
     const matchesSearch =
       (doc.name && doc.name.toLowerCase().includes(searchQuery.toLowerCase())) ||
       (doc.specialty && doc.specialty.toLowerCase().includes(searchQuery.toLowerCase()));

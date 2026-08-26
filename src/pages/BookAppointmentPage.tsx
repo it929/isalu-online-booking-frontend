@@ -248,20 +248,10 @@ export function BookAppointmentPage() {
   const matchesDept = (doc: any, deptId: string) => {
     if (!deptId || deptId === "all") return true;
 
-    // 1. Resolve Currently Selected Department ID
-    const rawTarget = String(deptId).toLowerCase().trim();
-    const deptObj =
-      departmentsList.find((d: any) => {
-        const id = String(d.id || d.dept_id || "").toLowerCase().trim();
-        const name = String(d.name || "").toLowerCase().trim();
-        return id === rawTarget || name === rawTarget;
-      }) ||
-      DEPARTMENTS.find((d) => d.id.toLowerCase() === rawTarget || d.name.toLowerCase() === rawTarget);
+    // 1. Target Department ID (Strict ID Only)
+    const targetDeptId = String(deptId).toLowerCase().trim().replace(/[^a-z0-9]/g, "");
 
-    const targetDeptId = deptObj ? String(deptObj.id || deptObj.dept_id || rawTarget).toLowerCase().trim() : rawTarget;
-    const cleanTargetId = targetDeptId.replace(/[^a-z0-9]/g, "");
-
-    // 2. Resolve Doctor's Department Foreign Key ID
+    // 2. Doctor's Assigned Department Foreign Key ID (Strict ID Only)
     let rawDocDeptId = "";
     if (typeof doc.department === "string") {
       rawDocDeptId = doc.department;
@@ -271,13 +261,12 @@ export function BookAppointmentPage() {
     if (!rawDocDeptId && doc.departmentId) rawDocDeptId = String(doc.departmentId);
     if (!rawDocDeptId && doc.department_id) rawDocDeptId = String(doc.department_id);
 
-    const docDeptId = rawDocDeptId.toLowerCase().trim();
-    const cleanDocDeptId = docDeptId.replace(/[^a-z0-9]/g, "");
+    const docDeptId = rawDocDeptId.toLowerCase().trim().replace(/[^a-z0-9]/g, "");
 
-    if (!cleanDocDeptId) return false;
+    if (!docDeptId) return false;
 
-    // 3. STRICT EQUALITY CHECK: Doctor's department ID must equal currently selected department ID
-    return cleanDocDeptId === cleanTargetId || docDeptId === targetDeptId || docDeptId === rawTarget;
+    // 3. STRICT ID EQUALITY CHECK: Doctor's department ID must equal target department ID
+    return docDeptId === targetDeptId;
   };
 
   const selectedDeptObj = departmentsList.find(
