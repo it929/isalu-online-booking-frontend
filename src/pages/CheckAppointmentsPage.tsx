@@ -843,9 +843,19 @@ export function CheckAppointmentsPage() {
       if (localBookingsStr) {
         try { localBookings = JSON.parse(localBookingsStr); } catch {}
       }
-      const allBookings = (remoteBookings && Array.isArray(remoteBookings) && remoteBookings.length > 0)
-        ? remoteBookings
-        : localBookings;
+      let allBookings: any[] = [];
+      if (Array.isArray(remoteBookings)) {
+        allBookings = remoteBookings
+          .filter((remoteB: any) => remoteB.status !== "Disabled" && remoteB.is_active !== false && remoteB.isActive !== false)
+          .map((remoteB: any) => {
+            const code = remoteB.refCode || remoteB.ref_code;
+            const localB = localBookings.find((lb: any) => (lb.refCode || lb.ref_code) === code);
+            return { ...(localB || {}), ...remoteB };
+          });
+        localStorage.setItem("isalu_bookings", JSON.stringify(allBookings));
+      } else {
+        allBookings = localBookings.filter((b: any) => b.status !== "Disabled" && b.is_active !== false && b.isActive !== false);
+      }
       setBookings(allBookings);
 
       const localDocsStr = localStorage.getItem("isalu_doctors");
@@ -853,20 +863,22 @@ export function CheckAppointmentsPage() {
       if (localDocsStr) {
         try { localDocs = JSON.parse(localDocsStr); } catch {}
       }
-      const allDocs = (remoteDoctors && Array.isArray(remoteDoctors) && remoteDoctors.length > 0)
-        ? remoteDoctors
-        : localDocs;
+      const allDocs = Array.isArray(remoteDoctors) ? remoteDoctors : localDocs;
       setDoctorsList(allDocs);
+      if (Array.isArray(remoteDoctors)) {
+        localStorage.setItem("isalu_doctors", JSON.stringify(remoteDoctors));
+      }
 
       const localSchedsStr = localStorage.getItem("isalu_specialist_schedules");
       let localScheds: any[] = [];
       if (localSchedsStr) {
         try { localScheds = JSON.parse(localSchedsStr); } catch {}
       }
-      const allScheds = (remoteSchedules && Array.isArray(remoteSchedules) && remoteSchedules.length > 0)
-        ? remoteSchedules
-        : localScheds;
+      const allScheds = Array.isArray(remoteSchedules) ? remoteSchedules : localScheds;
       setSchedulesList(allScheds);
+      if (Array.isArray(remoteSchedules)) {
+        localStorage.setItem("isalu_specialist_schedules", JSON.stringify(remoteSchedules));
+      }
 
       // Check URL search params e.g. ?ref=ISALU-XXXXX
       const urlRef = searchParams.get("ref") || searchParams.get("code");

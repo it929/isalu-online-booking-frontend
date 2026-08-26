@@ -218,6 +218,23 @@ export async function updateBookingAPI(refCode: string, bookingData: any): Promi
   });
 }
 
+export async function deleteBookingAPI(refCode: string): Promise<boolean> {
+  const res = await apiRequest<any>(`/bookings/${refCode}/`, {
+    method: "DELETE",
+  });
+  return res !== null;
+}
+
+export async function getDisabledBookingsAPI(): Promise<any[] | null> {
+  return apiRequest<any[]>("/bookings/disabled/");
+}
+
+export async function restoreBookingAPI(refCode: string): Promise<any | null> {
+  return apiRequest<any>(`/bookings/${refCode}/restore/`, {
+    method: "POST",
+  });
+}
+
 export async function checkInBookingAPI(refCode: string): Promise<any | null> {
   return apiRequest<any>(`/bookings/${refCode}/check-in/`, {
     method: "POST",
@@ -235,6 +252,29 @@ export async function payCashdeskBookingAPI(refCode: string, paymentMethod: stri
   return apiRequest<any>(`/bookings/${refCode}/pay-cashdesk/`, {
     method: "POST",
     body: JSON.stringify({ paymentMethod }),
+  });
+}
+
+export async function rerouteHmoBookingToCashdeskAPI(refCode: string, remark: string): Promise<any | null> {
+  try {
+    const res = await apiRequest<any>(`/bookings/${refCode}/reroute-cashdesk/`, {
+      method: "POST",
+      body: JSON.stringify({ remark }),
+    });
+    if (res && (res.data || res.message)) return res.data || res;
+  } catch (e) {
+    console.warn("Dedicated reroute endpoint failed, trying PATCH fallback:", e);
+  }
+
+  return updateBookingAPI(refCode, {
+    payment_type: "Private Self-Pay",
+    paymentType: "Private Self-Pay",
+    hmo_status: `Re-routed to Cashdesk (Self-Pay): ${remark}`,
+    hmoStatus: `Re-routed to Cashdesk (Self-Pay): ${remark}`,
+    payment_status: "Pending",
+    paymentStatus: "Pending",
+    delete_reason: `Re-routed from HMO to Cashdesk: ${remark}`,
+    deleteReason: `Re-routed from HMO to Cashdesk: ${remark}`,
   });
 }
 
