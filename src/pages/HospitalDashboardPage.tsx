@@ -223,7 +223,11 @@ export function HospitalDashboardPage() {
     }
 
     // Check dynamic custom roles defined in roles state
-    const matchedRole = roles.find((r: any) => (r.name || "").toLowerCase().trim() === roleStr);
+    const matchedRole = roles.find(
+      (r: any) =>
+        (r.name || "").toLowerCase().trim() === roleStr ||
+        (r.role_id || r.id || "").toLowerCase().trim() === roleStr
+    );
     if (matchedRole) {
       const allowedList = matchedRole.allowedDesks || matchedRole.allowed_desks || [];
       if (desk === "clinic" || desk === "users" || desk === "disabled_bookings") {
@@ -763,11 +767,22 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
   const [editRoleAllowedDesks, setEditRoleAllowedDesks] = useState<string[]>([]);
   const [editRoleError, setEditRoleError] = useState("");
 
+  const broadcastRoleChange = (updatedRoles: any[]) => {
+    try {
+      localStorage.setItem("isalu_system_roles", JSON.stringify(updatedRoles));
+      const channel = new BroadcastChannel("isalu_role_channel");
+      channel.postMessage({ type: "ROLES_UPDATED", roles: updatedRoles });
+      channel.close();
+    } catch {}
+    window.dispatchEvent(new CustomEvent("isalu_roles_updated", { detail: updatedRoles }));
+    window.dispatchEvent(new Event("storage"));
+  };
+
   const loadRoles = async () => {
     const remote = await getRolesAPI();
     if (remote && Array.isArray(remote) && remote.length > 0) {
       setRoles(remote);
-      localStorage.setItem("isalu_system_roles", JSON.stringify(remote));
+      broadcastRoleChange(remote);
     }
   };
 
@@ -797,7 +812,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
     const remoteRoles = await getRolesAPI();
     const updated = remoteRoles && remoteRoles.length > 0 ? remoteRoles : [created, ...roles];
     setRoles(updated);
-    localStorage.setItem("isalu_system_roles", JSON.stringify(updated));
+    broadcastRoleChange(updated);
 
     setNewRoleName("");
     setNewRoleDescription("");
@@ -843,7 +858,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
       : roles.map((r) => ((r.id === targetId || r.role_id === targetId) ? { ...r, ...updatedData } : r));
 
     setRoles(updated);
-    localStorage.setItem("isalu_system_roles", JSON.stringify(updated));
+    broadcastRoleChange(updated);
     setEditingRole(null);
     setToastAlert({
       title: "Role Configuration Updated ✓",
@@ -866,7 +881,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
     const remoteRoles = await getRolesAPI();
     const updated = remoteRoles && remoteRoles.length > 0 ? remoteRoles : roles.filter((r) => r.id !== targetId && r.role_id !== targetId);
     setRoles(updated);
-    localStorage.setItem("isalu_system_roles", JSON.stringify(updated));
+    broadcastRoleChange(updated);
     setToastAlert({
       title: "Role Removed",
       description: `Custom role '${role.name}' deleted.`,
@@ -1764,7 +1779,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
     if (schedStatusFilter === "active") {
       matchesStatus = sched.status !== false && (typeof sched.status !== "string" || !sched.status.includes("Disabled"));
     } else if (schedStatusFilter === "disabled") {
-      matchesStatus = Boolean(sched.status?.includes("Disabled"));
+      matchesStatus = sched.status === false || (typeof sched.status === "string" && sched.status.includes("Disabled"));
     }
 
     let matchesDept = true;
@@ -1902,7 +1917,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
     if (docDirectoryStatusFilter === "active") {
       matchesStatus = doc.status !== false && (typeof doc.status !== "string" || !doc.status.includes("Disabled"));
     } else if (docDirectoryStatusFilter === "disabled") {
-      matchesStatus = Boolean(doc.status?.includes("Disabled"));
+      matchesStatus = doc.status === false || (typeof doc.status === "string" && doc.status.includes("Disabled"));
     }
 
     let matchesDept = true;
@@ -4846,10 +4861,21 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
       };
     } catch {}
 
+    let roleChan: BroadcastChannel | null = null;
+    try {
+      roleChan = new BroadcastChannel("isalu_role_channel");
+      roleChan.onmessage = (event) => {
+        if (event.data?.type === "ROLES_UPDATED") {
+          loadRoles();
+        }
+      };
+    } catch {}
+
     window.addEventListener("storage", handleSync);
     window.addEventListener("isalu_booking_created", handleSync);
     window.addEventListener("isalu_booking_updated", handleSync);
     window.addEventListener("isalu_users_updated", loadUsers);
+    window.addEventListener("isalu_roles_updated", loadRoles);
     window.addEventListener("focus", handleSync);
 
     // Auto-polling interval every 2s for instant real-time live updates across different accounts and windows
@@ -5066,7 +5092,7 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
     } else if (statusFilter === "has_referral") {
       matchesStatus = Boolean(b.referralDocName || b.referral_doc_name);
     } else {
-      matchesStatus = b.status?.toLowerCase() === statusFilter.toLowerCase();
+      matchesStatus = String(b.status || "").toLowerCase() === statusFilter.toLowerCase();
     }
 
     const matchesHmo =
@@ -9074,12 +9100,12 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                                 <button
                                   onClick={() => handleToggleScheduleStatus(sched)}
                                   className={`px-3 py-1 rounded-xl text-[11px] font-black transition-all border ${
-                                    sched.status?.includes("Disabled")
+                                    (sched.status === false || (typeof sched.status === "string" && sched.status.includes("Disabled")))
                                       ? "bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300"
                                       : "bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-300"
                                   }`}
                                 >
-                                  {sched.status?.includes("Disabled") ? "Enable Shift" : "Disable Shift"}
+                                  {(sched.status === false || (typeof sched.status === "string" && sched.status.includes("Disabled"))) ? "Enable Shift" : "Disable Shift"}
                                 </button>
                               </div>
                             </td>
@@ -9239,7 +9265,7 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   {paginatedDoctorsDirectory.map((doc, idx) => {
-                    const isDisabled = doc.status?.includes("Disabled");
+                    const isDisabled = doc.status === false || (typeof doc.status === "string" && doc.status.includes("Disabled"));
                     const acronym = doc.acronym || getAcronymForIndex(idx);
                     return (
                       <div
