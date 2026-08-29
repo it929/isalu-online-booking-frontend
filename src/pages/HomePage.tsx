@@ -381,37 +381,49 @@ export function HomePage() {
     }
     return DEPARTMENTS;
   });
-  const [allDoctors, setAllDoctors] = useState<any[]>([]);
+  const [allDoctors, setAllDoctors] = useState<any[]>(() => {
+    const saved = localStorage.getItem("isalu_hospital_doctors");
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch {}
+    }
+    return DOCTORS;
+  });
 
   useEffect(() => {
     async function syncData() {
-      const [remoteDepts, remoteDoctors] = await Promise.all([
-        getDepartmentsAPI(),
-        getDoctorsAPI(),
-      ]);
+      // 1. Fetch departments immediately for instant UI load
+      getDepartmentsAPI().then((remoteDepts) => {
+        if (remoteDepts && Array.isArray(remoteDepts) && remoteDepts.length > 0) {
+          const mapped = remoteDepts
+            .filter((d: any) => d.status !== false && d.status !== 'Disabled' && d.status !== 'Inactive')
+            .map((d: any) => ({
+              id: d.dept_id || d.id,
+              dept_id: d.dept_id || d.id,
+              name: d.name,
+              description: d.description || "Specialized clinical consultations and medical care.",
+              iconName: d.icon_name || d.iconName || "Stethoscope",
+              doctorCount: d.doctor_count || d.doctorCount || 0,
+              status: d.status !== undefined ? d.status : true,
+            }));
 
-      if (remoteDoctors && Array.isArray(remoteDoctors) && remoteDoctors.length > 0) {
-        setAllDoctors(remoteDoctors);
-      }
+          setDepartmentsList(mapped);
+          localStorage.setItem("isalu_hospitals_departments", JSON.stringify(mapped));
+        } else if (!departmentsList || departmentsList.length === 0) {
+          setDepartmentsList(DEPARTMENTS);
+        }
+      });
 
-      if (remoteDepts && Array.isArray(remoteDepts) && remoteDepts.length > 0) {
-        const mapped = remoteDepts
-          .filter((d: any) => d.status !== false && d.status !== 'Disabled' && d.status !== 'Inactive')
-          .map((d: any) => ({
-            id: d.dept_id || d.id,
-            dept_id: d.dept_id || d.id,
-            name: d.name,
-            description: d.description || "Specialized clinical consultations and medical care.",
-            iconName: d.icon_name || d.iconName || "Stethoscope",
-            doctorCount: d.doctor_count || d.doctorCount || 0,
-            status: d.status !== undefined ? d.status : true,
-          }));
-
-        setDepartmentsList(mapped);
-        localStorage.setItem("isalu_hospitals_departments", JSON.stringify(mapped));
-      } else if (!departmentsList || departmentsList.length === 0) {
-        setDepartmentsList(DEPARTMENTS);
-      }
+      // 2. Fetch doctors directly from database API
+      getDoctorsAPI().then((remoteDoctors) => {
+        if (remoteDoctors && Array.isArray(remoteDoctors) && remoteDoctors.length > 0) {
+          const activeDocs = remoteDoctors.filter((d: any) => d.status !== false && (typeof d.status !== "string" || !d.status.includes("Disabled")));
+          setAllDoctors(activeDocs.length > 0 ? activeDocs : remoteDoctors);
+          localStorage.setItem("isalu_hospital_doctors", JSON.stringify(remoteDoctors));
+        }
+      });
     }
     syncData();
 
@@ -1039,50 +1051,26 @@ export function HomePage() {
                   {activeDepartmentsList.map((dept) => {
                     const Icon = resolveIconForDept(dept);
                     const specCount = getSpecialistCountForDept(dept.id, dept.name, dept.doctorCount);
-                    const is24hAvailable = isSpecialistAvailableInNext24Hours(dept.id, dept.name);
-                    const nextDateStr = getNextAvailableDateForDept(dept.id, dept.name);
-
-                    if (is24hAvailable) {
-                      return (
-                        <Link
-                          key={dept.id}
-                          to={`/book?department=${dept.id}`}
-                          className="group flex items-center justify-between p-3.5 rounded-2xl bg-white/10 hover:bg-[#008ac9] border-2 border-white/20 hover:border-white transition-all duration-200"
-                        >
-                          <div className="flex items-center gap-3">
-                            <div className="p-2 rounded-xl bg-white text-[#008ac9] font-bold shadow-sm shrink-0">
-                              <Icon className="h-5 w-5" />
-                            </div>
-                            <div>
-                              <h3 className="font-extrabold text-sm text-white group-hover:text-white">{dept.name}</h3>
-                              <span className="text-[11px] font-bold text-emerald-300 group-hover:text-white flex items-center gap-1">
-                                <Clock className="h-3 w-3" /> Duty Tomorrow ({specCount} Specialist{specCount > 1 ? "s" : ""})
-                              </span>
-                            </div>
-                          </div>
-                          <ArrowRight className="h-4 w-4 text-sky-200 group-hover:text-white transition-transform transform group-hover:translate-x-1 shrink-0" />
-                        </Link>
-                      );
-                    }
 
                     return (
-                      <div
+                      <Link
                         key={dept.id}
-                        className="flex items-center justify-between p-3.5 rounded-2xl bg-slate-900/60 border-2 border-slate-700/60 opacity-60 cursor-not-allowed select-none"
+                        to={`/book?department=${dept.id}`}
+                        className="group flex items-center justify-between p-3.5 rounded-2xl bg-white/10 hover:bg-[#008ac9] border-2 border-white/20 hover:border-white transition-all duration-200"
                       >
                         <div className="flex items-center gap-3">
-                          <div className="p-2 rounded-xl bg-slate-800 text-slate-400 font-bold shadow-sm shrink-0">
+                          <div className="p-2 rounded-xl bg-white text-[#008ac9] font-bold shadow-sm shrink-0">
                             <Icon className="h-5 w-5" />
                           </div>
                           <div>
-                            <h3 className="font-extrabold text-sm text-slate-300">{dept.name}</h3>
-                            <span className="text-[11px] font-bold text-rose-400 flex items-center gap-1">
-                              <Lock className="h-3 w-3" /> Off Tomorrow (Next: {nextDateStr})
+                            <h3 className="font-extrabold text-sm text-white group-hover:text-white">{dept.name}</h3>
+                            <span className="text-[11px] font-bold text-emerald-300 group-hover:text-white flex items-center gap-1">
+                              <Clock className="h-3 w-3" /> Active Clinic ({specCount} Specialist{specCount > 1 ? "s" : ""})
                             </span>
                           </div>
                         </div>
-                        <Lock className="h-4 w-4 text-slate-500 shrink-0" />
-                      </div>
+                        <ArrowRight className="h-4 w-4 text-sky-200 group-hover:text-white transition-transform transform group-hover:translate-x-1 shrink-0" />
+                      </Link>
                     );
                   })}
                 </div>
@@ -1126,17 +1114,11 @@ export function HomePage() {
             {activeDepartmentsList.map((dept) => {
               const Icon = resolveIconForDept(dept);
               const specCount = getSpecialistCountForDept(dept.id, dept.name, dept.doctorCount);
-              const is24hAvailable = isSpecialistAvailableInNext24Hours(dept.id, dept.name);
-              const nextDateStr = getNextAvailableDateForDept(dept.id, dept.name);
 
               return (
                 <div
                   key={dept.id}
-                  className={`group relative bg-gradient-to-b from-white via-sky-50/40 to-white dark:from-slate-900 dark:via-slate-900/90 dark:to-slate-900 border-2 rounded-[2.5rem] p-7 shadow-md transition-all duration-300 flex flex-col justify-between overflow-hidden ${
-                    !is24hAvailable
-                      ? "border-slate-300 dark:border-slate-800 opacity-80"
-                      : "border-sky-200/80 dark:border-slate-800 hover:shadow-2xl hover:border-[#008ac9] dark:hover:border-sky-400 transform hover:-translate-y-2"
-                  }`}
+                  className="group relative bg-gradient-to-b from-white via-sky-50/40 to-white dark:from-slate-900 dark:via-slate-900/90 dark:to-slate-900 border-2 border-sky-200/80 dark:border-slate-800 hover:shadow-2xl hover:border-[#008ac9] dark:hover:border-sky-400 transform hover:-translate-y-2 rounded-[2.5rem] p-7 shadow-md transition-all duration-300 flex flex-col justify-between overflow-hidden"
                 >
                   {/* Soft Background Glow & Subtle Heart Accent Badge */}
                   <div className="absolute -right-8 -top-8 w-28 h-28 bg-[#008ac9]/10 dark:bg-sky-400/10 rounded-full blur-2xl pointer-events-none group-hover:scale-150 transition-transform duration-500" />
@@ -1147,62 +1129,34 @@ export function HomePage() {
                   <div>
                     {/* Round Oval Icon Badge Header */}
                     <div className="flex items-center justify-between mb-5">
-                      <div className={`h-14 w-14 rounded-full flex items-center justify-center font-bold shadow-md transition-transform ${
-                        !is24hAvailable
-                          ? "bg-slate-400 dark:bg-slate-700 text-slate-100 shadow-none"
-                          : "bg-[#008ac9] text-white shadow-[#008ac9]/30 group-hover:scale-110"
-                      }`}>
+                      <div className="h-14 w-14 rounded-full flex items-center justify-center font-bold shadow-md transition-transform bg-[#008ac9] text-white shadow-[#008ac9]/30 group-hover:scale-110">
                         <Icon className="h-7 w-7" />
                       </div>
                       <div className="flex flex-col items-end gap-1">
                         <span className="px-3 py-1 rounded-full bg-white dark:bg-slate-800 text-[#008ac9] dark:text-sky-300 text-xs font-black border border-sky-200 dark:border-slate-700 shadow-sm flex items-center gap-1.5">
                           <Users className="h-3.5 w-3.5 text-[#008ac9]" /> {specCount} Specialist{specCount > 1 ? "s" : ""}
                         </span>
-                        {is24hAvailable ? (
-                          <span className="px-2.5 py-0.5 rounded-full text-[9.5px] font-black bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 border border-emerald-300/80 flex items-center gap-1">
-                            <Clock className="h-3 w-3 text-emerald-600" /> Duty Tomorrow
-                          </span>
-                        ) : (
-                          <span className="px-2.5 py-0.5 rounded-full text-[9.5px] font-black bg-rose-100 dark:bg-rose-950/80 text-rose-800 dark:text-rose-300 border border-rose-300/80 flex items-center gap-1">
-                            <Lock className="h-3 w-3 text-rose-500" /> Off Tomorrow
-                          </span>
-                        )}
+                        <span className="px-2.5 py-0.5 rounded-full text-[9.5px] font-black bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 border border-emerald-300/80 flex items-center gap-1">
+                          <Clock className="h-3 w-3 text-emerald-600" /> 30-Day Schedule Active
+                        </span>
                       </div>
                     </div>
 
                     <h3 className="text-xl font-black text-slate-900 dark:text-white mb-2.5 group-hover:text-[#008ac9] dark:group-hover:text-sky-400 transition-colors">
                       {dept.name}
                     </h3>
-                    <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 leading-relaxed mb-4">
+                    <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 leading-relaxed mb-6">
                       {dept.description}
                     </p>
-
-                    {!is24hAvailable && (
-                      <div className="mb-5 p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/50 border border-amber-300 dark:border-amber-900 text-[11px] font-bold text-amber-900 dark:text-amber-300 flex items-start gap-2 shadow-xs">
-                        <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
-                        <span>Off tomorrow. <strong>Next Available Clinic: {nextDateStr}</strong></span>
-                      </div>
-                    )}
                   </div>
 
-                  {is24hAvailable ? (
-                    <Link
-                      to={`/book?department=${dept.id}`}
-                      className="w-full py-3.5 px-5 rounded-full bg-[#008ac9] hover:bg-[#0072b1] text-white font-black text-xs transition-all flex items-center justify-between shadow-md hover:shadow-lg border-2 border-white/20 group-hover:scale-[1.02]"
-                    >
-                      <span>Book Specialist Consultation</span>
-                      <ArrowRight className="h-4 w-4 transform group-hover:translate-x-1 transition-transform" />
-                    </Link>
-                  ) : (
-                    <button
-                      type="button"
-                      disabled={true}
-                      className="w-full py-3.5 px-5 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 font-extrabold text-xs transition-all flex items-center justify-between border-2 border-slate-300 dark:border-slate-700 cursor-not-allowed select-none"
-                    >
-                      <span>Next Available: {nextDateStr}</span>
-                      <Lock className="h-4 w-4 text-slate-400" />
-                    </button>
-                  )}
+                  <Link
+                    to={`/book?department=${dept.id}`}
+                    className="w-full py-3.5 px-5 rounded-full bg-[#008ac9] hover:bg-[#0072b1] text-white font-black text-xs transition-all flex items-center justify-between shadow-md hover:shadow-lg border-2 border-white/20 group-hover:scale-[1.02]"
+                  >
+                    <span>Book Specialist Consultation</span>
+                    <ArrowRight className="h-4 w-4 transform group-hover:translate-x-1 transition-transform" />
+                  </Link>
                 </div>
               );
             })}
@@ -1244,12 +1198,12 @@ export function HomePage() {
       <section className="relative py-24 md:py-32 overflow-hidden border-b-2 border-slate-300 dark:border-slate-800">
         {/* Doctor and Patient Smiling Background Image */}
         <div
-          className="absolute inset-0 bg-cover bg-center bg-no-repeat transform scale-105 transition-transform duration-1000"
+          className="absolute inset-0 bg-cover bg-center bg-no-repeat transform scale-105 transition-transform duration-1000 opacity-90"
           style={{ backgroundImage: "url('/doctor_patient_smiling_bg.jpg')" }}
         />
 
-        {/* Transparent Isalu Brand Color Cover Overlay */}
-        <div className="absolute inset-0 bg-gradient-to-r from-[#008ac9]/90 via-[#011627]/85 to-[#008ac9]/95 backdrop-blur-md" />
+        {/* Transparent Isalu Brand Color Cover Overlay - Made clear & visible */}
+        <div className="absolute inset-0 bg-gradient-to-r from-[#008ac9]/60 via-[#011627]/55 to-[#008ac9]/65 backdrop-blur-[2px]" />
 
         {/* Ambient Glowing Orbs */}
         <div className="absolute -left-32 top-1/4 h-96 w-96 rounded-full bg-sky-400/30 blur-3xl pointer-events-none" />

@@ -196,7 +196,16 @@ export function BookAppointmentPage() {
     };
   };
 
-  const [allDoctors, setAllDoctors] = useState<Doctor[]>([]);
+  const [allDoctors, setAllDoctors] = useState<Doctor[]>(() => {
+    const saved = localStorage.getItem("isalu_hospital_doctors");
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed.map(sanitizeDoctor);
+      } catch {}
+    }
+    return DOCTORS.map(sanitizeDoctor);
+  });
 
   useEffect(() => {
     async function syncData() {
@@ -219,6 +228,7 @@ export function BookAppointmentPage() {
       if (remoteDoctors && Array.isArray(remoteDoctors) && remoteDoctors.length > 0) {
         const sanitized = remoteDoctors.map(sanitizeDoctor);
         setAllDoctors(sanitized);
+        localStorage.setItem("isalu_hospital_doctors", JSON.stringify(sanitized));
       }
 
       const remoteSchedules = await getSchedulesAPI();
@@ -267,7 +277,7 @@ export function BookAppointmentPage() {
     const cleanTargetDeptKey = targetDeptKey.replace(/[^a-z0-9]/g, "");
     const cleanTargetDeptName = targetDeptName.replace(/[^a-z0-9]/g, "");
 
-    // Extract Foreign Key Department ID / Record from Doctor model
+    // 1. Extract Foreign Key Department ID / Record from Doctor model
     let rawDocDeptId = "";
     let rawDocDeptName = "";
 
@@ -284,7 +294,6 @@ export function BookAppointmentPage() {
     const cleanDocDeptId = rawDocDeptId.replace(/[^a-z0-9]/g, "");
     const cleanDocDeptName = rawDocDeptName.replace(/[^a-z0-9]/g, "");
 
-    // Strict Department Foreign Key Comparison (Does NOT match by doc.specialty text)
     if (cleanDocDeptId) {
       if (
         cleanDocDeptId === cleanTargetDeptId ||
@@ -302,6 +311,20 @@ export function BookAppointmentPage() {
         cleanDocDeptName === cleanTargetDeptName ||
         cleanDocDeptName === cleanTargetDeptId ||
         cleanDocDeptName === cleanTargetDeptKey
+      ) {
+        return true;
+      }
+    }
+
+    // 2. Specialty Text Fallback Matching (e.g. doc.specialty = "Cardiology")
+    const docSpec = String(doc.specialty || "").toLowerCase().trim();
+    const cleanDocSpec = docSpec.replace(/[^a-z0-9]/g, "");
+
+    if (cleanDocSpec && (cleanTargetDeptName || cleanTargetDeptId || cleanTargetDeptKey)) {
+      if (
+        (cleanTargetDeptName && (cleanDocSpec.includes(cleanTargetDeptName) || cleanTargetDeptName.includes(cleanDocSpec))) ||
+        (cleanTargetDeptId && (cleanDocSpec.includes(cleanTargetDeptId) || cleanTargetDeptId.includes(cleanDocSpec))) ||
+        (cleanTargetDeptKey && (cleanDocSpec.includes(cleanTargetDeptKey) || cleanTargetDeptKey.includes(cleanDocSpec)))
       ) {
         return true;
       }
@@ -536,44 +559,91 @@ export function BookAppointmentPage() {
 
     if (isDocDisabled) return false;
 
-    // 2. Active Duty Schedule check (Must have an active schedule roster set)
-    const effectiveDays = getDoctorEffectiveAvailableDays(doc);
-    const hasActiveSchedule = effectiveDays && effectiveDays.length > 0;
-    if (!hasActiveSchedule) return false;
-
-    // 3. Department / Clinic match
+    // 2. Department / Clinic match
     const matchesDepartment = selectedDept ? matchesDept(doc, selectedDept) : true;
     if (!matchesDepartment) return false;
 
-    // 4. Patient Category Acceptance check
+    // 3. Patient Category Acceptance check
     const rawTypes = (doc as any).acceptedPatientTypes || (doc as any).accepted_patient_types;
     const acceptedTypes = (rawTypes && Array.isArray(rawTypes) && rawTypes.length > 0) ? rawTypes : ["Private Self-Pay", "HMO Insurance"];
     return acceptedTypes.includes(patientType);
   });
 
-  // Generate calendar dates for current month, filtering strictly by doctor availability & 24h advance notice
-  // Generate calendar dates for current month, filtering strictly by doctor availability & 24h advance notice
+  const isDoctorOnDutyOnDate = (doctor: Doctor | undefined, candidateDate: Date): boolean => {
+    if (!doctor) return false;
+
+    const isDocDisabled =
+      doctor.status === false ||
+      doctor.status === "Disabled" ||
+      doctor.status === "Inactive" ||
+      String(doctor.status || "").toLowerCase().includes("disable") ||
+      String(doctor.status || "").toLowerCase().includes("false") ||
+      (doctor as any).is_active === false;
+
+    if (isDocDisabled) return false;
+
+    const dutyDays = getDoctorEffectiveAvailableDays(doctor);
+    if (!dutyDays || dutyDays.length === 0) return true;
+
+    const dayNameUpper = candidateDate.toLocaleDateString("en-US", { weekday: "long" }).toUpperCase();
+    const dayShortUpper = candidateDate.toLocaleDateString("en-US", { weekday: "short" }).toUpperCase();
+
+    const cYear = candidateDate.getFullYear();
+    const cMonth = String(candidateDate.getMonth() + 1).padStart(2, "0");
+    const cDay = String(candidateDate.getDate()).padStart(2, "0");
+    const candidateDateStr = `${cYear}-${cMonth}-${cDay}`;
+
+    const dayOfMonth = candidateDate.getDate();
+    const nthWeek = Math.ceil(dayOfMonth / 7);
+
+    const tokens: string[] = [];
+    dutyDays.forEach((item: any) => {
+      if (typeof item === "string") {
+        item.split(/[,/|]+/).forEach((p) => {
+          if (p.trim()) tokens.push(p.trim().toUpperCase());
+        });
+      }
+    });
+
+    return tokens.some((token) => {
+      if (token.includes(candidateDateStr)) return true;
+      if (token === dayNameUpper || token === dayShortUpper) return true;
+      if (token.includes("EVERY") && (token.includes(dayNameUpper) || token.includes(dayShortUpper))) return true;
+
+      if (token.includes(dayNameUpper) || token.includes(dayShortUpper)) {
+        if (token.includes("1ST & 3RD") || token.includes("1ST AND 3RD")) {
+          return nthWeek === 1 || nthWeek === 3;
+        }
+        if (token.includes("2ND & 4TH") || token.includes("2ND AND 4TH")) {
+          return nthWeek === 2 || nthWeek === 4;
+        }
+        if (token.includes("1ST – 3RD") || token.includes("1ST-3RD") || token.includes("1ST TO 3RD")) {
+          return nthWeek === 1 || nthWeek === 2 || nthWeek === 3;
+        }
+        return true;
+      }
+
+      if (dayNameUpper.startsWith(token) || token.startsWith(dayShortUpper)) return true;
+      if (token.includes(dayNameUpper) || token.includes(dayShortUpper)) return true;
+
+      return false;
+    });
+  };
+
+  // Generate calendar dates for the next 30 days, calculating doctor duty availability per date
   const getUpcomingDates = (doctorAvailability?: string[], selectedDocObj?: Doctor) => {
     const list: any[] = [];
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const tomorrow = new Date(today);
-    tomorrow.setDate(today.getDate() + 1);
+    const effectiveDutyDays = selectedDocObj
+      ? getDoctorEffectiveAvailableDays(selectedDocObj)
+      : (doctorAvailability && doctorAvailability.length > 0 ? doctorAvailability : []);
 
-    const tYear = tomorrow.getFullYear();
-    const tMonth = String(tomorrow.getMonth() + 1).padStart(2, "0");
-    const tDay = String(tomorrow.getDate()).padStart(2, "0");
-    const tomorrowDateStr = `${tYear}-${tMonth}-${tDay}`;
+    let firstNextAvailableFound = false;
 
-    const isOnDutyTomorrow = selectedDocObj ? isDoctorOnDutyInNext24Hours(selectedDocObj) : false;
-
-    const year = today.getFullYear();
-    const month = today.getMonth();
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    const totalDaysToShow = Math.max(30, daysInMonth - today.getDate() + 1 + 14);
-
-    for (let i = 0; i < totalDaysToShow; i++) {
+    // Generate next 30 calendar days for booking
+    for (let i = 0; i < 30; i++) {
       const d = new Date(today);
       d.setDate(today.getDate() + i);
 
@@ -594,10 +664,32 @@ export function BookAppointmentPage() {
       else if (dayNum <= 28) weekNum = "4th Week";
       else weekNum = "5th Week";
 
-      const isTomorrowDate = dateStr === tomorrowDateStr;
-      const isAvailable = isTomorrowDate && isOnDutyTomorrow;
-
       const weekOccurrenceBadge = `${weekNum.replace(" Week", "")} ${dayShort}`;
+
+      let isAvailable = false;
+      if (selectedDocObj) {
+        isAvailable = isDoctorOnDutyOnDate(selectedDocObj, d);
+      } else if (effectiveDutyDays.length > 0) {
+        const tokens: string[] = [];
+        effectiveDutyDays.forEach((item: any) => {
+          if (typeof item === "string") {
+            item.split(/[,/|]+/).forEach((p) => {
+              if (p.trim()) tokens.push(p.trim().toUpperCase());
+            });
+          }
+        });
+        const dayUpper = dayName.toUpperCase();
+        const shortUpper = dayShort.toUpperCase();
+        isAvailable = tokens.some((t) => t === dayUpper || t === shortUpper || t.includes(dayUpper) || t.includes(shortUpper));
+      } else {
+        isAvailable = true;
+      }
+
+      let isNextAvailable = false;
+      if (isAvailable && !firstNextAvailableFound) {
+        isNextAvailable = true;
+        firstNextAvailableFound = true;
+      }
 
       list.push({
         dateStr,
@@ -607,8 +699,8 @@ export function BookAppointmentPage() {
         weekNum,
         weekOccurrenceBadge,
         isAvailable,
-        isPast24HoursNotice: isTomorrowDate,
-        isNextAvailable: isTomorrowDate && isOnDutyTomorrow,
+        isPast24HoursNotice: i >= 0,
+        isNextAvailable,
       });
     }
 
@@ -1608,17 +1700,11 @@ export function BookAppointmentPage() {
                       return (
                         <div
                           key={doctor.id}
-                          onClick={() => {
-                            if (isAvailableNext24h) {
-                              setSelectedDoctorId(doctor.id);
-                            }
-                          }}
-                          className={`transition-all rounded-3xl border-2 p-4 flex flex-col justify-between ${
-                            !isAvailableNext24h
-                              ? "bg-slate-100 dark:bg-slate-950/60 border-slate-200 dark:border-slate-800 opacity-70 cursor-not-allowed select-none"
-                              : isSelected
-                              ? "border-[#008ac9] ring-2 ring-[#008ac9]/30 bg-sky-50 dark:bg-slate-800 shadow-md cursor-pointer"
-                              : "border-slate-300 dark:border-slate-700 hover:border-[#008ac9] hover:shadow-sm cursor-pointer bg-white dark:bg-slate-900"
+                          onClick={() => setSelectedDoctorId(doctor.id)}
+                          className={`transition-all rounded-3xl border-2 p-4 flex flex-col justify-between cursor-pointer ${
+                            isSelected
+                              ? "border-[#008ac9] ring-2 ring-[#008ac9]/30 bg-sky-50 dark:bg-slate-800 shadow-md scale-[1.01]"
+                              : "border-slate-300 dark:border-slate-700 hover:border-[#008ac9] hover:shadow-sm bg-white dark:bg-slate-900"
                           }`}
                         >
                           <div className="flex items-start gap-3">
@@ -1635,8 +1721,8 @@ export function BookAppointmentPage() {
                                     ⚡ Duty Tomorrow
                                   </span>
                                 ) : (
-                                  <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-rose-100 dark:bg-rose-950 text-rose-800 dark:text-rose-300 border border-rose-300 shrink-0 flex items-center gap-0.5">
-                                    <Lock className="h-2.5 w-2.5" /> Off Tomorrow
+                                  <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-sky-100 dark:bg-sky-950 text-sky-800 dark:text-sky-300 border border-sky-300 shrink-0 flex items-center gap-0.5">
+                                    <Clock className="h-2.5 w-2.5" /> Next: {nextDateStr}
                                   </span>
                                 )}
                               </div>
@@ -1656,27 +1742,18 @@ export function BookAppointmentPage() {
                                 <Calendar className="h-3.5 w-3.5 text-[#008ac9] flex-shrink-0" />
                                 <span>Roster: <strong className="text-slate-900 dark:text-white font-black">{displayDays.join(", ")}</strong></span>
                               </div>
-
-                              {!isAvailableNext24h && (
-                                <div className="mt-2 p-2 rounded-xl bg-amber-50 dark:bg-amber-950/50 border border-amber-300 dark:border-amber-900 text-[10.5px] font-bold text-amber-900 dark:text-amber-300 flex items-center gap-1.5">
-                                  <Lock className="h-3.5 w-3.5 text-amber-600 shrink-0" />
-                                  <span>Off tomorrow. <strong>Next Available Clinic: {nextDateStr}</strong></span>
-                                </div>
-                              )}
                             </div>
                           </div>
 
                           <div className="mt-3 pt-2 border-t border-slate-200 dark:border-slate-800 flex items-center justify-end">
                             <span
                               className={`px-3 py-1.5 text-[11px] font-black rounded-xl transition-all ${
-                                !isAvailableNext24h
-                                  ? "bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-300 dark:border-slate-700 cursor-not-allowed"
-                                  : isSelected
+                                isSelected
                                   ? "bg-[#008ac9] text-white shadow-sm"
                                   : "bg-slate-900 text-white hover:bg-[#008ac9]"
                               }`}
                             >
-                              {!isAvailableNext24h ? `Next Available: ${nextDateStr}` : isSelected ? "Selected ✓" : "Select Doctor"}
+                              {isSelected ? "Selected ✓" : "Select Specialist →"}
                             </span>
                           </div>
                         </div>
@@ -1696,7 +1773,7 @@ export function BookAppointmentPage() {
                   </button>
                   <button
                     type="button"
-                    disabled={!selectedDoctorId || !isDoctorOnDutyInNext24Hours(selectedDoctor)}
+                    disabled={!selectedDoctorId}
                     onClick={() => setStep(3)}
                     className="bg-[#008ac9] hover:bg-[#0072b1] disabled:opacity-50 text-white px-8 py-3 text-sm font-black rounded-2xl flex items-center gap-2 shadow-lg border-2 border-sky-300/40 transition-all"
                   >
@@ -1740,7 +1817,7 @@ export function BookAppointmentPage() {
                       <Calendar className="h-4 w-4 text-[#008ac9]" /> 1. Select Available Consultation Date <span className="text-red-500 font-black ml-0.5">*</span>
                     </label>
                     <span className="text-xs font-bold text-[#008ac9] bg-sky-50 dark:bg-slate-800 px-3 py-1 rounded-full border border-[#008ac9]/30 flex items-center gap-1.5">
-                      <Clock className="h-3.5 w-3.5 text-[#008ac9]" /> Only Next Available Schedule Allowed (24h+ Notice)
+                      <Clock className="h-3.5 w-3.5 text-[#008ac9]" /> Next 30 Available Consultation Days Roster
                     </span>
                   </div>
 

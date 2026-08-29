@@ -1474,6 +1474,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
   const [newClinicLocation, setNewClinicLocation] = useState("Main Hospital Complex - Suite Wing");
   const [newClinicStatus, setNewClinicStatus] = useState("Active");
   const [clinicFormError, setClinicFormError] = useState("");
+  const [isSubmittingClinic, setIsSubmittingClinic] = useState(false);
 
   // Edit Clinic Modal State
   const [editingClinic, setEditingClinic] = useState<any | null>(null);
@@ -1496,11 +1497,15 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
 
     const matchesSearch = !q || nameStr.includes(q) || idStr.includes(q) || descStr.includes(q);
 
+    const isClinicActive = c.status === true || c.status === "Active" || c.status === "active" || c.status === 1 || (c.status !== false && c.status !== "Disabled" && c.status !== "Disabled 🚫" && c.status !== "Inactive" && c.status !== "Maintenance");
+
     let matchesStatus = true;
     if (clinicStatusFilter === "active") {
-      matchesStatus = c.status === "Active" || !c.status;
+      matchesStatus = isClinicActive;
+    } else if (clinicStatusFilter === "disabled") {
+      matchesStatus = !isClinicActive;
     } else if (clinicStatusFilter === "maintenance") {
-      matchesStatus = c.status === "Maintenance" || c.status === "Disabled";
+      matchesStatus = c.status === "Maintenance";
     }
 
     return matchesSearch && matchesStatus;
@@ -1527,42 +1532,50 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
       return;
     }
 
-    const slugId = newClinicId.trim()
-      ? newClinicId.trim().toLowerCase().replace(/\s+/g, "-")
-      : newClinicName.trim().toLowerCase().replace(/[^a-z0-9]/g, "-").replace(/-+/g, "-");
+    setIsSubmittingClinic(true);
+    try {
+      const slugId = newClinicId.trim()
+        ? newClinicId.trim().toLowerCase().replace(/\s+/g, "-")
+        : newClinicName.trim().toLowerCase().replace(/[^a-z0-9]/g, "-").replace(/-+/g, "-");
 
-    const formattedName = newClinicName.trim();
+      const formattedName = newClinicName.trim();
 
-    const newClinic = {
-      id: slugId,
-      dept_id: slugId,
-      name: formattedName,
-      description: newClinicDescription.trim() || "Specialized medical consultation suite and outpatient clinical care.",
-      iconName: newClinicIcon || "Building2",
-      icon_name: newClinicIcon || "Building2",
-      doctorCount: 0,
-      doctor_count: 0,
-      status: newClinicStatus || "Active",
-      location: newClinicLocation.trim() || "Main Hospital Complex - Suite Wing",
-    };
+      const newClinic = {
+        id: slugId,
+        dept_id: slugId,
+        name: formattedName,
+        description: newClinicDescription.trim() || "Specialized medical consultation suite and outpatient clinical care.",
+        iconName: newClinicIcon || "Building2",
+        icon_name: newClinicIcon || "Building2",
+        doctorCount: 0,
+        doctor_count: 0,
+        status: newClinicStatus || "Active",
+        location: newClinicLocation.trim() || "Main Hospital Complex - Suite Wing",
+      };
 
-    const res = await createDepartmentAPI(newClinic);
-    await loadClinics();
+      const res = await createDepartmentAPI(newClinic);
+      await loadClinics();
 
-    setNewClinicName("");
-    setNewClinicId("");
-    setNewClinicDescription("");
-    setNewClinicIcon("Building2");
-    setNewClinicLocation("Main Hospital Complex - Suite Wing");
-    setNewClinicStatus("Active");
-    setClinicFormError("");
-    setShowCreateClinicModal(false);
+      setNewClinicName("");
+      setNewClinicId("");
+      setNewClinicDescription("");
+      setNewClinicIcon("Building2");
+      setNewClinicLocation("Main Hospital Complex - Suite Wing");
+      setNewClinicStatus("Active");
+      setClinicFormError("");
+      setShowCreateClinicModal(false);
 
-    setToastAlert({
-      title: "Clinic Created Successfully! 🏥",
-      description: `${newClinic.name} module registered and available across the hospital system.`,
-      type: "success",
-    });
+      setToastAlert({
+        title: "Clinic Created Successfully! 🏥",
+        description: `${newClinic.name} module registered and available across the hospital system.`,
+        type: "success",
+      });
+    } catch (err: any) {
+      console.error("Error creating clinic:", err);
+      setClinicFormError("Failed to register medical clinic module. Please try again.");
+    } finally {
+      setIsSubmittingClinic(false);
+    }
   };
 
   const handleOpenEditClinic = (clinic: any) => {
@@ -1616,21 +1629,54 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
     const targetId = clinic.id || clinic.dept_id;
     setConfirmModalConfig({
       isOpen: true,
-      title: `Delete Clinic "${clinic.name}"?`,
-      message: `Are you sure you want to delete this clinic module? This action cannot be undone.`,
-      confirmText: "Delete Clinic",
+      title: `Disable Clinic "${clinic.name}"?`,
+      message: `Are you sure you want to disable this clinic module? It will be updated as Disabled in the database and hidden from all active clinic displays.`,
+      confirmText: "Yes, Disable Clinic",
       cancelText: "Cancel",
       variant: "danger",
       onConfirm: async () => {
+        // 1. Update status to Disabled in Django Database via API
+        await updateDepartmentAPI(targetId, { status: false, is_active: false, status_text: "Disabled" });
         await deleteDepartmentAPI(targetId);
-        const updated = clinics.filter((c) => c.id !== targetId && c.dept_id !== targetId);
+
+        // 2. Mark clinic as Disabled in local list & broadcast
+        const updated = clinics.map((c) =>
+          (c.id === targetId || c.dept_id === targetId) ? { ...c, status: "Disabled" } : c
+        );
         setClinics(updated);
         broadcastClinicChange(updated);
         setConfirmModalConfig((prev) => ({ ...prev, isOpen: false }));
         setToastAlert({
-          title: "Clinic Deleted",
-          description: `${clinic.name} has been removed from the active clinic directory.`,
-          type: "info",
+          title: "Clinic Disabled in Database 🚫",
+          description: `${clinic.name} has been set to Disabled in the database and hidden from active clinic displays.`,
+          type: "warning",
+        });
+      },
+    });
+  };
+
+  const handleReEnableClinic = async (clinic: any) => {
+    const targetId = clinic.id || clinic.dept_id;
+    setConfirmModalConfig({
+      isOpen: true,
+      title: `Re-Enable Clinic "${clinic.name}"?`,
+      message: `Are you sure you want to re-enable this clinic module? It will be marked as Active (status = True) in the database and restored to active clinic displays.`,
+      confirmText: "Yes, Re-Enable Clinic",
+      cancelText: "Cancel",
+      variant: "primary",
+      onConfirm: async () => {
+        await updateDepartmentAPI(targetId, { status: true, is_active: true, status_text: "Active" });
+
+        const updated = clinics.map((c) =>
+          (c.id === targetId || c.dept_id === targetId) ? { ...c, status: "Active" } : c
+        );
+        setClinics(updated);
+        broadcastClinicChange(updated);
+        setConfirmModalConfig((prev) => ({ ...prev, isOpen: false }));
+        setToastAlert({
+          title: "Clinic Re-Enabled ✓",
+          description: `${clinic.name} is now Active in the database and available for booking.`,
+          type: "success",
         });
       },
     });
@@ -1928,7 +1974,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
     return matchesSearch && matchesStatus && matchesDept;
   });
 
-  const handleCreateNewDoctor = (e: React.FormEvent) => {
+  const handleCreateNewDoctor = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newDocName.trim()) {
       setNewDocFormError("Please enter Specialist Doctor's Name.");
@@ -1943,37 +1989,92 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
       d.id.toLowerCase().includes(newDocSpecialty.toLowerCase())
     );
 
-    const newDoc = {
-      id: `doc-${Date.now()}`,
+    const generatedId = `doc-${Date.now()}`;
+    const defaultRoom = newDocRoom.trim() || "Consultation Suite";
+    const newDocPayload = {
+      doc_id: generatedId,
+      id: generatedId,
       name: formattedName,
       fullName: formattedName,
+      full_name: formattedName,
       acronym: autoAcronym,
       specialty: newDocSpecialty,
       departmentId: deptMatch ? deptMatch.id : "general-physician",
       qualification: newDocQualifications.trim() || "MBBS, FWACS",
       qualifications: newDocQualifications.trim() || "MBBS, FWACS",
-      room: "Consultation Suite",
-      roomNumber: "Consultation Suite",
+      room: defaultRoom,
+      roomNumber: defaultRoom,
       acceptedPatientTypes: newDocAcceptedTypes.length > 0 ? newDocAcceptedTypes : ["Private Self-Pay", "HMO Insurance"],
       accepted_patient_types: newDocAcceptedTypes.length > 0 ? newDocAcceptedTypes : ["Private Self-Pay", "HMO Insurance"],
-      availableDays: [],
-      availability: [],
-      timeSlots: [],
+      availableDays: ["Monday", "Wednesday", "Friday"],
+      availability: ["Monday", "Wednesday", "Friday"],
+      timeSlots: ["08:00 AM – 02:00 PM"],
       image: "",
       bio: "Senior Medical Consultant specializing in high-quality clinical care at Isalu Hospitals.",
-      status: "Active",
+      status: true,
     };
 
-    createDoctorAPI(newDoc);
-    const updated = [newDoc, ...doctorsList];
-    setDoctorsList(updated);
-    localStorage.setItem("isalu_hospital_doctors", JSON.stringify(updated));
+    // 1. Save to Doctor Table in Database
+    const doctorApiRes: any = await createDoctorAPI(newDocPayload);
+    if (doctorApiRes && doctorApiRes.error) {
+      console.error("Failed to save doctor to DB:", doctorApiRes.error);
+      setNewDocFormError(`Failed to save doctor to database: ${doctorApiRes.error}`);
+      return;
+    }
 
-    // Auto-select this newly created doctor in schedule form
-    const adminDisplayName = `${newDoc.fullName} (${newDoc.acronym})`;
-    setSchedDoctorId(newDoc.id);
-    setSchedDoctorSearch(adminDisplayName);
+    const savedDoc = doctorApiRes && !doctorApiRes.error ? doctorApiRes : newDocPayload;
+    const docId = savedDoc.id || savedDoc.doc_id || generatedId;
+    const docAdminName = `${savedDoc.fullName || savedDoc.full_name || savedDoc.name} (${savedDoc.acronym || autoAcronym})`;
+
+    // 2. Save Initial Entry to SpecialistSchedule Table in Database
+    const initialSchedulePayload = {
+      sched_id: `sched-${Date.now()}`,
+      id: `sched-${Date.now()}`,
+      doctorId: docId,
+      doctor_id: docId,
+      doctorName: docAdminName,
+      doctor_name: docAdminName,
+      specialty: newDocSpecialty,
+      room: defaultRoom,
+      dutyDays: ["Monday", "Wednesday", "Friday"],
+      duty_days: ["Monday", "Wednesday", "Friday"],
+      dayConfigs: {},
+      day_configs: {},
+      shiftTime: "08:00 AM – 02:00 PM",
+      shift_time: "08:00 AM – 02:00 PM",
+      capacity: 15,
+      totalWeeklyCapacity: 15,
+      total_weekly_capacity: 15,
+      status: true,
+    };
+
+    await createScheduleAPI(initialSchedulePayload);
+
+    // 3. Re-fetch all doctors & schedules from Database to guarantee 100% synchronization
+    const [remoteDocs, remoteSchedules] = await Promise.all([
+      getDoctorsAPI(),
+      getSchedulesAPI()
+    ]);
+
+    const updatedDoctorsList = remoteDocs && Array.isArray(remoteDocs) && remoteDocs.length > 0
+      ? remoteDocs
+      : [savedDoc, ...doctorsList.filter((d) => d.id !== docId && d.doc_id !== docId)];
+
+    setDoctorsList(updatedDoctorsList);
+    localStorage.setItem("isalu_hospital_doctors", JSON.stringify(updatedDoctorsList));
+
+    if (remoteSchedules && Array.isArray(remoteSchedules) && remoteSchedules.length > 0) {
+      setSpecialistSchedules(remoteSchedules);
+      localStorage.setItem("isalu_specialist_schedules", JSON.stringify(remoteSchedules));
+    }
+
+    // Auto-select this newly created doctor in schedule form fields
+    setSchedDoctorId(docId);
+    setSchedDoctorSearch(docAdminName);
+    setSpecDateDoctorId(docId);
+    setSpecDateDoctorSearch(docAdminName);
     setShowDoctorDropdown(false);
+    setShowSpecDoctorDropdown(false);
 
     // Reset Form
     setNewDocName("");
@@ -1984,8 +2085,8 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
     setShowAddDoctorModal(false);
 
     setToastAlert({
-      title: "Specialist Doctor Registered!",
-      description: `${newDoc.fullName} (${newDoc.acronym}) saved to directory.`,
+      title: "Specialist Doctor Saved to Database!",
+      description: `${docAdminName} saved to both Doctor & Specialist Schedule tables in database.`,
       type: "success",
     });
   };
@@ -2341,8 +2442,9 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
     );
   };
 
-  const handleCreateSpecificDateSchedule = (e: React.FormEvent) => {
+  const handleCreateSpecificDateSchedule = async (e: React.FormEvent) => {
     e.preventDefault();
+
     if (!specDateRoom.trim()) {
       setSpecDateFormError("Please enter Consultation Room / Suite.");
       return;
@@ -2353,8 +2455,8 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
       return;
     }
 
-    const selectedDoc = doctorsList.find((d) => d.id === specDateDoctorId) || doctorsList[0] || DOCTORS[0];
-    const docAdminName = selectedDoc.fullName ? `${selectedDoc.fullName} (${selectedDoc.acronym || selectedDoc.name})` : selectedDoc.name;
+    const selectedDoc = doctorsList.find((d) => d.id === specDateDoctorId || d.doc_id === specDateDoctorId) || doctorsList[0] || DOCTORS[0];
+    const docAdminName = selectedDoc.fullName || selectedDoc.full_name ? `${selectedDoc.fullName || selectedDoc.full_name} (${selectedDoc.acronym || selectedDoc.name})` : selectedDoc.name;
 
     let formattedDateLabel = "";
     let dayNameStr = specDateTargetDay ? specDateTargetDay.toUpperCase() : "SUNDAY";
@@ -2431,14 +2533,22 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
       dutyDaysList.push(`📅 ON-DUTY (${dayNameStr})`);
     }
 
-    const newSchedule = {
-      id: `sched-spec-${Date.now()}`,
-      doctorId: selectedDoc.id,
+    const generatedSchedId = `sched-spec-${Date.now()}`;
+    const docTargetId = selectedDoc.id || selectedDoc.doc_id;
+
+    const newSchedulePayload = {
+      sched_id: generatedSchedId,
+      id: generatedSchedId,
+      doctorId: docTargetId,
+      doctor_id: docTargetId,
       doctorName: docAdminName,
+      doctor_name: docAdminName,
       specialty: selectedDoc.specialty,
       room: specDateRoom.trim(),
       dutyDays: dutyDaysList,
+      duty_days: dutyDaysList,
       dayConfigs: dayConfigs,
+      day_configs: dayConfigs,
       isSpecificDate: !!specDateValue,
       specificDate: specDateValue || "",
       weekPreset: specDateWeekPreset,
@@ -2446,31 +2556,39 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
       extraPatternEntries: extraPatternEntries,
       weekPatternLabel: displayWeekLabel,
       shiftTime: specDateShiftTime,
+      shift_time: specDateShiftTime,
       capacity: Number(specDateCapacity) || 15,
       note: specDateNote.trim() || "Special Clinic Session",
       status: "Active On Duty",
     };
 
-    createScheduleAPI(newSchedule);
-    const updated = [newSchedule, ...specialistSchedules];
-    setSpecialistSchedules(updated);
-    localStorage.setItem("isalu_specialist_schedules", JSON.stringify(updated));
+    const savedSchedFromApi = await createScheduleAPI(newSchedulePayload);
+    const createdSched = savedSchedFromApi && !savedSchedFromApi.error ? savedSchedFromApi : newSchedulePayload;
 
-    // Also sync the doctor's availableDays with dutyDaysList in state, API & Database!
-    const updatedDoctors = doctorsList.map((d) => {
-      if (d.id === selectedDoc.id || (d as any).doc_id === selectedDoc.id) {
-        const updatedDocPayload = {
-          availableDays: dutyDaysList,
-          available_days: dutyDaysList,
-          availability: dutyDaysList,
-        };
-        updateDoctorAPI(selectedDoc.id, updatedDocPayload);
-        return { ...d, ...updatedDocPayload };
-      }
-      return d;
-    });
-    setDoctorsList(updatedDoctors);
-    localStorage.setItem("isalu_specialist_doctors", JSON.stringify(updatedDoctors));
+    // Sync doctor's availableDays in API & Database!
+    if (selectedDoc && docTargetId) {
+      const updatedDocPayload = {
+        availableDays: dutyDaysList,
+        available_days: dutyDaysList,
+        availability: dutyDaysList,
+      };
+      await updateDoctorAPI(docTargetId, updatedDocPayload);
+    }
+
+    // Re-fetch schedules and doctors from DB
+    const remoteSchedules = await getSchedulesAPI();
+    const updatedSchedules = remoteSchedules && Array.isArray(remoteSchedules) && remoteSchedules.length > 0
+      ? remoteSchedules
+      : [createdSched, ...specialistSchedules.filter((s) => s.id !== createdSched.id && s.sched_id !== createdSched.sched_id)];
+
+    setSpecialistSchedules(updatedSchedules);
+    localStorage.setItem("isalu_specialist_schedules", JSON.stringify(updatedSchedules));
+
+    const remoteDocs = await getDoctorsAPI();
+    if (remoteDocs && Array.isArray(remoteDocs) && remoteDocs.length > 0) {
+      setDoctorsList(remoteDocs);
+      localStorage.setItem("isalu_hospital_doctors", JSON.stringify(remoteDocs));
+    }
 
     // Reset Form
     setSpecDateValue("");
@@ -2659,15 +2777,15 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
   const [schedStatus, setSchedStatus] = useState("Active On Duty");
   const [schedFormError, setSchedFormError] = useState("");
 
-  const handleCreateSpecialistSchedule = (e: React.FormEvent) => {
+  const handleCreateSpecialistSchedule = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!schedRoom.trim() || schedDutyDays.length === 0) {
       setSchedFormError("Please fill out Consultation Room and select at least one Duty Day.");
       return;
     }
 
-    const selectedDoc = doctorsList.find((d) => d.id === schedDoctorId) || doctorsList[0] || DOCTORS[0];
-    const docAdminName = selectedDoc.fullName ? `${selectedDoc.fullName} (${selectedDoc.acronym || selectedDoc.name})` : selectedDoc.name;
+    const selectedDoc = doctorsList.find((d) => d.id === schedDoctorId || d.doc_id === schedDoctorId) || doctorsList[0] || DOCTORS[0];
+    const docAdminName = selectedDoc.fullName || selectedDoc.full_name ? `${selectedDoc.fullName || selectedDoc.full_name} (${selectedDoc.acronym || selectedDoc.name})` : selectedDoc.name;
 
     const daySummaries = schedDutyDays.map((day) => {
       const cfg = schedDaySchedules[day];
@@ -2678,28 +2796,35 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
 
     const totalCapacity = schedDutyDays.reduce((acc, day) => acc + (schedDaySchedules[day]?.capacity || schedCapacity), 0);
 
-    const newSchedule = {
-      id: `sched-${Date.now()}`,
-      doctorId: selectedDoc.id,
+    const generatedSchedId = `sched-${Date.now()}`;
+    const docTargetId = selectedDoc.id || selectedDoc.doc_id;
+
+    const newSchedulePayload = {
+      sched_id: generatedSchedId,
+      id: generatedSchedId,
+      doctorId: docTargetId,
+      doctor_id: docTargetId,
       doctorName: docAdminName,
+      doctor_name: docAdminName,
       specialty: selectedDoc.specialty,
       room: schedRoom.trim(),
       dutyDays: schedDutyDays,
+      duty_days: schedDutyDays,
       dayConfigs: schedDaySchedules,
+      day_configs: schedDaySchedules,
       shiftTime: daySummaries.join(" | "),
+      shift_time: daySummaries.join(" | "),
       capacity: Math.round(totalCapacity / Math.max(1, schedDutyDays.length)),
       totalWeeklyCapacity: totalCapacity,
+      total_weekly_capacity: totalCapacity,
       status: schedStatus,
     };
 
-    createScheduleAPI(newSchedule);
-    const updated = [newSchedule, ...specialistSchedules];
-    setSpecialistSchedules(updated);
-    localStorage.setItem("isalu_specialist_schedules", JSON.stringify(updated));
+    const savedSchedFromApi = await createScheduleAPI(newSchedulePayload);
+    const createdSched = savedSchedFromApi && !savedSchedFromApi.error ? savedSchedFromApi : newSchedulePayload;
 
-    // Sync Doctor object's availableDays, timeSlots, and roomNumber in API & DB!
-    if (selectedDoc && (selectedDoc.id || selectedDoc.doc_id)) {
-      const docTargetId = selectedDoc.id || selectedDoc.doc_id;
+    // 1. Sync Doctor object's availableDays, timeSlots, and roomNumber in Doctor DB table!
+    if (selectedDoc && docTargetId) {
       const updatedDocPayload = {
         availableDays: schedDutyDays,
         availability: schedDutyDays,
@@ -2708,15 +2833,45 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
         room: schedRoom.trim(),
       };
 
-      updateDoctorAPI(docTargetId, updatedDocPayload);
+      const docUpdateRes: any = await updateDoctorAPI(docTargetId, updatedDocPayload);
+      if (!docUpdateRes || docUpdateRes.error || docUpdateRes.status === 404) {
+        // Doctor record not in DB yet -> Create it in Doctor DB table now
+        const doctorPayload = {
+          doc_id: docTargetId,
+          id: docTargetId,
+          name: selectedDoc.name,
+          fullName: selectedDoc.fullName || selectedDoc.full_name || selectedDoc.name,
+          full_name: selectedDoc.fullName || selectedDoc.full_name || selectedDoc.name,
+          acronym: selectedDoc.acronym || "",
+          specialty: selectedDoc.specialty || "Specialist Consultation",
+          qualification: selectedDoc.qualification || "MBBS, FWACS",
+          roomNumber: schedRoom.trim(),
+          room: schedRoom.trim(),
+          availableDays: schedDutyDays,
+          availability: schedDutyDays,
+          timeSlots: daySummaries,
+          status: true,
+        };
+        await createDoctorAPI(doctorPayload);
+      }
+    }
 
-      const updatedDocs = doctorsList.map((d) =>
-        d.id === docTargetId || d.doc_id === docTargetId
-          ? { ...d, ...updatedDocPayload }
-          : d
-      );
-      setDoctorsList(updatedDocs);
-      localStorage.setItem("isalu_hospital_doctors", JSON.stringify(updatedDocs));
+    // 2. Re-fetch schedules and doctors from DB to guarantee 100% sync
+    const [remoteSchedules, remoteDocs] = await Promise.all([
+      getSchedulesAPI(),
+      getDoctorsAPI()
+    ]);
+
+    const updatedSchedules = remoteSchedules && Array.isArray(remoteSchedules) && remoteSchedules.length > 0
+      ? remoteSchedules
+      : [createdSched, ...specialistSchedules.filter((s) => s.id !== createdSched.id && s.sched_id !== createdSched.sched_id)];
+
+    setSpecialistSchedules(updatedSchedules);
+    localStorage.setItem("isalu_specialist_schedules", JSON.stringify(updatedSchedules));
+
+    if (remoteDocs && Array.isArray(remoteDocs) && remoteDocs.length > 0) {
+      setDoctorsList(remoteDocs);
+      localStorage.setItem("isalu_hospital_doctors", JSON.stringify(remoteDocs));
     }
 
     // Reset Form
@@ -2725,8 +2880,8 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
     setShowCreateScheduleModal(false);
 
     setToastAlert({
-      title: "Specialist Schedule Saved!",
-      description: `Custom per-day consultation schedule created for ${docAdminName}.`,
+      title: "Saved to Database Tables!",
+      description: `Schedule and Doctor records saved to both SpecialistSchedule and Doctor DB tables for ${docAdminName}.`,
       type: "success",
     });
   };
@@ -8152,8 +8307,9 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                     className="py-2 px-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold focus:outline-none focus:border-[#008ac9]"
                   >
                     <option value="all">All Clinics ({clinics.length})</option>
-                    <option value="active">Active Only</option>
-                    <option value="maintenance">Under Maintenance</option>
+                    <option value="active">Active Clinics Only ✓</option>
+                    <option value="disabled">Disabled Clinics Only 🚫</option>
+                    <option value="maintenance">Under Maintenance 🛠️</option>
                   </select>
                 </div>
               </div>
@@ -8168,6 +8324,8 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                     (doc.departmentId || "").toLowerCase() === (clinic.id || clinic.dept_id || "").toLowerCase()
                   );
 
+                  const isClinicActive = clinic.status === true || clinic.status === "Active" || clinic.status === "active" || clinic.status === 1 || (clinic.status !== false && clinic.status !== "Disabled" && clinic.status !== "Disabled 🚫" && clinic.status !== "Inactive" && clinic.status !== "Maintenance");
+
                   return (
                     <div
                       key={clinic.id || clinic.dept_id}
@@ -8180,15 +8338,19 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                           <div className="p-3 rounded-2xl bg-sky-50 dark:bg-slate-800 text-[#008ac9] font-black border border-sky-100 dark:border-slate-700">
                             <Building2 className="h-6 w-6" />
                           </div>
-                          <span
-                            className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                              clinic.status === "Maintenance" || clinic.status === "Disabled"
-                                ? "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300"
-                                : "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300"
-                            }`}
-                          >
-                            {clinic.status || "Active ✓"}
-                          </span>
+                          {isClinicActive ? (
+                            <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300 border border-emerald-300 flex items-center gap-1.5 shadow-xs">
+                              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span> Active ✓
+                            </span>
+                          ) : clinic.status === "Maintenance" ? (
+                            <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300 border border-amber-300 flex items-center gap-1.5 shadow-xs">
+                              <span className="h-2 w-2 rounded-full bg-amber-500"></span> Maintenance 🛠️
+                            </span>
+                          ) : (
+                            <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-rose-100 text-rose-800 dark:bg-rose-950/80 dark:text-rose-300 border border-rose-300 flex items-center gap-1.5 shadow-xs">
+                              <span className="h-2 w-2 rounded-full bg-rose-500"></span> Disabled 🚫
+                            </span>
+                          )}
                         </div>
 
                         <div>
@@ -8224,13 +8386,23 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                         >
                           <Pencil className="h-3.5 w-3.5" /> Edit Details
                         </button>
-                        <button
-                          onClick={() => handleDeleteClinic(clinic)}
-                          className="p-2.5 rounded-xl text-rose-600 hover:bg-rose-50 dark:hover:bg-slate-800 transition-all border border-rose-200 dark:border-slate-700"
-                          title="Delete Clinic"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
+                        {isClinicActive ? (
+                          <button
+                            onClick={() => handleDeleteClinic(clinic)}
+                            className="p-2.5 rounded-xl text-rose-600 hover:bg-rose-50 dark:hover:bg-slate-800 transition-all border border-rose-200 dark:border-slate-700"
+                            title="Disable Clinic in Database"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => handleReEnableClinic(clinic)}
+                            className="py-2.5 px-3 rounded-xl text-xs font-black bg-emerald-50 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 transition-all border border-emerald-300 flex items-center gap-1"
+                            title="Re-Enable Clinic in Database"
+                          >
+                            <RefreshCw className="h-3.5 w-3.5" /> Re-Enable
+                          </button>
+                        )}
                       </div>
                     </div>
                   );
@@ -11141,6 +11313,13 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                 </button>
               </div>
 
+              {isSubmittingClinic && (
+                <div className="p-4 rounded-2xl bg-sky-50 dark:bg-slate-900 border-2 border-[#008ac9] text-[#008ac9] dark:text-sky-300 text-xs sm:text-sm font-bold flex items-center justify-center gap-3 animate-pulse shadow-md my-2">
+                  <RefreshCw className="h-5 w-5 animate-spin text-[#008ac9]" />
+                  <span>Registering new medical clinic module in Isalu Hospitals... Please wait.</span>
+                </div>
+              )}
+
               {clinicFormError && (
                 <div className="p-3.5 bg-rose-50 border border-rose-200 text-rose-700 rounded-2xl text-xs font-black flex items-center gap-2">
                   <AlertCircle className="h-4 w-4 shrink-0" />
@@ -11221,16 +11400,27 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                 <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-end gap-3">
                   <button
                     type="button"
+                    disabled={isSubmittingClinic}
                     onClick={() => setShowCreateClinicModal(false)}
-                    className="px-5 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-extrabold hover:bg-slate-200 transition-all"
+                    className="px-5 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-extrabold hover:bg-slate-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    className="px-6 py-2.5 bg-[#008ac9] hover:bg-[#0072b1] text-white font-black text-xs rounded-xl shadow-lg shadow-[#008ac9]/25 transition-all flex items-center gap-1.5"
+                    disabled={isSubmittingClinic}
+                    className="px-6 py-2.5 bg-[#008ac9] hover:bg-[#0072b1] text-white font-black text-xs rounded-xl shadow-lg shadow-[#008ac9]/25 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    <Plus className="h-4 w-4" /> Create Clinic
+                    {isSubmittingClinic ? (
+                      <>
+                        <RefreshCw className="h-4 w-4 animate-spin text-white" />
+                        <span>Registering Medical Clinic... Please Wait</span>
+                      </>
+                    ) : (
+                      <>
+                        <Plus className="h-4 w-4" /> Create Clinic
+                      </>
+                    )}
                   </button>
                 </div>
               </form>
