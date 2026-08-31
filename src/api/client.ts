@@ -65,7 +65,41 @@ export function getStoredAuthToken(): string | null {
   return null;
 }
 
-async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promise<T | null> {
+/**
+ * Silent JWT Token Renewal via /api/auth/token-refresh/
+ */
+export async function refreshTokenAPI(): Promise<string | null> {
+  if (typeof window === "undefined") return null;
+  const rawAuth = localStorage.getItem("isalu_auth_tokens");
+  if (!rawAuth) return null;
+  try {
+    const parsed = JSON.parse(rawAuth);
+    const refreshToken = parsed.refresh || parsed.refresh_token;
+    if (!refreshToken) return null;
+
+    const res = await fetch(`${API_BASE_URL}/auth/token-refresh/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Accept": "application/json" },
+      body: JSON.stringify({ refresh: refreshToken }),
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data.access) {
+        parsed.access = data.access;
+        localStorage.setItem("isalu_auth_tokens", JSON.stringify(parsed));
+        localStorage.setItem("isalu_staff_jwt", data.access);
+        sessionStorage.setItem("isalu_staff_jwt", data.access);
+        return data.access;
+      }
+    }
+  } catch (e) {
+    console.warn("Silent Token Refresh failed:", e);
+  }
+  return null;
+}
+
+async function apiRequest<T>(endpoint: string, options: RequestInit = {}, isRetry: boolean = false): Promise<T | null> {
   try {
     let authHeader: Record<string, string> = {};
     const token = getStoredAuthToken();
@@ -97,8 +131,15 @@ async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promi
 
       const isAuthEndpoint = endpoint.includes("/auth/");
 
-      // 401 Unauthorized / Token Expired handling
+      // 401 Unauthorized / Token Expired handling with Silent Retry
       if (response.status === 401) {
+        if (!isAuthEndpoint && !isRetry) {
+          const newToken = await refreshTokenAPI();
+          if (newToken) {
+            return apiRequest<T>(endpoint, options, true);
+          }
+        }
+
         if (isAuthEndpoint) {
           return {
             error: serverMsg || "Invalid login credentials. Please check your username and password.",
@@ -154,6 +195,29 @@ async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promi
   }
 }
 
+/**
+ * Real-Time Event Stream Listener for Multi-Desk Sync
+ */
+export function subscribeToHospitalEvents(onEvent: (event: any) => void): () => void {
+  if (typeof window === "undefined" || !("EventSource" in window)) return () => {};
+
+  try {
+    const es = new EventSource(`${API_BASE_URL}/stream/events/`);
+    es.onmessage = (e) => {
+      try {
+        const parsed = JSON.parse(e.data);
+        onEvent(parsed);
+      } catch {}
+    };
+    es.onerror = () => {
+      es.close();
+    };
+    return () => es.close();
+  } catch {
+    return () => {};
+  }
+}
+
 // 1. Doctors API
 export async function getDoctorsAPI(deptId?: string): Promise<any[] | null> {
   const query = deptId && deptId !== "all" ? `?department=${encodeURIComponent(deptId)}` : "";
@@ -198,6 +262,13 @@ export async function updateScheduleAPI(schedId: string, schedData: any): Promis
     method: "PATCH",
     body: JSON.stringify(schedData),
   });
+}
+
+export async function deleteScheduleAPI(schedId: string): Promise<boolean> {
+  const res = await apiRequest<any>(`/schedules/${schedId}/`, {
+    method: "DELETE",
+  });
+  return res !== null;
 }
 
 // 3. Bookings API

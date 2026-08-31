@@ -43,6 +43,7 @@ import {
   CheckCircle2,
   Share2,
   RefreshCw,
+  AlertTriangle,
 } from "lucide-react";
 import { SpecialistAvatar } from "../components/SpecialistAvatar";
 import { IsaluLogo } from "../components/IsaluLogo";
@@ -182,15 +183,26 @@ export function BookAppointmentPage() {
       rawTypes = ["Private Self-Pay", "HMO Insurance"];
     }
     let rawDeptId = "";
+    let rawDeptName = "";
     if (typeof doc.department === "string") rawDeptId = doc.department;
-    else if (doc.department && typeof doc.department === "object") rawDeptId = doc.department.dept_id || doc.department.id || "";
+    else if (doc.department && typeof doc.department === "object") {
+      rawDeptId = doc.department.dept_id || doc.department.id || "";
+      rawDeptName = doc.department.name || "";
+    }
     if (!rawDeptId && doc.departmentId) rawDeptId = String(doc.departmentId);
     if (!rawDeptId && doc.department_id) rawDeptId = String(doc.department_id);
 
+    const deptObj = DEPARTMENTS.find(d => d.id === rawDeptId || d.name.toLowerCase() === rawDeptId.toLowerCase()) ||
+                    DEPARTMENTS.find(d => rawDeptName && d.name.toLowerCase() === rawDeptName.toLowerCase());
+
+    const finalDeptId = deptObj ? deptObj.id : rawDeptId;
+    const finalDeptName = deptObj ? deptObj.name : (rawDeptName || doc.specialty || "General Medicine");
+
     return {
       ...doc,
-      departmentId: rawDeptId,
-      department_id: rawDeptId,
+      departmentId: finalDeptId,
+      department_id: finalDeptId,
+      specialty: finalDeptName,
       acceptedPatientTypes: rawTypes,
       accepted_patient_types: rawTypes,
     };
@@ -298,9 +310,7 @@ export function BookAppointmentPage() {
       if (
         cleanDocDeptId === cleanTargetDeptId ||
         cleanDocDeptId === cleanTargetDeptKey ||
-        cleanDocDeptId === cleanTargetDeptName ||
-        (cleanTargetDeptKey && cleanDocDeptId.includes(cleanTargetDeptKey)) ||
-        (cleanTargetDeptId && cleanDocDeptId.includes(cleanTargetDeptId))
+        cleanDocDeptId === cleanTargetDeptName
       ) {
         return true;
       }
@@ -311,20 +321,6 @@ export function BookAppointmentPage() {
         cleanDocDeptName === cleanTargetDeptName ||
         cleanDocDeptName === cleanTargetDeptId ||
         cleanDocDeptName === cleanTargetDeptKey
-      ) {
-        return true;
-      }
-    }
-
-    // 2. Specialty Text Fallback Matching (e.g. doc.specialty = "Cardiology")
-    const docSpec = String(doc.specialty || "").toLowerCase().trim();
-    const cleanDocSpec = docSpec.replace(/[^a-z0-9]/g, "");
-
-    if (cleanDocSpec && (cleanTargetDeptName || cleanTargetDeptId || cleanTargetDeptKey)) {
-      if (
-        (cleanTargetDeptName && (cleanDocSpec.includes(cleanTargetDeptName) || cleanTargetDeptName.includes(cleanDocSpec))) ||
-        (cleanTargetDeptId && (cleanDocSpec.includes(cleanTargetDeptId) || cleanTargetDeptId.includes(cleanDocSpec))) ||
-        (cleanTargetDeptKey && (cleanDocSpec.includes(cleanTargetDeptKey) || cleanTargetDeptKey.includes(cleanDocSpec)))
       ) {
         return true;
       }
@@ -393,11 +389,13 @@ export function BookAppointmentPage() {
   const getDoctorEffectiveAvailableDays = (doctor: Doctor | undefined): string[] => {
     if (!doctor) return [];
 
-    // 1. Check saved specialist schedules from localStorage & API roster
-    let savedSchedules: any[] = [];
-    try {
-      savedSchedules = JSON.parse(localStorage.getItem("isalu_specialist_schedules") || "[]") || [];
-    } catch {}
+    // 1. Check saved specialist schedules from component state & localStorage
+    let savedSchedules: any[] = specialistSchedulesList || [];
+    if (!savedSchedules || savedSchedules.length === 0) {
+      try {
+        savedSchedules = JSON.parse(localStorage.getItem("isalu_specialist_schedules") || "[]") || [];
+      } catch {}
+    }
     const docSchedules = savedSchedules.filter((s) => {
       const sDocId = String(s.doctorId || s.doctor_id || "").toLowerCase().trim();
       const dId = String(doctor.id || "").toLowerCase().trim();
@@ -714,11 +712,13 @@ export function BookAppointmentPage() {
     const dayName = dateObj.toLocaleDateString("en-US", { weekday: "long" });
     const dayShort = dateObj.toLocaleDateString("en-US", { weekday: "short" });
 
-    // 1. Check saved specialist schedules from localStorage or API
-    let savedSchedules: any[] = [];
-    try {
-      savedSchedules = JSON.parse(localStorage.getItem("isalu_specialist_schedules") || "[]") || [];
-    } catch {}
+    // 1. Check saved specialist schedules from component state or localStorage
+    let savedSchedules: any[] = specialistSchedulesList || [];
+    if (!savedSchedules || savedSchedules.length === 0) {
+      try {
+        savedSchedules = JSON.parse(localStorage.getItem("isalu_specialist_schedules") || "[]") || [];
+      } catch {}
+    }
     const matchedSched = savedSchedules.find(
       (s) => s.doctorId === doctor.id || s.doctorId === (doctor as any).doc_id || s.doctorName?.includes(doctor.name)
     );
@@ -769,6 +769,48 @@ export function BookAppointmentPage() {
     }
 
     return "08:00 AM – 02:00 PM";
+  };
+
+  const parseClinicStartTime = (timeStr: string): { hour: number; minute: number } | null => {
+    if (!timeStr) return null;
+    const match = timeStr.match(/(\d{1,2}):(\d{2})\s*(AM|PM)?/i);
+    if (!match) return null;
+
+    let hour = parseInt(match[1], 10);
+    const minute = parseInt(match[2], 10);
+    const ampm = match[3] ? match[3].toUpperCase() : null;
+
+    if (ampm === "PM" && hour < 12) {
+      hour += 12;
+    } else if (ampm === "AM" && hour === 12) {
+      hour = 0;
+    }
+
+    return { hour, minute };
+  };
+
+  const isSameDayBookingWithin30MinCutoff = (dateStr: string, timeStr: string): boolean => {
+    if (!dateStr || !timeStr) return false;
+
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, "0");
+    const day = String(now.getDate()).padStart(2, "0");
+    const todayStr = `${year}-${month}-${day}`;
+
+    // Only apply 30-minute cutoff check if dateStr is TODAY
+    if (dateStr !== todayStr) {
+      return false;
+    }
+
+    const parsedTime = parseClinicStartTime(timeStr);
+    if (!parsedTime) return false;
+
+    const clinicStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), parsedTime.hour, parsedTime.minute, 0, 0);
+    const timeDiffMinutes = (clinicStart.getTime() - now.getTime()) / (1000 * 60);
+
+    // If less than 30 minutes remain before clinic start time (or already past start time), block booking!
+    return timeDiffMinutes < 30;
   };
 
   const generateTicketRef = () => {
@@ -1242,6 +1284,11 @@ export function BookAppointmentPage() {
       return;
     }
 
+    if (isSameDayBookingWithin30MinCutoff(selectedDate, selectedTime)) {
+      alert("Same-Day Booking Restriction: Online appointments for today's clinic must be booked at least 30 minutes prior to the clinic start time. Please select a future date or contact hospital reception.");
+      return;
+    }
+
     setIsSubmittingBooking(true);
     await new Promise((resolve) => setTimeout(resolve, 450));
 
@@ -1288,12 +1335,27 @@ export function BookAppointmentPage() {
 
     let savedRecord = newBooking;
     try {
-      const res = await createBookingAPI(newBooking);
+      const res: any = await createBookingAPI(newBooking);
+      if (res && res.error) {
+        let errorMsg = "Database validation failed.";
+        if (typeof res.error === "string") errorMsg = res.error;
+        else if (typeof res.error === "object") {
+          errorMsg = Object.entries(res.error)
+            .map(([k, v]) => `${k}: ${Array.isArray(v) ? (v as any[]).join(", ") : v}`)
+            .join("\n");
+        }
+        alert(`Backend API Booking Error:\n${errorMsg}`);
+        setIsSubmittingBooking(false);
+        return;
+      }
       if (res && (res.refCode || res.ref_code)) {
         savedRecord = { ...newBooking, ...res };
       }
-    } catch (e) {
-      console.warn("createBookingAPI warning:", e);
+    } catch (e: any) {
+      console.warn("createBookingAPI error:", e);
+      alert(`API Error: ${e.message || "Could not save booking to backend database."}`);
+      setIsSubmittingBooking(false);
+      return;
     }
 
     const existing = (JSON.parse(localStorage.getItem("isalu_bookings") || localStorage.getItem("medicare_bookings") || "[]") || []) as any[];
@@ -1958,10 +2020,52 @@ export function BookAppointmentPage() {
                       </p>
                     </div>
                   ) : (
-                    <div className="max-w-sm animate-fadeIn">
+                    <div className="max-w-md animate-fadeIn">
                       {(() => {
                         const dutyTime = getDutyTimeWindow(selectedDoctor, selectedDate);
-                        const isSelected = selectedTime === dutyTime;
+                        const isCutoff = isSameDayBookingWithin30MinCutoff(selectedDate, dutyTime);
+                        const isSelected = selectedTime === dutyTime && !isCutoff;
+
+                        if (isCutoff) {
+                          return (
+                            <div className="space-y-3">
+                              <div className="p-3.5 bg-amber-50 dark:bg-amber-950/60 border-2 border-amber-300 dark:border-amber-900 rounded-2xl flex items-start gap-3 text-amber-900 dark:text-amber-200 shadow-sm">
+                                <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                                <div className="text-xs space-y-1">
+                                  <span className="font-black text-amber-950 dark:text-amber-100 block">
+                                    ⚠️ Same-Day Booking Cutoff Reached (&lt;30 Mins)
+                                  </span>
+                                  <span className="font-semibold text-amber-800 dark:text-amber-300 block leading-relaxed">
+                                    Online bookings for today's clinic session must be placed at least 30 minutes prior to the clinic start time. Online booking for this time slot today is closed. Please select a future date.
+                                  </span>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                disabled
+                                className="w-full p-3 rounded-xl border-2 transition-all flex items-center justify-between opacity-60 bg-slate-100 dark:bg-slate-900 border-slate-300 dark:border-slate-800 text-slate-500 cursor-not-allowed"
+                              >
+                                <div className="flex items-center gap-2.5">
+                                  <div className="h-8 w-8 rounded-lg flex items-center justify-center font-black bg-slate-200 dark:bg-slate-800 text-slate-500">
+                                    <Clock className="h-4 w-4" />
+                                  </div>
+                                  <div className="text-left">
+                                    <span className="text-[8px] font-black uppercase tracking-tight block text-slate-500">
+                                      Duty Hours (Booking Closed Today)
+                                    </span>
+                                    <span className="text-xs font-black tracking-tight block my-0.5 line-through">
+                                      {dutyTime}
+                                    </span>
+                                  </div>
+                                </div>
+                                <span className="px-2.5 py-1 text-[10px] font-black rounded-lg bg-amber-200 dark:bg-amber-900 text-amber-900 dark:text-amber-200 border border-amber-300/60">
+                                  Cutoff Reached
+                                </span>
+                              </button>
+                            </div>
+                          );
+                        }
+
                         return (
                           <button
                             type="button"
@@ -1978,7 +2082,7 @@ export function BookAppointmentPage() {
                               }`}>
                                 <Clock className="h-4 w-4" />
                               </div>
-                              <div>
+                              <div className="text-left">
                                 <span className={`text-[8px] font-black uppercase tracking-tight block ${isSelected ? "text-sky-100" : "text-[#008ac9]"}`}>
                                   Duty Hours (Start – End)
                                 </span>
@@ -2024,7 +2128,7 @@ export function BookAppointmentPage() {
               </button>
               <button
                 type="button"
-                disabled={!selectedDate || !selectedTime || isSubmittingBooking}
+                disabled={!selectedDate || !selectedTime || isSubmittingBooking || isSameDayBookingWithin30MinCutoff(selectedDate, selectedTime)}
                 onClick={handleBookingSubmit}
                 className="bg-[#008ac9] hover:bg-[#0072b1] disabled:opacity-50 disabled:cursor-not-allowed text-white px-8 py-3.5 text-sm font-black rounded-2xl flex items-center gap-2 shadow-lg border-2 border-sky-300/40 transition-all"
               >

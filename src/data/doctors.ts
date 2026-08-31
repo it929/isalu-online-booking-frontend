@@ -84,28 +84,13 @@ export function getDoctorRealName(doctorOrBooking: any): string {
     );
   }
 
-  // 4. Find doctor by Exact / Category Specialty match (prevent substring collision like "urology" inside "neurology")
+  // 4. Find doctor by Exact Department ID or Exact Department Name match ONLY (prevents urology/neurology substring collisions)
   if (!match && rawSpec) {
-    const target = rawSpec.toLowerCase().trim();
-    const isTargetNeuro = target.includes("neurolog") || target.includes("neuro") || target.includes("brain");
-    const isTargetUro = (target.includes("urolog") || target.includes("urinary")) && !isTargetNeuro;
-
+    const cleanTarget = rawSpec.toLowerCase().trim().replace(/[^a-z0-9]/g, "");
     match = DOCTORS.find((d) => {
-      const spec = d.specialty.toLowerCase().trim();
-      const isSpecNeuro = spec.includes("neurolog") || spec.includes("neuro") || spec.includes("brain");
-      const isSpecUro = (spec.includes("urolog") || spec.includes("urinary")) && !isSpecNeuro;
-
-      if (spec === target) return true;
-      if (isSpecUro && isTargetUro) return true;
-      if (isSpecNeuro && isTargetNeuro) return true;
-      if ((spec.includes("gynaec") || spec.includes("obs")) && (target.includes("gynaec") || target.includes("obs"))) return true;
-      if (spec.includes("cardio") && target.includes("cardio")) return true;
-      if (spec.includes("derma") && target.includes("derma")) return true;
-      if (spec.includes("ortho") && target.includes("ortho")) return true;
-      if (spec.includes("pedia") && target.includes("pedia")) return true;
-      if (spec.includes("pulmo") && target.includes("pulmo")) return true;
-      if (spec.includes("gastro") && target.includes("gastro")) return true;
-      return false;
+      const cleanDeptId = d.departmentId.toLowerCase().trim().replace(/[^a-z0-9]/g, "");
+      const cleanSpec = d.specialty.toLowerCase().trim().replace(/[^a-z0-9]/g, "");
+      return cleanDeptId === cleanTarget || cleanSpec === cleanTarget;
     });
   }
 

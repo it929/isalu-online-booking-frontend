@@ -46,6 +46,7 @@ import {
   RotateCcw,
   Archive,
   ArrowRightCircle,
+  Loader2,
 } from "lucide-react";
 import {
   getBookingsAPI,
@@ -64,6 +65,7 @@ import {
   updateDoctorAPI,
   createScheduleAPI,
   updateScheduleAPI,
+  deleteScheduleAPI,
   createBookingAPI,
   checkInBookingAPI,
   approveHmoBookingAPI,
@@ -1236,28 +1238,44 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
     }
   };
 
-  const handleCreateHmoCompany = (e: React.FormEvent) => {
+  const handleCreateHmoCompany = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!hmoCompanyName.trim() || !hmoCompanyEmail.trim() || !hmoCompanyPhone.trim()) {
       setHmoFormError("Please fill out HMO Company Name, Desk Email, and Helpline Phone.");
       return;
     }
+    setIsSubmittingHmoCompany(true);
 
     const newCompany = {
       id: `hmo-${Date.now()}`,
+      hmo_id: `hmo-${Date.now()}`,
       name: hmoCompanyName.trim(),
       code: hmoCompanyCode.trim() || `HMO-${hmoCompanyName.substring(0, 3).toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`,
       email: hmoCompanyEmail.trim(),
       phone: hmoCompanyPhone.trim(),
       contactPerson: hmoCompanyContact.trim() || "Pre-Auth Desk Officer",
+      contact_person: hmoCompanyContact.trim() || "Pre-Auth Desk Officer",
       planTier: hmoCompanyPlanTier,
       status: hmoCompanyStatus,
     };
 
-    createHmoCompanyAPI(newCompany);
-    const updatedCompanies = [newCompany, ...hmoCompanies];
-    setHmoCompanies(updatedCompanies);
-    broadcastHmoChange(updatedCompanies);
+    try {
+      const res: any = await createHmoCompanyAPI(newCompany);
+      if (res && res.error) {
+        setHmoFormError(`Database error: ${typeof res.error === 'object' ? JSON.stringify(res.error) : res.error}`);
+        return;
+      }
+      const remoteHmos = await getHmoCompaniesAPI();
+      if (remoteHmos && Array.isArray(remoteHmos)) {
+        setHmoCompanies(remoteHmos);
+        localStorage.setItem("isalu_hmo_companies", JSON.stringify(remoteHmos));
+      }
+    } catch (e: any) {
+      setHmoFormError(`Failed to save HMO company to database: ${e.message}`);
+      return;
+    } finally {
+      setIsSubmittingHmoCompany(false);
+    }
 
     // Reset Form
     setHmoCompanyName("");
@@ -1270,7 +1288,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
 
     setToastAlert({
       title: "HMO Provider Registered!",
-      description: `Accredited provider ${newCompany.name} has been saved.`,
+      description: `Accredited provider ${newCompany.name} has been saved to database.`,
       type: "success",
     });
   };
@@ -1553,7 +1571,11 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
         location: newClinicLocation.trim() || "Main Hospital Complex - Suite Wing",
       };
 
-      const res = await createDepartmentAPI(newClinic);
+      const res: any = await createDepartmentAPI(newClinic);
+      if (res && res.error) {
+        setClinicFormError(`Database Error: ${typeof res.error === 'object' ? JSON.stringify(res.error) : res.error}`);
+        return;
+      }
       await loadClinics();
 
       setNewClinicName("");
@@ -1572,7 +1594,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
       });
     } catch (err: any) {
       console.error("Error creating clinic:", err);
-      setClinicFormError("Failed to register medical clinic module. Please try again.");
+      setClinicFormError(`Failed to register medical clinic module: ${err.message || err}`);
     } finally {
       setIsSubmittingClinic(false);
     }
@@ -1609,7 +1631,12 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
       status: editClinicStatus,
     };
 
-    await updateDepartmentAPI(targetId, updatedData);
+    const res: any = await updateDepartmentAPI(targetId, updatedData);
+    if (res && res.error) {
+      setEditClinicFormError(`Database Error: ${typeof res.error === 'object' ? JSON.stringify(res.error) : res.error}`);
+      return;
+    }
+    await loadClinics();
 
     const updated = clinics.map((c) =>
       (c.id === targetId || c.dept_id === targetId || (c.name && c.name.toLowerCase().trim() === editingClinic.name.toLowerCase().trim())) ? updatedData : c
@@ -1968,7 +1995,10 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
 
     let matchesDept = true;
     if (docDirectoryDeptFilter !== "all") {
-      matchesDept = doc.departmentId === docDirectoryDeptFilter || doc.specialty?.toLowerCase().includes(docDirectoryDeptFilter.toLowerCase());
+      const docDept = typeof doc.department === "object" && doc.department !== null
+        ? (doc.department.dept_id || doc.department.id || "")
+        : (doc.department || doc.departmentId || doc.department_id || "");
+      matchesDept = String(docDept).toLowerCase().trim() === String(docDirectoryDeptFilter).toLowerCase().trim();
     }
 
     return matchesSearch && matchesStatus && matchesDept;
@@ -2124,8 +2154,13 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
     });
   };
 
-  // Create Specialist Schedule Modal Form State
   const [showCreateScheduleModal, setShowCreateScheduleModal] = useState(false);
+  const [isSubmittingSchedule, setIsSubmittingSchedule] = useState(false);
+  const [isSubmittingEditSchedule, setIsSubmittingEditSchedule] = useState(false);
+  const [isRegisteringNewDocInSched, setIsRegisteringNewDocInSched] = useState(false);
+  const [schedNewDocName, setSchedNewDocName] = useState("");
+  const [schedNewDocDeptId, setSchedNewDocDeptId] = useState("cardiology");
+  const [schedNewDocQual, setSchedNewDocQual] = useState("MBBS, FWACS");
   const [schedDoctorId, setSchedDoctorId] = useState(DOCTORS[0]?.id || "");
   const [schedDoctorSearch, setSchedDoctorSearch] = useState("");
   const [showDoctorDropdown, setShowDoctorDropdown] = useState(false);
@@ -2562,8 +2597,11 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
       status: "Active On Duty",
     };
 
-    const savedSchedFromApi = await createScheduleAPI(newSchedulePayload);
-    const createdSched = savedSchedFromApi && !savedSchedFromApi.error ? savedSchedFromApi : newSchedulePayload;
+    const savedSchedFromApi: any = await createScheduleAPI(newSchedulePayload);
+    if (!savedSchedFromApi || savedSchedFromApi.error) {
+      setSpecDateFormError(savedSchedFromApi?.error || "Failed to save schedule to database. Please check backend API server.");
+      return;
+    }
 
     // Sync doctor's availableDays in API & Database!
     if (selectedDoc && docTargetId) {
@@ -2577,12 +2615,10 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
 
     // Re-fetch schedules and doctors from DB
     const remoteSchedules = await getSchedulesAPI();
-    const updatedSchedules = remoteSchedules && Array.isArray(remoteSchedules) && remoteSchedules.length > 0
-      ? remoteSchedules
-      : [createdSched, ...specialistSchedules.filter((s) => s.id !== createdSched.id && s.sched_id !== createdSched.sched_id)];
-
-    setSpecialistSchedules(updatedSchedules);
-    localStorage.setItem("isalu_specialist_schedules", JSON.stringify(updatedSchedules));
+    if (remoteSchedules && Array.isArray(remoteSchedules)) {
+      setSpecialistSchedules(remoteSchedules);
+      localStorage.setItem("isalu_specialist_schedules", JSON.stringify(remoteSchedules));
+    }
 
     const remoteDocs = await getDoctorsAPI();
     if (remoteDocs && Array.isArray(remoteDocs) && remoteDocs.length > 0) {
@@ -2704,7 +2740,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
     });
   };
 
-  const handleSaveEditSchedule = (e: React.FormEvent) => {
+  const handleSaveEditSchedule = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingSchedule) return;
 
@@ -2713,63 +2749,62 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
       return;
     }
 
-    const daySummaries = editDutyDays.map((day) => {
-      const cfg = editDaySchedules[day];
-      if (!cfg) return `${day}: ${editShiftTime}`;
-      const timesStr = cfg.shiftTimes.join(", ");
-      return `${day}: ${timesStr} (${cfg.capacity} visits)`;
-    });
+    setIsSubmittingEditSchedule(true);
 
-    const totalCapacity = editDutyDays.reduce((acc, day) => acc + (editDaySchedules[day]?.capacity || editCapacity), 0);
+    try {
+      const daySummaries = editDutyDays.map((day) => {
+        const cfg = editDaySchedules[day];
+        if (!cfg) return `${day}: ${editShiftTime}`;
+        const timesStr = cfg.shiftTimes.join(", ");
+        return `${day}: ${timesStr} (${cfg.capacity} visits)`;
+      });
 
-    const updatedItem = {
-      ...editingSchedule,
-      room: editRoom.trim(),
-      dutyDays: editDutyDays,
-      dayConfigs: editDaySchedules,
-      shiftTime: daySummaries.length > 0 ? daySummaries.join(" | ") : editShiftTime,
-      capacity: Math.round(totalCapacity / Math.max(1, editDutyDays.length)),
-      totalWeeklyCapacity: totalCapacity,
-    };
-    updateScheduleAPI(editingSchedule.id, updatedItem);
+      const totalCapacity = editDutyDays.reduce((acc, day) => acc + (editDaySchedules[day]?.capacity || editCapacity), 0);
 
-    const updatedSchedules = specialistSchedules.map((item) =>
-      item.id === editingSchedule.id ? updatedItem : item
-    );
-
-    setSpecialistSchedules(updatedSchedules);
-    localStorage.setItem("isalu_specialist_schedules", JSON.stringify(updatedSchedules));
-
-    // Sync Doctor object's availableDays, timeSlots, and roomNumber in API & DB!
-    const targetDocId = editingSchedule.doctorId;
-    if (targetDocId) {
-      const updatedDocPayload = {
-        availableDays: editDutyDays,
-        availability: editDutyDays,
-        timeSlots: daySummaries,
-        roomNumber: editRoom.trim(),
+      const updatedItem = {
+        ...editingSchedule,
         room: editRoom.trim(),
+        dutyDays: editDutyDays,
+        dayConfigs: editDaySchedules,
+        shiftTime: daySummaries.length > 0 ? daySummaries.join(" | ") : editShiftTime,
+        capacity: Math.round(totalCapacity / Math.max(1, editDutyDays.length)),
+        totalWeeklyCapacity: totalCapacity,
       };
 
-      updateDoctorAPI(targetDocId, updatedDocPayload);
+      const res: any = await updateScheduleAPI(editingSchedule.id || editingSchedule.sched_id, updatedItem);
+      if (res && res.error) {
+        setEditFormError(res.error);
+        return;
+      }
 
-      const updatedDocs = doctorsList.map((d) =>
-        d.id === targetDocId || d.doc_id === targetDocId
-          ? { ...d, ...updatedDocPayload }
-          : d
-      );
-      setDoctorsList(updatedDocs);
-      localStorage.setItem("isalu_hospital_doctors", JSON.stringify(updatedDocs));
+      const [remoteSchedules, remoteDocs] = await Promise.all([
+        getSchedulesAPI(),
+        getDoctorsAPI()
+      ]);
+
+      if (remoteSchedules && Array.isArray(remoteSchedules)) {
+        setSpecialistSchedules(remoteSchedules);
+        localStorage.setItem("isalu_specialist_schedules", JSON.stringify(remoteSchedules));
+      }
+
+      if (remoteDocs && Array.isArray(remoteDocs)) {
+        setDoctorsList(remoteDocs);
+        localStorage.setItem("isalu_hospital_doctors", JSON.stringify(remoteDocs));
+      }
+
+      setEditingSchedule(null);
+      setEditFormError("");
+
+      setToastAlert({
+        title: "Schedule Updated Successfully!",
+        description: `Updated consultation schedule details for ${editingSchedule.doctorName}.`,
+        type: "success",
+      });
+    } catch (err: any) {
+      setEditFormError(err?.message || "Failed to update schedule. Please check backend connection.");
+    } finally {
+      setIsSubmittingEditSchedule(false);
     }
-
-    setEditingSchedule(null);
-    setEditFormError("");
-
-    setToastAlert({
-      title: "Schedule Updated Successfully!",
-      description: `Updated consultation schedule details for ${editingSchedule.doctorName}.`,
-      type: "success",
-    });
   };
 
   const [schedShiftTime, setSchedShiftTime] = useState("08:00 AM – 02:00 PM (Morning Shift)");
@@ -2784,106 +2819,141 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
       return;
     }
 
-    const selectedDoc = doctorsList.find((d) => d.id === schedDoctorId || d.doc_id === schedDoctorId) || doctorsList[0] || DOCTORS[0];
-    const docAdminName = selectedDoc.fullName || selectedDoc.full_name ? `${selectedDoc.fullName || selectedDoc.full_name} (${selectedDoc.acronym || selectedDoc.name})` : selectedDoc.name;
+    if (isRegisteringNewDocInSched && !schedNewDocName.trim()) {
+      setSchedFormError("Please enter Doctor Full Name.");
+      return;
+    }
 
-    const daySummaries = schedDutyDays.map((day) => {
-      const cfg = schedDaySchedules[day];
-      if (!cfg) return `${day}: ${schedShiftTime}`;
-      const timesStr = cfg.shiftTimes.join(", ");
-      return `${day}: ${timesStr} (${cfg.capacity} visits)`;
-    });
+    setIsSubmittingSchedule(true);
+    setSchedFormError("");
 
-    const totalCapacity = schedDutyDays.reduce((acc, day) => acc + (schedDaySchedules[day]?.capacity || schedCapacity), 0);
+    try {
+      let docTargetId = "";
+      let docAdminName = "";
+      let docSpecialty = "";
 
-    const generatedSchedId = `sched-${Date.now()}`;
-    const docTargetId = selectedDoc.id || selectedDoc.doc_id;
+      if (isRegisteringNewDocInSched) {
+        // Step 1: Create Doctor on Django REST API FIRST
+        const formattedDocName = schedNewDocName.trim().startsWith("Dr.") ? schedNewDocName.trim() : `Dr. ${schedNewDocName.trim()}`;
+        const docGenId = `doc-${Date.now()}`;
+        const deptMatch = DEPARTMENTS.find((d: any) => d.id === schedNewDocDeptId || d.dept_id === schedNewDocDeptId);
+        const specName = deptMatch ? deptMatch.name : "Specialist Consultation";
 
-    const newSchedulePayload = {
-      sched_id: generatedSchedId,
-      id: generatedSchedId,
-      doctorId: docTargetId,
-      doctor_id: docTargetId,
-      doctorName: docAdminName,
-      doctor_name: docAdminName,
-      specialty: selectedDoc.specialty,
-      room: schedRoom.trim(),
-      dutyDays: schedDutyDays,
-      duty_days: schedDutyDays,
-      dayConfigs: schedDaySchedules,
-      day_configs: schedDaySchedules,
-      shiftTime: daySummaries.join(" | "),
-      shift_time: daySummaries.join(" | "),
-      capacity: Math.round(totalCapacity / Math.max(1, schedDutyDays.length)),
-      totalWeeklyCapacity: totalCapacity,
-      total_weekly_capacity: totalCapacity,
-      status: schedStatus,
-    };
-
-    const savedSchedFromApi = await createScheduleAPI(newSchedulePayload);
-    const createdSched = savedSchedFromApi && !savedSchedFromApi.error ? savedSchedFromApi : newSchedulePayload;
-
-    // 1. Sync Doctor object's availableDays, timeSlots, and roomNumber in Doctor DB table!
-    if (selectedDoc && docTargetId) {
-      const updatedDocPayload = {
-        availableDays: schedDutyDays,
-        availability: schedDutyDays,
-        timeSlots: daySummaries,
-        roomNumber: schedRoom.trim(),
-        room: schedRoom.trim(),
-      };
-
-      const docUpdateRes: any = await updateDoctorAPI(docTargetId, updatedDocPayload);
-      if (!docUpdateRes || docUpdateRes.error || docUpdateRes.status === 404) {
-        // Doctor record not in DB yet -> Create it in Doctor DB table now
-        const doctorPayload = {
-          doc_id: docTargetId,
-          id: docTargetId,
-          name: selectedDoc.name,
-          fullName: selectedDoc.fullName || selectedDoc.full_name || selectedDoc.name,
-          full_name: selectedDoc.fullName || selectedDoc.full_name || selectedDoc.name,
-          acronym: selectedDoc.acronym || "",
-          specialty: selectedDoc.specialty || "Specialist Consultation",
-          qualification: selectedDoc.qualification || "MBBS, FWACS",
-          roomNumber: schedRoom.trim(),
-          room: schedRoom.trim(),
+        const newDocPayload = {
+          doc_id: docGenId,
+          id: docGenId,
+          name: formattedDocName,
+          fullName: formattedDocName,
+          full_name: formattedDocName,
+          acronym: formattedDocName,
+          departmentId: schedNewDocDeptId,
+          department_id: schedNewDocDeptId,
+          specialty: specName,
+          qualification: schedNewDocQual.trim() || "MBBS, FWACS",
+          qualifications: schedNewDocQual.trim() || "MBBS, FWACS",
+          acceptedPatientTypes: ["Private Self-Pay", "HMO Insurance"],
+          accepted_patient_types: ["Private Self-Pay", "HMO Insurance"],
           availableDays: schedDutyDays,
+          available_days: schedDutyDays,
           availability: schedDutyDays,
-          timeSlots: daySummaries,
           status: true,
         };
-        await createDoctorAPI(doctorPayload);
+
+        const docRes: any = await createDoctorAPI(newDocPayload);
+        if (!docRes || docRes.error) {
+          setSchedFormError(docRes?.error || "Failed to register doctor in database. Please check backend API server.");
+          setIsSubmittingSchedule(false);
+          return;
+        }
+
+        docTargetId = docRes.doc_id || docRes.id || docGenId;
+        docAdminName = formattedDocName;
+        docSpecialty = specName;
+      } else {
+        const targetDocIdStr = String(schedDoctorId || "").trim();
+        const selectedDoc = doctorsList.find((d) => {
+          const id1 = String(d.doc_id || "").trim();
+          const id2 = String(d.id || "").trim();
+          return (id1 && id1 === targetDocIdStr) || (id2 && id2 === targetDocIdStr);
+        }) || doctorsList[0] || DOCTORS[0];
+
+        docTargetId = selectedDoc?.doc_id || selectedDoc?.id;
+        docAdminName = selectedDoc?.fullName || selectedDoc?.full_name ? `${selectedDoc.fullName || selectedDoc.full_name} (${selectedDoc.acronym || selectedDoc.name})` : (selectedDoc?.name || "Specialist Doctor");
+        docSpecialty = selectedDoc?.specialty || "Specialist Consultation";
       }
+
+      const daySummaries = schedDutyDays.map((day) => {
+        const cfg = schedDaySchedules[day];
+        if (!cfg) return `${day}: ${schedShiftTime}`;
+        const timesStr = cfg.shiftTimes.join(", ");
+        return `${day}: ${timesStr} (${cfg.capacity} visits)`;
+      });
+
+      const totalCapacity = schedDutyDays.reduce((acc, day) => acc + (schedDaySchedules[day]?.capacity || schedCapacity), 0);
+      const generatedSchedId = `sched-${Date.now()}`;
+
+      const newSchedulePayload = {
+        sched_id: generatedSchedId,
+        id: generatedSchedId,
+        doctor: docTargetId,
+        doctorId: docTargetId,
+        doctor_id: docTargetId,
+        doctorName: docAdminName,
+        doctor_name: docAdminName,
+        specialty: docSpecialty,
+        room: schedRoom.trim(),
+        dutyDays: schedDutyDays,
+        duty_days: schedDutyDays,
+        dayConfigs: schedDaySchedules,
+        day_configs: schedDaySchedules,
+        shiftTime: daySummaries.join(" | "),
+        shift_time: daySummaries.join(" | "),
+        capacity: Math.round(totalCapacity / Math.max(1, schedDutyDays.length)),
+        totalWeeklyCapacity: totalCapacity,
+        total_weekly_capacity: totalCapacity,
+        status: schedStatus,
+      };
+
+      const res: any = await createScheduleAPI(newSchedulePayload);
+      if (!res || res.error) {
+        setSchedFormError(res?.error || "Failed to save schedule to database. Please check backend API server.");
+        setIsSubmittingSchedule(false);
+        return;
+      }
+
+      // Re-fetch schedules and doctors from DB to guarantee 100% sync
+      const [remoteSchedules, remoteDocs] = await Promise.all([
+        getSchedulesAPI(),
+        getDoctorsAPI()
+      ]);
+
+      if (remoteSchedules && Array.isArray(remoteSchedules)) {
+        setSpecialistSchedules(remoteSchedules);
+        localStorage.setItem("isalu_specialist_schedules", JSON.stringify(remoteSchedules));
+      }
+
+      if (remoteDocs && Array.isArray(remoteDocs)) {
+        setDoctorsList(remoteDocs);
+        localStorage.setItem("isalu_hospital_doctors", JSON.stringify(remoteDocs));
+      }
+
+      // Reset Form
+      setSchedRoom("");
+      setSchedNewDocName("");
+      setSchedFormError("");
+      setIsRegisteringNewDocInSched(false);
+      setShowCreateScheduleModal(false);
+
+      setToastAlert({
+        title: "Saved to Database Tables!",
+        description: `Schedule and Doctor records saved to both SpecialistSchedule and Doctor DB tables for ${docAdminName}.`,
+        type: "success",
+      });
+    } catch (err: any) {
+      setSchedFormError(err?.message || "Failed to save schedule. Please check backend API.");
+    } finally {
+      setIsSubmittingSchedule(false);
     }
-
-    // 2. Re-fetch schedules and doctors from DB to guarantee 100% sync
-    const [remoteSchedules, remoteDocs] = await Promise.all([
-      getSchedulesAPI(),
-      getDoctorsAPI()
-    ]);
-
-    const updatedSchedules = remoteSchedules && Array.isArray(remoteSchedules) && remoteSchedules.length > 0
-      ? remoteSchedules
-      : [createdSched, ...specialistSchedules.filter((s) => s.id !== createdSched.id && s.sched_id !== createdSched.sched_id)];
-
-    setSpecialistSchedules(updatedSchedules);
-    localStorage.setItem("isalu_specialist_schedules", JSON.stringify(updatedSchedules));
-
-    if (remoteDocs && Array.isArray(remoteDocs) && remoteDocs.length > 0) {
-      setDoctorsList(remoteDocs);
-      localStorage.setItem("isalu_hospital_doctors", JSON.stringify(remoteDocs));
-    }
-
-    // Reset Form
-    setSchedRoom("");
-    setSchedFormError("");
-    setShowCreateScheduleModal(false);
-
-    setToastAlert({
-      title: "Saved to Database Tables!",
-      description: `Schedule and Doctor records saved to both SpecialistSchedule and Doctor DB tables for ${docAdminName}.`,
-      type: "success",
-    });
   };
 
   const handleToggleScheduleStatus = (sched: any) => {
@@ -2907,13 +2977,47 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
         setSpecialistSchedules(updatedSchedules);
         localStorage.setItem("isalu_specialist_schedules", JSON.stringify(updatedSchedules));
 
-        // Persist status change directly to existing DB record via PATCH
         await updateScheduleAPI(targetId, { status: newStatus });
+
+        const remoteSchedules = await getSchedulesAPI();
+        if (remoteSchedules && Array.isArray(remoteSchedules)) {
+          setSpecialistSchedules(remoteSchedules);
+          localStorage.setItem("isalu_specialist_schedules", JSON.stringify(remoteSchedules));
+        }
 
         setToastAlert({
           title: isDisabling ? "Shift Disabled 🚫" : "Shift Re-Enabled ✓",
-          description: `Schedule status for ${sched.doctorName} updated successfully.`,
+          description: `Schedule status for ${sched.doctorName} updated successfully in database.`,
           type: isDisabling ? "warning" : "success",
+        });
+      },
+    });
+  };
+
+  const handleDeleteSchedule = (sched: any) => {
+    const targetId = sched.id || sched.sched_id;
+    const docName = sched.doctorName || sched.doctor_name || "Specialist";
+
+    setConfirmModalConfig({
+      isOpen: true,
+      title: "Delete Specialist Schedule",
+      message: `Are you sure you want to permanently delete the schedule for "${docName}" from the database? This action cannot be undone.`,
+      confirmText: "Yes, Delete Schedule",
+      cancelText: "Cancel",
+      variant: "danger",
+      onConfirm: async () => {
+        await deleteScheduleAPI(targetId);
+
+        const remoteSchedules = await getSchedulesAPI();
+        if (remoteSchedules && Array.isArray(remoteSchedules)) {
+          setSpecialistSchedules(remoteSchedules);
+          localStorage.setItem("isalu_specialist_schedules", JSON.stringify(remoteSchedules));
+        }
+
+        setToastAlert({
+          title: "Schedule Deleted ✓",
+          description: `Schedule for ${docName} deleted from database successfully.`,
+          type: "success",
         });
       },
     });
@@ -9279,6 +9383,14 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                                 >
                                   {(sched.status === false || (typeof sched.status === "string" && sched.status.includes("Disabled"))) ? "Enable Shift" : "Disable Shift"}
                                 </button>
+
+                                <button
+                                  onClick={() => handleDeleteSchedule(sched)}
+                                  title="Delete Specialist Schedule"
+                                  className="p-1.5 bg-rose-50 hover:bg-rose-600 text-rose-600 hover:text-white rounded-xl transition-all border border-rose-200"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
                               </div>
                             </td>
                           </tr>
@@ -10029,98 +10141,113 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                   </div>
                 )}
 
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="text-xs font-black text-slate-900 dark:text-white flex items-center gap-1.5">
+                {/* Doctor Selection Mode Toggle */}
+                <div className="flex rounded-2xl bg-slate-100 dark:bg-slate-800 p-1 border border-slate-200 dark:border-slate-700 mb-3">
+                  <button
+                    type="button"
+                    onClick={() => setIsRegisteringNewDocInSched(false)}
+                    className={`flex-1 py-2 text-xs font-black rounded-xl transition-all flex items-center justify-center gap-1.5 ${
+                      !isRegisteringNewDocInSched
+                        ? "bg-[#008ac9] text-white shadow-md"
+                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
+                    }`}
+                  >
+                    <User className="h-3.5 w-3.5" /> Select Existing Specialist
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsRegisteringNewDocInSched(true)}
+                    className={`flex-1 py-2 text-xs font-black rounded-xl transition-all flex items-center justify-center gap-1.5 ${
+                      isRegisteringNewDocInSched
+                        ? "bg-[#008ac9] text-white shadow-md"
+                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
+                    }`}
+                  >
+                    <Plus className="h-3.5 w-3.5" /> Register New Doctor & Schedule
+                  </button>
+                </div>
+
+                {!isRegisteringNewDocInSched ? (
+                  <div>
+                    <label className="text-xs font-black text-slate-900 dark:text-white mb-1 block">
                       Assigned Specialist Doctor <span className="text-red-500">*</span>
                     </label>
 
-                    <button
-                      type="button"
-                      onClick={() => setShowAddDoctorModal(true)}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-black text-white bg-[#008ac9] hover:bg-[#0072b1] rounded-lg shadow-sm transition-all border border-[#008ac9]"
+                    <select
+                      value={schedDoctorId}
+                      onChange={(e) => {
+                        const docId = e.target.value;
+                        setSchedDoctorId(docId);
+                        const matched = doctorsList.find((d) => (d.doc_id || d.id) === docId);
+                        if (matched) {
+                          const adminName = matched.fullName || matched.full_name ? `${matched.fullName || matched.full_name} (${matched.acronym || matched.name})` : matched.name;
+                          setSchedDoctorSearch(adminName);
+                        }
+                      }}
+                      className="w-full p-3 rounded-xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white font-bold text-xs focus:ring-2 focus:ring-[#008ac9]"
                     >
-                      <Plus className="h-3.5 w-3.5" /> + Add Specialist
-                    </button>
+                      {doctorsList
+                        .filter((d) => d.status !== false && (typeof d.status !== "string" || !d.status.includes("Disabled")))
+                        .map((d) => {
+                          const adminName = d.fullName || d.full_name ? `${d.fullName || d.full_name} (${d.acronym || d.name})` : d.name;
+                          const deptName = d.department?.name || d.specialty || "Specialist";
+                          return (
+                            <option key={d.doc_id || d.id} value={d.doc_id || d.id}>
+                              🩺 {adminName} — {deptName} ({d.qualification || "MBBS"})
+                            </option>
+                          );
+                        })}
+                    </select>
                   </div>
-
-                  <div className="relative">
-                    <div className="relative">
-                      <Search className="absolute left-3.5 top-3.5 h-4 w-4 text-slate-400" />
+                ) : (
+                  <div className="space-y-3 p-3.5 bg-sky-50/70 dark:bg-slate-850 rounded-2xl border border-[#008ac9]/30">
+                    <div>
+                      <label className="text-xs font-black text-slate-900 dark:text-white mb-1 block">
+                        Doctor Full Name <span className="text-red-500">*</span>
+                      </label>
                       <input
                         type="text"
-                        placeholder="Search doctor by name or specialty (e.g. Dr. Olusola, Cardiology)..."
-                        value={schedDoctorSearch}
-                        onFocus={() => setShowDoctorDropdown(true)}
-                        onChange={(e) => {
-                          setSchedDoctorSearch(e.target.value);
-                          setShowDoctorDropdown(true);
-                        }}
-                        className="w-full pl-10 pr-4 py-3 rounded-xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white font-bold text-xs focus:ring-2 focus:ring-[#008ac9]"
+                        required
+                        placeholder="e.g. Dr. Samuel Adebayo"
+                        value={schedNewDocName}
+                        onChange={(e) => setSchedNewDocName(e.target.value)}
+                        className="w-full p-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-bold text-xs focus:ring-2 focus:ring-[#008ac9]"
                       />
                     </div>
 
-                    {showDoctorDropdown && (
-                      <div className="absolute left-0 right-0 mt-1 max-h-48 overflow-y-auto rounded-2xl bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 shadow-2xl z-50 p-1 divide-y divide-slate-100 dark:divide-slate-800">
-                        {doctorsList.filter(
-                          (d) =>
-                            (d.status !== false && (typeof d.status !== "string" || !d.status.includes("Disabled"))) &&
-                            (d.name.toLowerCase().includes(schedDoctorSearch.toLowerCase()) ||
-                              (d.fullName && d.fullName.toLowerCase().includes(schedDoctorSearch.toLowerCase())) ||
-                              (d.acronym && d.acronym.toLowerCase().includes(schedDoctorSearch.toLowerCase())) ||
-                              d.specialty.toLowerCase().includes(schedDoctorSearch.toLowerCase()))
-                        ).length === 0 ? (
-                          <div className="p-3 text-center text-xs font-bold text-slate-500">
-                            No active specialist found matching "{schedDoctorSearch}".
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setShowDoctorDropdown(false);
-                                setShowAddDoctorModal(true);
-                              }}
-                              className="block mx-auto mt-1 text-[#008ac9] underline font-black"
-                            >
-                              + Create specialist now
-                            </button>
-                          </div>
-                        ) : (
-                          doctorsList
-                            .filter(
-                              (d) =>
-                                (d.status !== false && (typeof d.status !== "string" || !d.status.includes("Disabled"))) &&
-                                (d.name.toLowerCase().includes(schedDoctorSearch.toLowerCase()) ||
-                                  (d.fullName && d.fullName.toLowerCase().includes(schedDoctorSearch.toLowerCase())) ||
-                                  (d.acronym && d.acronym.toLowerCase().includes(schedDoctorSearch.toLowerCase())) ||
-                                  d.specialty.toLowerCase().includes(schedDoctorSearch.toLowerCase()))
-                            )
-                            .map((d) => {
-                              const adminName = d.fullName ? `${d.fullName} (${d.acronym || d.name})` : d.name;
-                              return (
-                                <button
-                                  key={d.id}
-                                  type="button"
-                                  onClick={() => {
-                                    setSchedDoctorId(d.id);
-                                    setSchedDoctorSearch(adminName);
-                                    setShowDoctorDropdown(false);
-                                  }}
-                                  className={`w-full text-left p-2.5 rounded-xl hover:bg-sky-50 dark:hover:bg-slate-800 transition-colors flex items-center justify-between ${
-                                    schedDoctorId === d.id ? "bg-sky-50 dark:bg-slate-800 border border-[#008ac9]/30" : ""
-                                  }`}
-                                >
-                                  <div>
-                                    <div className="text-xs font-black text-slate-900 dark:text-white">🩺 {adminName}</div>
-                                    <div className="text-[11px] font-semibold text-slate-500">{d.specialty} • {d.qualification || d.qualifications || "MBBS"}</div>
-                                  </div>
-                                  {schedDoctorId === d.id && <span className="text-xs font-black text-[#008ac9]">Selected ✓</span>}
-                                </button>
-                              );
-                            })
-                        )}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <div>
+                        <label className="text-xs font-black text-slate-900 dark:text-white mb-1 block">
+                          Clinical Department <span className="text-red-500">*</span>
+                        </label>
+                        <select
+                          value={schedNewDocDeptId}
+                          onChange={(e) => setSchedNewDocDeptId(e.target.value)}
+                          className="w-full p-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-bold text-xs focus:ring-2 focus:ring-[#008ac9]"
+                        >
+                          {DEPARTMENTS.map((dept: any) => (
+                            <option key={dept.id || dept.dept_id} value={dept.id || dept.dept_id}>
+                              🏥 {dept.name}
+                            </option>
+                          ))}
+                        </select>
                       </div>
-                    )}
+
+                      <div>
+                        <label className="text-xs font-black text-slate-900 dark:text-white mb-1 block">
+                          Medical Qualifications
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="e.g. MBBS, FWACS"
+                          value={schedNewDocQual}
+                          onChange={(e) => setSchedNewDocQual(e.target.value)}
+                          className="w-full p-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-bold text-xs focus:ring-2 focus:ring-[#008ac9]"
+                        />
+                      </div>
+                    </div>
                   </div>
-                </div>
+                )}
 
                 <div>
                   <label className="text-xs font-black text-slate-900 dark:text-white mb-1 block">
@@ -10327,16 +10454,26 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                 <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
                   <button
                     type="button"
+                    disabled={isSubmittingSchedule}
                     onClick={() => setShowCreateScheduleModal(false)}
-                    className="px-4 py-2.5 rounded-xl border border-slate-300 text-xs font-bold text-slate-700 dark:text-slate-300"
+                    className="px-4 py-2.5 rounded-xl border border-slate-300 text-xs font-bold text-slate-700 dark:text-slate-300 disabled:opacity-50"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    className="px-5 py-2.5 bg-[#008ac9] hover:bg-[#0072b1] text-white font-black text-xs rounded-xl shadow-md flex items-center gap-1.5"
+                    disabled={isSubmittingSchedule}
+                    className="px-5 py-2.5 bg-[#008ac9] hover:bg-[#0072b1] text-white font-black text-xs rounded-xl shadow-md flex items-center gap-1.5 disabled:opacity-50"
                   >
-                    <Calendar className="h-4 w-4" /> Save Specialist Schedule
+                    {isSubmittingSchedule ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" /> Saving Schedule to Database...
+                      </>
+                    ) : (
+                      <>
+                        <Calendar className="h-4 w-4" /> Save Specialist Schedule
+                      </>
+                    )}
                   </button>
                 </div>
               </form>
@@ -10580,16 +10717,26 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                 <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
                   <button
                     type="button"
+                    disabled={isSubmittingEditSchedule}
                     onClick={() => setEditingSchedule(null)}
-                    className="px-4 py-2.5 rounded-xl border border-slate-300 text-xs font-bold text-slate-700 dark:text-slate-300"
+                    className="px-4 py-2.5 rounded-xl border border-slate-300 text-xs font-bold text-slate-700 dark:text-slate-300 disabled:opacity-50"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    className="px-5 py-2.5 bg-[#008ac9] hover:bg-[#0072b1] text-white font-black text-xs rounded-xl shadow-md flex items-center gap-1.5"
+                    disabled={isSubmittingEditSchedule}
+                    className="px-5 py-2.5 bg-[#008ac9] hover:bg-[#0072b1] text-white font-black text-xs rounded-xl shadow-md flex items-center gap-1.5 disabled:opacity-50"
                   >
-                    <Pencil className="h-4 w-4" /> Save Schedule Changes
+                    {isSubmittingEditSchedule ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" /> Saving Changes to Database...
+                      </>
+                    ) : (
+                      <>
+                        <Pencil className="h-4 w-4" /> Save Schedule Changes
+                      </>
+                    )}
                   </button>
                 </div>
               </form>
@@ -10685,22 +10832,22 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                               const adminName = d.fullName ? `${d.fullName} (${d.acronym || d.name})` : d.name;
                               return (
                                 <button
-                                  key={d.id}
+                                  key={d.doc_id || d.id}
                                   type="button"
                                   onClick={() => {
-                                    setSpecDateDoctorId(d.id);
+                                    setSpecDateDoctorId(d.doc_id || d.id);
                                     setSpecDateDoctorSearch(adminName);
                                     setShowSpecDoctorDropdown(false);
                                   }}
                                   className={`w-full text-left p-2.5 rounded-xl hover:bg-emerald-50 dark:hover:bg-slate-800 transition-colors flex items-center justify-between ${
-                                    specDateDoctorId === d.id ? "bg-emerald-50 dark:bg-slate-800 border border-emerald-500/30" : ""
+                                    (specDateDoctorId === d.doc_id || specDateDoctorId === d.id) ? "bg-emerald-50 dark:bg-slate-800 border border-emerald-500/30" : ""
                                   }`}
                                 >
                                   <div>
                                     <div className="text-xs font-black text-slate-900 dark:text-white">🩺 {adminName}</div>
                                     <div className="text-[11px] font-semibold text-slate-500">{d.specialty} • {d.qualification || d.qualifications || "MBBS"}</div>
                                   </div>
-                                  {specDateDoctorId === d.id && <span className="text-xs font-black text-emerald-600">Selected ✓</span>}
+                                  {(specDateDoctorId === d.doc_id || specDateDoctorId === d.id) && <span className="text-xs font-black text-emerald-600">Selected ✓</span>}
                                 </button>
                               );
                             })

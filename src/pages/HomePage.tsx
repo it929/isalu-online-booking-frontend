@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { DEPARTMENTS, DOCTORS } from "../data/doctors";
-import { getDepartmentsAPI, getDoctorsAPI, getHmoCompaniesAPI } from "../api/client";
+import { getDepartmentsAPI, getDoctorsAPI, getHmoCompaniesAPI, getSchedulesAPI } from "../api/client";
 import {
   Stethoscope,
   HeartPulse,
@@ -18,6 +18,7 @@ import {
   Clock,
   Award,
   CalendarCheck,
+  Calendar,
   Quote,
   Building,
   CheckCircle,
@@ -391,6 +392,181 @@ export function HomePage() {
     }
     return DOCTORS;
   });
+  const [schedulesList, setSchedulesList] = useState<any[]>(() => {
+    const saved = localStorage.getItem("isalu_specialist_schedules");
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      } catch {}
+    }
+    return [];
+  });
+
+  const cleanShiftTimeStr = (rawShift: string): string => {
+    if (!rawShift) return "08:00 AM – 02:00 PM";
+    let clean = String(rawShift).trim();
+    const match = clean.match(/\d{1,2}:\d{2}\s*(?:AM|PM)\s*–\s*\d{1,2}:\d{2}\s*(?:AM|PM)/i);
+    if (match) return match[0];
+
+    clean = clean.replace(/^[A-Za-z]{3,9}:\s*/, "");
+    clean = clean.replace(/\s*\(\d+\s*visits\)$/i, "");
+    return clean.trim() || "08:00 AM – 02:00 PM";
+  };
+
+  const getNextAvailableClinicDateAndTimeForDept = (deptId: string, deptName: string) => {
+    // 1. Filter doctors belonging strictly to this department
+    const deptDocs = allDoctors.filter((doc) => {
+      let rawDeptId = "";
+      if (typeof doc.department === "string") rawDeptId = doc.department;
+      else if (doc.department && typeof doc.department === "object") rawDeptId = doc.department.dept_id || doc.department.id || doc.department.name || "";
+      if (!rawDeptId && doc.departmentId) rawDeptId = String(doc.departmentId);
+      if (!rawDeptId && doc.department_id) rawDeptId = String(doc.department_id);
+
+      const cleanDocDept = String(rawDeptId).toLowerCase().replace(/[^a-z0-9]/g, "");
+      const cleanDeptId = String(deptId).toLowerCase().replace(/[^a-z0-9]/g, "");
+      const cleanDeptName = String(deptName).toLowerCase().replace(/[^a-z0-9]/g, "");
+
+      return cleanDocDept === cleanDeptId || cleanDocDept === cleanDeptName;
+    });
+
+    if (deptDocs.length === 0) return null;
+
+    const now = new Date();
+
+    // 2. Loop through upcoming 14 days starting from today (day 0)
+    for (let dayOffset = 0; dayOffset < 14; dayOffset++) {
+      const targetDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + dayOffset);
+      const dayNameLong = targetDate.toLocaleDateString("en-US", { weekday: "long" });
+      const dayShort = targetDate.toLocaleDateString("en-US", { weekday: "short" });
+      const monthShort = targetDate.toLocaleDateString("en-US", { month: "short" });
+      const dayNum = targetDate.getDate();
+
+      // Check each doctor in this department
+      for (const doc of deptDocs) {
+        if (doc.status === false || doc.status === 0 || doc.status === "0" || doc.status === "false") {
+          continue;
+        }
+
+        // Find matching active schedule for doctor from DB schedulesList
+        const docSched = schedulesList.find((s) => {
+          if (s.status === false || s.status === 0 || s.status === "0" || s.status === "false" || s.status === "Inactive") {
+            return false;
+          }
+          const sDocId = String(s.doctorId || s.doctor_id || s.doctor?.doc_id || s.doctor?.id || s.doctor || "").toLowerCase().trim();
+          const sDocName = String(s.doctorName || s.doctor_name || s.doctor?.full_name || s.doctor?.name || "").toLowerCase().trim();
+          
+          const dId = String(doc.id || doc.doc_id || "").toLowerCase().trim();
+          const dName = String(doc.fullName || doc.name || "").toLowerCase().trim();
+          const dAcro = String(doc.acronym || "").toLowerCase().trim();
+
+          if (sDocId && dId && (sDocId === dId || sDocId === dName)) return true;
+          if (sDocName && dName && (sDocName === dName || sDocName === dAcro)) return true;
+          return false;
+        });
+
+        let dutyDays: string[] = [];
+        let shiftTime = "";
+
+        if (docSched) {
+          if (docSched.dutyDays && Array.isArray(docSched.dutyDays) && docSched.dutyDays.length > 0) {
+            dutyDays = docSched.dutyDays;
+          } else if (docSched.duty_days && Array.isArray(docSched.duty_days) && docSched.duty_days.length > 0) {
+            dutyDays = docSched.duty_days;
+          }
+
+          // Look up day-specific shift in dayConfigs (checking both dayShort and dayNameLong)
+          if (docSched.dayConfigs) {
+            const dayCfg = docSched.dayConfigs[dayShort] || docSched.dayConfigs[dayNameLong];
+            if (dayCfg) {
+              if (dayCfg.shiftTimes && Array.isArray(dayCfg.shiftTimes) && dayCfg.shiftTimes.length > 0) {
+                shiftTime = cleanShiftTimeStr(dayCfg.shiftTimes.join(", "));
+              } else if (dayCfg.shiftTime) {
+                shiftTime = cleanShiftTimeStr(dayCfg.shiftTime);
+              }
+            }
+          }
+
+          if (!shiftTime && (docSched.shiftTime || docSched.shift_time)) {
+            const raw = docSched.shiftTime || docSched.shift_time;
+            const parts = String(raw).split("|").map((p: string) => p.trim());
+            const dayPart = parts.find((p: string) => 
+              p.toLowerCase().includes(dayShort.toLowerCase()) || p.toLowerCase().includes(dayNameLong.toLowerCase())
+            );
+            if (dayPart) {
+              shiftTime = cleanShiftTimeStr(dayPart);
+            } else {
+              shiftTime = cleanShiftTimeStr(parts[0]);
+            }
+          }
+        }
+
+        // If doctor has no SpecialistSchedule record in DB, check doc.availableDays from DB
+        if (dutyDays.length === 0) {
+          if (doc.availableDays && Array.isArray(doc.availableDays) && doc.availableDays.length > 0) {
+            dutyDays = doc.availableDays;
+          } else if (doc.availability && Array.isArray(doc.availability) && doc.availability.length > 0) {
+            dutyDays = doc.availability;
+          }
+        }
+
+        // Strictly skip doctor if they have no active duty days in DB
+        if (dutyDays.length === 0) {
+          continue;
+        }
+
+        if (!shiftTime) {
+          if (doc.timeSlots && Array.isArray(doc.timeSlots) && doc.timeSlots.length > 0) {
+            shiftTime = cleanShiftTimeStr(doc.timeSlots[0]);
+          } else {
+            shiftTime = "08:00 AM – 02:00 PM";
+          }
+        }
+
+        // Match duty days against BOTH dayShort ("Mon", "Tue") and dayNameLong ("Monday", "Tuesday")
+        const isAvailableOnDay = dutyDays.some((d) => {
+          const cleanD = String(d).toLowerCase().trim();
+          const cleanLong = dayNameLong.toLowerCase().trim();
+          const cleanShort = dayShort.toLowerCase().trim();
+          return cleanD === cleanLong || cleanD === cleanShort || cleanLong.startsWith(cleanD) || cleanD.startsWith(cleanShort);
+        });
+
+        if (isAvailableOnDay) {
+          // If target day is TODAY (dayOffset === 0), verify 30-minute cutoff
+          if (dayOffset === 0) {
+            const match = shiftTime.match(/(\d{1,2}):(\d{2})\s*(AM|PM)?/i);
+            if (match) {
+              let hour = parseInt(match[1], 10);
+              const minute = parseInt(match[2], 10);
+              const ampm = match[3] ? match[3].toUpperCase() : null;
+              if (ampm === "PM" && hour < 12) hour += 12;
+              else if (ampm === "AM" && hour === 12) hour = 0;
+
+              const clinicStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour, minute, 0, 0);
+              const timeDiffMinutes = (clinicStart.getTime() - now.getTime()) / (1000 * 60);
+              if (timeDiffMinutes < 30) {
+                // Cutoff reached for today, continue checking future days
+                continue;
+              }
+            }
+          }
+
+          let dateLabel = `${dayShort}, ${monthShort} ${dayNum}`;
+          if (dayOffset === 0) dateLabel = `Today (${dayShort}, ${monthShort} ${dayNum})`;
+          else if (dayOffset === 1) dateLabel = `Tomorrow (${dayShort}, ${monthShort} ${dayNum})`;
+
+          return {
+            dateLabel,
+            timeLabel: shiftTime,
+            doctorName: doc.fullName || doc.name,
+            doctorAcronym: doc.acronym || doc.name,
+          };
+        }
+      }
+    }
+
+    return { dateLabel: "Mon – Fri Duty", timeLabel: "08:00 AM – 02:00 PM", doctorName: "", doctorAcronym: "" };
+  };
 
   useEffect(() => {
     async function syncData() {
@@ -422,6 +598,14 @@ export function HomePage() {
           const activeDocs = remoteDoctors.filter((d: any) => d.status !== false && (typeof d.status !== "string" || !d.status.includes("Disabled")));
           setAllDoctors(activeDocs.length > 0 ? activeDocs : remoteDoctors);
           localStorage.setItem("isalu_hospital_doctors", JSON.stringify(remoteDoctors));
+        }
+      });
+
+      // 3. Fetch specialist schedules for accurate next available date calculation
+      getSchedulesAPI().then((remoteScheds) => {
+        if (remoteScheds && Array.isArray(remoteScheds)) {
+          setSchedulesList(remoteScheds);
+          localStorage.setItem("isalu_specialist_schedules", JSON.stringify(remoteScheds));
         }
       });
     }
@@ -1035,13 +1219,13 @@ export function HomePage() {
 
             {/* Right Hero Column: Scrollable Instant Booking Glass Card */}
             <div className="lg:col-span-5">
-              <div className="bg-white/15 backdrop-blur-xl p-6 sm:p-8 rounded-3xl border-2 border-white/30 shadow-2xl relative overflow-hidden flex flex-col max-h-[520px]">
-                <div className="flex items-center justify-between border-b-2 border-white/20 pb-4 mb-4 shrink-0">
+              <div className="bg-gradient-to-b from-slate-900/95 via-[#003957]/90 to-slate-950/95 backdrop-blur-2xl p-6 sm:p-8 rounded-3xl border-2 border-sky-400/30 shadow-2xl relative overflow-hidden flex flex-col max-h-[540px]">
+                <div className="flex items-center justify-between border-b-2 border-sky-400/20 pb-4 mb-4 shrink-0">
                   <div>
-                    <span className="text-xs font-black text-sky-300 uppercase tracking-widest block">Instant Booking</span>
+                    <span className="text-xs font-black text-sky-400 uppercase tracking-widest block">Instant Booking</span>
                     <h2 className="text-xl font-black text-white">Select Clinical Department</h2>
                   </div>
-                  <div className="h-10 w-10 rounded-2xl bg-[#008ac9] flex items-center justify-center text-white font-bold border-2 border-white/30 shadow-md">
+                  <div className="h-10 w-10 rounded-2xl bg-[#008ac9] flex items-center justify-center text-white font-bold border-2 border-sky-300/40 shadow-md">
                     <CalendarCheck className="h-5 w-5" />
                   </div>
                 </div>
@@ -1051,25 +1235,31 @@ export function HomePage() {
                   {activeDepartmentsList.map((dept) => {
                     const Icon = resolveIconForDept(dept);
                     const specCount = getSpecialistCountForDept(dept.id, dept.name, dept.doctorCount);
+                    const nextSlot = getNextAvailableClinicDateAndTimeForDept(dept.id, dept.name);
 
                     return (
                       <Link
                         key={dept.id}
                         to={`/book?department=${dept.id}`}
-                        className="group flex items-center justify-between p-3.5 rounded-2xl bg-white/10 hover:bg-[#008ac9] border-2 border-white/20 hover:border-white transition-all duration-200"
+                        className="group flex items-center justify-between p-3.5 rounded-2xl bg-white/10 hover:bg-[#008ac9] border-2 border-white/15 hover:border-sky-300 transition-all duration-200 shadow-sm"
                       >
                         <div className="flex items-center gap-3">
-                          <div className="p-2 rounded-xl bg-white text-[#008ac9] font-bold shadow-sm shrink-0">
+                          <div className="p-2.5 rounded-xl bg-white text-[#008ac9] font-black shadow-md shrink-0 group-hover:scale-110 transition-transform">
                             <Icon className="h-5 w-5" />
                           </div>
                           <div>
-                            <h3 className="font-extrabold text-sm text-white group-hover:text-white">{dept.name}</h3>
-                            <span className="text-[11px] font-bold text-emerald-300 group-hover:text-white flex items-center gap-1">
-                              <Clock className="h-3 w-3" /> Active Clinic ({specCount} Specialist{specCount > 1 ? "s" : ""})
-                            </span>
+                            <h3 className="font-black text-sm text-white group-hover:text-white">{dept.name}</h3>
+                            <div className="flex flex-wrap items-center gap-2 mt-1">
+                              <span className="text-[10.5px] font-black bg-gradient-to-r from-emerald-400 to-teal-400 text-slate-950 px-2.5 py-0.5 rounded-full shadow-sm flex items-center gap-1">
+                                <Calendar className="h-3 w-3 text-slate-950" /> {nextSlot ? nextSlot.dateLabel : "Schedule Pending"}
+                              </span>
+                              <span className="text-[10px] font-extrabold text-sky-100 bg-white/10 px-2 py-0.5 rounded-md border border-white/15 flex items-center gap-1">
+                                <Clock className="h-3 w-3 text-sky-300" /> {nextSlot ? nextSlot.timeLabel : "08:00 AM – 02:00 PM"}
+                              </span>
+                            </div>
                           </div>
                         </div>
-                        <ArrowRight className="h-4 w-4 text-sky-200 group-hover:text-white transition-transform transform group-hover:translate-x-1 shrink-0" />
+                        <ArrowRight className="h-5 w-5 text-sky-300 group-hover:text-white transition-transform transform group-hover:translate-x-1 shrink-0 ml-2" />
                       </Link>
                     );
                   })}
@@ -1084,7 +1274,7 @@ export function HomePage() {
                       elem.scrollIntoView({ behavior: "smooth", block: "start" });
                     }
                   }}
-                  className="mt-4 w-full py-3.5 bg-[#008ac9] hover:bg-[#0072b1] text-white font-black rounded-2xl text-center block transition-all shadow-lg text-sm border-2 border-white/30 shrink-0"
+                  className="mt-4 w-full py-3.5 bg-[#008ac9] hover:bg-[#0072b1] text-white font-black rounded-2xl text-center block transition-all shadow-lg text-sm border-2 border-sky-300/40 shrink-0"
                 >
                   Start General Booking Flow →
                 </Link>
@@ -1114,11 +1304,12 @@ export function HomePage() {
             {activeDepartmentsList.map((dept) => {
               const Icon = resolveIconForDept(dept);
               const specCount = getSpecialistCountForDept(dept.id, dept.name, dept.doctorCount);
+              const nextSlot = getNextAvailableClinicDateAndTimeForDept(dept.id, dept.name);
 
               return (
                 <div
                   key={dept.id}
-                  className="group relative bg-gradient-to-b from-white via-sky-50/40 to-white dark:from-slate-900 dark:via-slate-900/90 dark:to-slate-900 border-2 border-sky-200/80 dark:border-slate-800 hover:shadow-2xl hover:border-[#008ac9] dark:hover:border-sky-400 transform hover:-translate-y-2 rounded-[2.5rem] p-7 shadow-md transition-all duration-300 flex flex-col justify-between overflow-hidden"
+                  className="group relative bg-gradient-to-b from-white via-sky-50/50 to-sky-100/30 dark:from-slate-900 dark:via-slate-900/95 dark:to-slate-950 border-2 border-sky-200/90 dark:border-slate-800 hover:shadow-2xl hover:border-[#008ac9] dark:hover:border-sky-400 transform hover:-translate-y-2 rounded-[2.5rem] p-7 shadow-lg transition-all duration-300 flex flex-col justify-between overflow-hidden"
                 >
                   {/* Soft Background Glow & Subtle Heart Accent Badge */}
                   <div className="absolute -right-8 -top-8 w-28 h-28 bg-[#008ac9]/10 dark:bg-sky-400/10 rounded-full blur-2xl pointer-events-none group-hover:scale-150 transition-transform duration-500" />
@@ -1129,30 +1320,50 @@ export function HomePage() {
                   <div>
                     {/* Round Oval Icon Badge Header */}
                     <div className="flex items-center justify-between mb-5">
-                      <div className="h-14 w-14 rounded-full flex items-center justify-center font-bold shadow-md transition-transform bg-[#008ac9] text-white shadow-[#008ac9]/30 group-hover:scale-110">
+                      <div className="h-14 w-14 rounded-full flex items-center justify-center font-bold shadow-lg transition-transform bg-[#008ac9] text-white shadow-[#008ac9]/30 group-hover:scale-110">
                         <Icon className="h-7 w-7" />
                       </div>
                       <div className="flex flex-col items-end gap-1">
-                        <span className="px-3 py-1 rounded-full bg-white dark:bg-slate-800 text-[#008ac9] dark:text-sky-300 text-xs font-black border border-sky-200 dark:border-slate-700 shadow-sm flex items-center gap-1.5">
+                        <span className="px-3 py-1 rounded-full bg-sky-100 dark:bg-slate-800 text-[#008ac9] dark:text-sky-300 text-xs font-black border border-sky-300/80 dark:border-slate-700 shadow-sm flex items-center gap-1.5">
                           <Users className="h-3.5 w-3.5 text-[#008ac9]" /> {specCount} Specialist{specCount > 1 ? "s" : ""}
                         </span>
                         <span className="px-2.5 py-0.5 rounded-full text-[9.5px] font-black bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 border border-emerald-300/80 flex items-center gap-1">
-                          <Clock className="h-3 w-3 text-emerald-600" /> 30-Day Schedule Active
+                          <Clock className="h-3 w-3 text-emerald-600 dark:text-emerald-400" /> 30-Day Active
                         </span>
                       </div>
                     </div>
 
-                    <h3 className="text-xl font-black text-slate-900 dark:text-white mb-2.5 group-hover:text-[#008ac9] dark:group-hover:text-sky-400 transition-colors">
+                    <h3 className="text-xl font-black text-slate-900 dark:text-white mb-2 group-hover:text-[#008ac9] dark:group-hover:text-sky-400 transition-colors">
                       {dept.name}
                     </h3>
-                    <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 leading-relaxed mb-6">
+                    <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 leading-relaxed mb-4">
                       {dept.description}
                     </p>
+
+                    {/* Next Available Clinic Date & Time Badge - Vibrant Glowing Gradient */}
+                    <div className="mb-6 p-4 rounded-2xl bg-gradient-to-r from-sky-500/10 via-teal-500/10 to-emerald-500/10 dark:from-sky-950/60 dark:to-teal-950/60 border-2 border-sky-300/60 dark:border-sky-800/60 space-y-2.5 shadow-sm">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="flex items-center gap-1.5 font-black text-slate-900 dark:text-slate-100">
+                          <Calendar className="h-3.5 w-3.5 text-[#008ac9] dark:text-sky-400" /> Next Clinic:
+                        </span>
+                        <span className="bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-black text-xs px-3 py-1 rounded-xl shadow-md border border-emerald-400/40">
+                          {nextSlot ? nextSlot.dateLabel : "Schedule Pending"}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-[11px] font-extrabold text-slate-700 dark:text-slate-300">
+                        <span className="flex items-center gap-1 text-slate-600 dark:text-slate-400">
+                          <Clock className="h-3.5 w-3.5 text-[#008ac9] dark:text-sky-400" /> Duty Hours:
+                        </span>
+                        <span className="font-black text-slate-900 dark:text-white bg-white dark:bg-slate-800 px-2.5 py-0.5 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm">
+                          {nextSlot ? nextSlot.timeLabel : "08:00 AM – 02:00 PM"}
+                        </span>
+                      </div>
+                    </div>
                   </div>
 
                   <Link
                     to={`/book?department=${dept.id}`}
-                    className="w-full py-3.5 px-5 rounded-full bg-[#008ac9] hover:bg-[#0072b1] text-white font-black text-xs transition-all flex items-center justify-between shadow-md hover:shadow-lg border-2 border-white/20 group-hover:scale-[1.02]"
+                    className="w-full py-3.5 px-5 rounded-full bg-gradient-to-r from-[#008ac9] to-[#0072b1] hover:from-[#0072b1] hover:to-[#005a8e] text-white font-black text-xs transition-all flex items-center justify-between shadow-md hover:shadow-xl border-2 border-white/20 group-hover:scale-[1.02]"
                   >
                     <span>Book Specialist Consultation</span>
                     <ArrowRight className="h-4 w-4 transform group-hover:translate-x-1 transition-transform" />

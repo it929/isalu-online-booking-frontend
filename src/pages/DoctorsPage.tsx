@@ -3,13 +3,14 @@ import { Link } from "react-router-dom";
 import { DOCTORS, DEPARTMENTS } from "../data/doctors";
 import { Search, Star, Clock, MapPin, ArrowRight, Calendar, Flame } from "lucide-react";
 import { SpecialistAvatar } from "../components/SpecialistAvatar";
-import { getDoctorsAPI, getDepartmentsAPI } from "../api/client";
+import { getDoctorsAPI, getDepartmentsAPI, getSchedulesAPI } from "../api/client";
 
 export function DoctorsPage() {
   const [departmentsList, setDepartmentsList] = useState<any[]>([]);
   const [selectedDept, setSelectedDept] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [allDoctors, setAllDoctors] = useState<any[]>([]);
+  const [schedulesList, setSchedulesList] = useState<any[]>([]);
 
   useEffect(() => {
     async function syncData() {
@@ -31,9 +32,15 @@ export function DoctorsPage() {
           setSelectedDept(mapped[0]?.id || "all");
         }
       }
-      const remoteDoctors = await getDoctorsAPI();
+      const [remoteDoctors, remoteSchedules] = await Promise.all([
+        getDoctorsAPI(),
+        getSchedulesAPI()
+      ]);
       if (remoteDoctors && Array.isArray(remoteDoctors)) {
         setAllDoctors(remoteDoctors);
+      }
+      if (remoteSchedules && Array.isArray(remoteSchedules)) {
+        setSchedulesList(remoteSchedules);
       }
     }
     syncData();
@@ -55,12 +62,6 @@ export function DoctorsPage() {
     const deptObj = DEPARTMENTS.find((d) => d.id === selectedDept);
     const deptNameLower = deptObj ? deptObj.name.toLowerCase() : selectedDept.toLowerCase();
     const docSpecialtyLower = (doc.specialty || "").toLowerCase();
-
-    const isDocNeuro = docSpecialtyLower.includes("neuro");
-    const isDocUro = docSpecialtyLower.includes("urol") && !isDocNeuro;
-
-    const isDeptNeuro = selectedDept.toLowerCase().includes("neuro") || deptNameLower.includes("neuro");
-    const isDeptUro = (selectedDept.toLowerCase().includes("urol") || deptNameLower.includes("urol")) && !isDeptNeuro;
 
     let rawDeptId = "";
     if (typeof doc.department === "string") rawDeptId = doc.department;
@@ -141,10 +142,12 @@ export function DoctorsPage() {
         <div ref={doctorsGridRef} className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 scroll-mt-24">
           {filteredDoctors.map((doc: any) => {
             const safeTimeSlots = Array.isArray(doc.timeSlots) ? doc.timeSlots : ["08:00 AM – 12:00 PM", "01:00 PM – 05:00 PM"];
-            let savedSchedules: any[] = [];
-            try {
-              savedSchedules = JSON.parse(localStorage.getItem("isalu_specialist_schedules") || "[]") || [];
-            } catch {}
+            let savedSchedules: any[] = schedulesList && schedulesList.length > 0 ? schedulesList : [];
+            if (!savedSchedules || savedSchedules.length === 0) {
+              try {
+                savedSchedules = JSON.parse(localStorage.getItem("isalu_specialist_schedules") || "[]") || [];
+              } catch {}
+            }
             const docSched = savedSchedules.find((s: any) => {
               const sDocId = String(s.doctorId || s.doctor_id || "").toLowerCase().trim();
               const dId = String(doc.id || "").toLowerCase().trim();
