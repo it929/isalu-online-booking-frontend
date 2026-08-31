@@ -1,8 +1,26 @@
+/**
+ * doctor.ts
+ *
+ * Centralized doctor and department definitions.
+ */
+
+/* =========================================================
+   TYPES
+========================================================= */
+
+export type DoctorStatus =
+  | "Active"
+  | "Inactive"
+  | "Available"
+  | "Unavailable"
+  | "On Leave"
+  | "Suspended";
+
 export interface Doctor {
   id: string;
-  name: string; // Public display name
-  fullName?: string; // Full real name for Admin
-  acronym?: string; // Specialty or acronym badge
+  name: string;
+  fullName?: string;
+  acronym?: string;
   specialty: string;
   departmentId: string;
   qualification: string;
@@ -17,7 +35,7 @@ export interface Doctor {
   image: string;
   bio: string;
   roomNumber: string;
-  status?: string | boolean;
+  status?: DoctorStatus | string | boolean;
   doc_id?: string;
 }
 
@@ -29,265 +47,292 @@ export interface Department {
   doctorCount: number;
 }
 
+export interface DoctorReference {
+  id?: string | number | null;
+  doc_id?: string | number | null;
+  name?: string | null;
+  fullName?: string | null;
+  full_name?: string | null;
+  acronym?: string | null;
+  doctorId?: string | number | null;
+  doctor_id?: string | number | null;
+  doctorName?: string | null;
+  doctor_name?: string | null;
+  specialty?: string | null;
+  doctorSpecialty?: string | null;
+  doctor_specialty?: string | null;
+  departmentId?: string | null;
+  department_id?: string | null;
+  departmentName?: string | null;
+  department_name?: string | null;
+  status?: DoctorStatus | string | boolean | null;
+  [key: string]: unknown;
+}
+
+/* =========================================================
+   CONSTANTS
+========================================================= */
+
+const DEFAULT_DOCTOR_NAME = "Specialist";
+const DEFAULT_SPECIALIST_PREFIX = "Specialist";
+
+const DEFAULT_DOCTOR_IMAGE =
+  "https://images.unsplash.com/photo-1559839734-2b71ea197ec2?auto=format&fit=crop&q=80&w=400";
+
+/* =========================================================
+   UTILITY FUNCTIONS
+========================================================= */
+
+function toSafeString(value: unknown): string {
+  return value == null ? "" : String(value).trim();
+}
+
+function normalize(value: unknown): string {
+  return toSafeString(value)
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function normalizeId(value: unknown): string {
+  return toSafeString(value).toLowerCase();
+}
+
+function isSpecialistLabel(value: unknown): boolean {
+  return /^specialist(?:\s+[a-z]+)?$/i.test(toSafeString(value));
+}
+
+/* =========================================================
+   SPECIALIST HELPERS
+========================================================= */
+
 export function getAcronymForIndex(index: number): string {
-  let letterStr = "";
-  let n = index;
+  if (!Number.isFinite(index) || index < 0) {
+    return `${DEFAULT_SPECIALIST_PREFIX} A`;
+  }
+
+  let letters = "";
+  let n = Math.floor(index);
+
   while (n >= 0) {
-    letterStr = String.fromCharCode(65 + (n % 26)) + letterStr;
+    letters = String.fromCharCode(65 + (n % 26)) + letters;
     n = Math.floor(n / 26) - 1;
   }
-  return `Specialist ${letterStr}`;
+
+  return `${DEFAULT_SPECIALIST_PREFIX} ${letters}`;
 }
 
-export function getDoctorRealName(doctorOrBooking: any): string {
-  if (!doctorOrBooking) return "Dr. Funke Akindele";
-
-  if (typeof doctorOrBooking === "string") {
-    const raw = doctorOrBooking.trim();
-    if (!raw.toLowerCase().startsWith("specialist")) return raw;
-    const match = DOCTORS.find(
-      (d) =>
-        (d.acronym && d.acronym.toLowerCase() === raw.toLowerCase()) ||
-        (d.name && d.name.toLowerCase() === raw.toLowerCase()) ||
-        (d.fullName && d.fullName.toLowerCase() === raw.toLowerCase()) ||
-        (d.id && d.id.toLowerCase() === raw.toLowerCase())
-    );
-    return match?.fullName || match?.name || "Dr. Funke Akindele";
+export function isDoctorActive(
+  status: Doctor["status"] | null | undefined,
+): boolean {
+  if (typeof status === "boolean") {
+    return status;
   }
 
-  const b = doctorOrBooking;
-  const rawName = String(b.doctorName || b.doctor_name || b.fullName || b.name || "").trim();
-  const rawId = String(b.doctorId || b.doctor_id || b.doc_id || b.id || "").trim();
-  const rawSpec = String(b.doctorSpecialty || b.doctor_specialty || b.specialty || "").trim();
+  const value = normalize(status);
 
-  // If rawName is already a real doctor name (not "Specialist X")
-  if (rawName && !rawName.toLowerCase().startsWith("specialist")) {
-    return rawName;
+  if (!value) {
+    return true;
   }
 
-  // 1. Find doctor by ID
-  let match = DOCTORS.find((d) => rawId && (d.id.toLowerCase() === rawId.toLowerCase() || (d.doc_id && d.doc_id.toLowerCase() === rawId.toLowerCase())));
-
-  // 2. Find doctor by Acronym
-  if (!match && rawName) {
-    match = DOCTORS.find((d) => d.acronym && d.acronym.toLowerCase() === rawName.toLowerCase());
-  }
-
-  // 3. Find doctor by Name substring
-  if (!match && rawName) {
-    match = DOCTORS.find(
-      (d) =>
-        d.name.toLowerCase() === rawName.toLowerCase() ||
-        (d.fullName && d.fullName.toLowerCase() === rawName.toLowerCase()) ||
-        rawName.toLowerCase().includes(d.name.toLowerCase()) ||
-        d.name.toLowerCase().includes(rawName.toLowerCase())
-    );
-  }
-
-  // 4. Find doctor by Exact Department ID or Exact Department Name match ONLY (prevents urology/neurology substring collisions)
-  if (!match && rawSpec) {
-    const cleanTarget = rawSpec.toLowerCase().trim().replace(/[^a-z0-9]/g, "");
-    match = DOCTORS.find((d) => {
-      const cleanDeptId = d.departmentId.toLowerCase().trim().replace(/[^a-z0-9]/g, "");
-      const cleanSpec = d.specialty.toLowerCase().trim().replace(/[^a-z0-9]/g, "");
-      return cleanDeptId === cleanTarget || cleanSpec === cleanTarget;
-    });
-  }
-
-  return match?.fullName || match?.name || (rawName && !rawName.toLowerCase().startsWith("specialist") ? rawName : "Dr. Funke Akindele");
+  return ["active", "available", "enabled", "true", "1"].includes(value);
 }
 
-export function getDoctorDisplayAcronym(doctorOrBooking: any): string {
-  if (!doctorOrBooking) return "Specialist";
-  if (typeof doctorOrBooking === "string") {
-    const s = doctorOrBooking.trim();
-    if (s.startsWith("Specialist")) return s;
-    const match = DOCTORS.find((d) => d.id === s || d.fullName?.toLowerCase() === s.toLowerCase() || d.name?.toLowerCase() === s.toLowerCase());
-    return match ? (match.acronym || match.name) : "Specialist";
-  }
-  if (doctorOrBooking.acronym) return doctorOrBooking.acronym;
-  if (doctorOrBooking.name && String(doctorOrBooking.name).startsWith("Specialist")) return doctorOrBooking.name;
-  if (doctorOrBooking.doctorName && String(doctorOrBooking.doctorName).startsWith("Specialist")) return doctorOrBooking.doctorName;
-  if (doctorOrBooking.doctor_name && String(doctorOrBooking.doctor_name).startsWith("Specialist")) return doctorOrBooking.doctor_name;
-
-  const dId = doctorOrBooking.doctorId || doctorOrBooking.doctor_id || doctorOrBooking.id || doctorOrBooking.doc_id;
-  const rawName = doctorOrBooking.doctorName || doctorOrBooking.doctor_name || doctorOrBooking.fullName || doctorOrBooking.full_name || doctorOrBooking.name;
-
-  const match = DOCTORS.find(
-    (d) =>
-      (dId && (d.id === dId || d.doc_id === dId)) ||
-      (rawName && d.fullName && d.fullName.toLowerCase() === String(rawName).toLowerCase()) ||
-      (rawName && d.name && d.name.toLowerCase() === String(rawName).toLowerCase())
-  );
-
-  if (match) return match.acronym || match.name;
-  if (rawName && String(rawName).startsWith("Specialist")) return String(rawName);
-  return "Specialist";
-}
+/* =========================================================
+   DEPARTMENTS
+========================================================= */
 
 export const DEPARTMENTS: Department[] = [
   {
     id: "endocrinology",
     name: "Endocrinology",
-    description: "Diabetes, thyroid disorders, metabolism, and hormonal balance care.",
+    description:
+      "Diabetes, thyroid disorders, metabolism, and hormonal balance care.",
     iconName: "Syringe",
-    doctorCount: 3,
+    doctorCount: 1,
   },
   {
     id: "general-surgery",
     name: "General Surgery",
-    description: "Comprehensive surgical evaluations, procedures, and post-operative care.",
+    description:
+      "Comprehensive surgical evaluations, procedures, and post-operative care.",
     iconName: "Scissors",
-    doctorCount: 3,
+    doctorCount: 1,
   },
   {
     id: "gynaecology",
     name: "Obstetrics & Gynaecology",
-    description: "Women's health, prenatal care, fertility, and gynecological surgeries.",
+    description:
+      "Women's health, prenatal care, fertility, and gynecological surgeries.",
     iconName: "Heart",
-    doctorCount: 3,
+    doctorCount: 1,
   },
   {
     id: "general-physician",
     name: "General Physician",
-    description: "Primary healthcare, preventive medicine, and general medical outpatient care.",
+    description:
+      "Primary healthcare, preventive medicine, and general medical outpatient care.",
     iconName: "Stethoscope",
     doctorCount: 1,
   },
   {
     id: "pulmonology",
     name: "Chest Physician / Pulmonology",
-    description: "Respiratory health, asthma, lung diseases, and chest consultations.",
+    description:
+      "Respiratory health, asthma, lung diseases, and chest consultations.",
     iconName: "Wind",
     doctorCount: 1,
   },
   {
     id: "cardiology",
     name: "Cardiology",
-    description: "Heart care, ECG, echocardiography, and cardiovascular management.",
+    description:
+      "Heart care, ECG, echocardiography, and cardiovascular management.",
     iconName: "HeartPulse",
-    doctorCount: 3,
+    doctorCount: 1,
   },
   {
     id: "dermatology",
     name: "Dermatology",
-    description: "Clinical skin care, hair, nail treatments, and dermatological therapies.",
+    description:
+      "Clinical skin care, hair, nail treatments, and dermatological therapies.",
     iconName: "Sparkles",
     doctorCount: 1,
   },
   {
     id: "ent",
     name: "ENT & Head/Neck Surgery",
-    description: "Ear, nose, throat consultations, sinus treatment, and head & neck surgery.",
+    description:
+      "Ear, nose, throat consultations, sinus treatment, and head & neck surgery.",
     iconName: "Ear",
-    doctorCount: 2,
+    doctorCount: 1,
   },
   {
     id: "nephrology",
     name: "Nephrology",
-    description: "Kidney health, hypertension, renal care, and dialysis consultations.",
+    description:
+      "Kidney health, hypertension, renal care, and dialysis consultations.",
     iconName: "Droplet",
     doctorCount: 1,
   },
   {
     id: "haematology",
     name: "Haematology",
-    description: "Blood disorders, anemia, blood transfusion, and haematological care.",
+    description:
+      "Blood disorders, anemia, blood transfusion, and haematological care.",
     iconName: "Droplets",
     doctorCount: 1,
   },
   {
     id: "gastroenterology",
     name: "Gastroenterology",
-    description: "Digestive system, stomach, liver, endoscopy, and gut health care.",
+    description:
+      "Digestive system, stomach, liver, endoscopy, and gut health care.",
     iconName: "Activity",
-    doctorCount: 2,
+    doctorCount: 1,
   },
   {
     id: "orthopedics",
     name: "Orthopedic Surgery",
-    description: "Bone fractures, joint care, spine, and musculoskeletal surgery.",
+    description:
+      "Bone fractures, joint care, spine, and musculoskeletal surgery.",
     iconName: "Bone",
     doctorCount: 1,
   },
   {
     id: "pediatrics",
     name: "Paediatrics & Child Health",
-    description: "Medical care for newborns, infants, children, and adolescents.",
+    description:
+      "Medical care for newborns, infants, children, and adolescents.",
     iconName: "Baby",
-    doctorCount: 3,
+    doctorCount: 1,
   },
   {
     id: "neurology",
     name: "Neurology",
-    description: "Diagnosis and care for brain, nerve, stroke, and spinal conditions.",
+    description:
+      "Diagnosis and care for brain, nerve, stroke, and spinal conditions.",
     iconName: "Brain",
-    doctorCount: 2,
+    doctorCount: 1,
   },
   {
     id: "rheumatology",
     name: "Rheumatology",
-    description: "Arthritis, joint inflammation, and autoimmune disease management.",
+    description:
+      "Arthritis, joint inflammation, and autoimmune disease management.",
     iconName: "Bone",
     doctorCount: 1,
   },
   {
     id: "psychiatry",
     name: "Psychiatry & Mental Health",
-    description: "Behavioral health, stress management, counseling, and psychiatric care.",
+    description:
+      "Behavioral health, stress management, counseling, and psychiatric care.",
     iconName: "Smile",
     doctorCount: 1,
   },
   {
     id: "dietetics",
     name: "Dietetics & Clinical Nutrition",
-    description: "Nutritional therapy, diet plans, weight management, and clinical nutrition.",
+    description:
+      "Nutritional therapy, diet plans, weight management, and clinical nutrition.",
     iconName: "Apple",
-    doctorCount: 2,
+    doctorCount: 1,
   },
   {
     id: "urology",
     name: "Urology",
-    description: "Urinary tract care, prostate health, and male reproductive system care.",
+    description:
+      "Urinary tract care, prostate health, and male reproductive system care.",
     iconName: "ShieldCheck",
     doctorCount: 1,
   },
   {
     id: "physiotherapy",
     name: "Physiotherapy & Rehabilitation",
-    description: "Physical therapy, stroke rehab, posture correction, and injury recovery.",
+    description:
+      "Physical therapy, stroke rehab, posture correction, and injury recovery.",
     iconName: "Dumbbell",
-    doctorCount: 2,
+    doctorCount: 1,
   },
   {
     id: "specialty-surgery",
     name: "Specialty Surgeons (On Appointment)",
-    description: "Plastic, Neuro, Maxillofacial, and Cardio-Thoracic surgical specialists.",
+    description:
+      "Plastic, Neuro, Maxillofacial, and Cardio-Thoracic surgical specialists.",
     iconName: "Scissors",
-    doctorCount: 4,
+    doctorCount: 0,
   },
   {
     id: "paediatric-surgery",
     name: "Paediatric Surgery",
-    description: "Specialized surgical procedures and emergency surgery for children.",
+    description:
+      "Specialized surgical procedures and emergency surgery for children.",
     iconName: "Baby",
-    doctorCount: 1,
+    doctorCount: 0,
   },
   {
     id: "oncology",
     name: "Oncology & Cancer Care",
-    description: "Cancer diagnosis, tumor care, chemotherapy, and oncological management.",
+    description:
+      "Cancer diagnosis, tumor care, chemotherapy, and oncological management.",
     iconName: "Ribbon",
-    doctorCount: 1,
+    doctorCount: 0,
   },
   {
     id: "ophthalmology",
     name: "Ophthalmology & Eye Care",
-    description: "Comprehensive eye exams, vision care, and eye surgeries.",
+    description:
+      "Comprehensive eye exams, vision care, and eye surgeries.",
     iconName: "Eye",
-    doctorCount: 1,
+    doctorCount: 0,
   },
 ];
+
+/* =========================================================
+   DOCTORS
+========================================================= */
 
 export const DOCTORS: Doctor[] = [
   {
@@ -307,8 +352,10 @@ export const DOCTORS: Doctor[] = [
     availability: ["Monday", "Wednesday", "Friday"],
     availableDays: ["Monday", "Wednesday", "Friday"],
     timeSlots: ["08:00 AM – 12:00 PM", "01:00 PM – 05:00 PM"],
-    image: "https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&q=80&w=400",
-    bio: "Senior Consultant Cardiologist specializing in interventional cardiology and heart failure care.",
+    image:
+      "https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&q=80&w=400",
+    bio:
+      "Senior Consultant Cardiologist specializing in interventional cardiology and heart failure care.",
     roomNumber: "Suite 4B - Cardiology Wing",
     status: "Active",
   },
@@ -319,7 +366,7 @@ export const DOCTORS: Doctor[] = [
     fullName: "Dr. Folashade Adebayo",
     acronym: "Specialist B",
     specialty: "General Physician",
-    departmentId: "general",
+    departmentId: "general-physician",
     qualification: "MBBS, FMCP",
     qualifications: "MBBS, FMCP",
     experienceYears: 11,
@@ -329,8 +376,10 @@ export const DOCTORS: Doctor[] = [
     availability: ["Tuesday", "Thursday", "Saturday"],
     availableDays: ["Tuesday", "Thursday", "Saturday"],
     timeSlots: ["09:00 AM – 01:00 PM", "02:00 PM – 06:00 PM"],
-    image: "https://images.unsplash.com/photo-1594824813566-88855ce78905?auto=format&fit=crop&q=80&w=400",
-    bio: "Consultant Physician with expertise in primary care and general adult internal medicine.",
+    image:
+      "https://images.unsplash.com/photo-1594824813566-88855ce78905?auto=format&fit=crop&q=80&w=400",
+    bio:
+      "Consultant Physician with expertise in primary care and general adult internal medicine.",
     roomNumber: "Room 102 - Outpatient Wing",
     status: "Active",
   },
@@ -351,8 +400,10 @@ export const DOCTORS: Doctor[] = [
     availability: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
     availableDays: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
     timeSlots: ["08:30 AM – 12:30 PM", "01:30 PM – 04:30 PM"],
-    image: "https://images.unsplash.com/photo-1612349317150-e413f6a5b16d?auto=format&fit=crop&q=80&w=400",
-    bio: "Chief Consultant Pediatrician dedicated to neonatal care, child growth, and childhood immunizations.",
+    image:
+      "https://images.unsplash.com/photo-1612349317150-e413f6a5b16d?auto=format&fit=crop&q=80&w=400",
+    bio:
+      "Chief Consultant Pediatrician dedicated to neonatal care, child growth, and childhood immunizations.",
     roomNumber: "Pediatric Clinic Wing A",
     status: "Active",
   },
@@ -370,11 +421,31 @@ export const DOCTORS: Doctor[] = [
     rating: 4.9,
     reviewCount: 47,
     consultationFee: 25000,
-    availability: ["Monday", "Tuesday", "Wednesday", "Friday", "Saturday", "Sunday"],
-    availableDays: ["Monday", "Tuesday", "Wednesday", "Friday", "Saturday", "Sunday"],
-    timeSlots: ["10:00 AM – 05:00 PM (Mon, Tue, Fri, Sat)", "02:00 PM – 05:00 PM (Wed)", "04:00 PM – 08:00 PM (Sun)"],
-    image: "https://images.unsplash.com/photo-1559839734-2b71ea197ec2?auto=format&fit=crop&q=80&w=400",
-    bio: "Senior Consultant Obstetrician & Gynecologist specializing in high-risk obstetrics and fertility.",
+    availability: [
+      "Monday",
+      "Tuesday",
+      "Wednesday",
+      "Friday",
+      "Saturday",
+      "Sunday",
+    ],
+    availableDays: [
+      "Monday",
+      "Tuesday",
+      "Wednesday",
+      "Friday",
+      "Saturday",
+      "Sunday",
+    ],
+    timeSlots: [
+      "10:00 AM – 05:00 PM (Mon, Tue, Fri, Sat)",
+      "02:00 PM – 05:00 PM (Wed)",
+      "04:00 PM – 08:00 PM (Sun)",
+    ],
+    image:
+      "https://images.unsplash.com/photo-1559839734-2b71ea197ec2?auto=format&fit=crop&q=80&w=400",
+    bio:
+      "Senior Consultant Obstetrician & Gynecologist specializing in high-risk obstetrics and fertility.",
     roomNumber: "Maternity Suite 2",
     status: "Active",
   },
@@ -395,8 +466,10 @@ export const DOCTORS: Doctor[] = [
     availability: ["Tuesday", "Friday"],
     availableDays: ["Tuesday", "Friday"],
     timeSlots: ["08:00 AM – 01:00 PM"],
-    image: "https://images.unsplash.com/photo-1537368910025-700350fe46c7?auto=format&fit=crop&q=80&w=400",
-    bio: "Consultant Dermatologist providing comprehensive care for complex skin conditions and aesthetic dermatology.",
+    image:
+      "https://images.unsplash.com/photo-1537368910025-700350fe46c7?auto=format&fit=crop&q=80&w=400",
+    bio:
+      "Consultant Dermatologist providing comprehensive care for complex skin conditions and aesthetic dermatology.",
     roomNumber: "Dermatology Clinic Room 3",
     status: "Active",
   },
@@ -417,8 +490,10 @@ export const DOCTORS: Doctor[] = [
     availability: ["Wednesday", "Saturday"],
     availableDays: ["Wednesday", "Saturday"],
     timeSlots: ["11:00 AM – 04:00 PM"],
-    image: "https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&q=80&w=400",
-    bio: "Chief Consultant Orthopedic Surgeon specializing in joint replacement, trauma, and spine surgery.",
+    image:
+      "https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&q=80&w=400",
+    bio:
+      "Chief Consultant Orthopedic Surgeon specializing in joint replacement, trauma, and spine surgery.",
     roomNumber: "Orthopedic Wing B",
     status: "Active",
   },
@@ -439,8 +514,10 @@ export const DOCTORS: Doctor[] = [
     availability: ["Monday", "Wednesday", "Friday"],
     availableDays: ["Monday", "Wednesday", "Friday"],
     timeSlots: ["09:00 AM – 02:00 PM"],
-    image: "https://images.unsplash.com/photo-1582750433449-648ed127bb54?auto=format&fit=crop&q=80&w=400",
-    bio: "Consultant Endocrinologist specializing in diabetes management and hormonal disorders.",
+    image:
+      "https://images.unsplash.com/photo-1582750433449-648ed127bb54?auto=format&fit=crop&q=80&w=400",
+    bio:
+      "Consultant Endocrinologist specializing in diabetes management and hormonal disorders.",
     roomNumber: "Endocrine Suite 1",
     status: "Active",
   },
@@ -461,8 +538,10 @@ export const DOCTORS: Doctor[] = [
     availability: ["Tuesday", "Thursday", "Saturday"],
     availableDays: ["Tuesday", "Thursday", "Saturday"],
     timeSlots: ["10:00 AM – 04:00 PM"],
-    image: "https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&q=80&w=400",
-    bio: "Senior Consultant General Surgeon expert in laparoscopic and abdominal procedures.",
+    image:
+      "https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&q=80&w=400",
+    bio:
+      "Senior Consultant General Surgeon expert in laparoscopic and abdominal procedures.",
     roomNumber: "Surgical Wing Room 4",
     status: "Active",
   },
@@ -483,8 +562,10 @@ export const DOCTORS: Doctor[] = [
     availability: ["Monday", "Thursday"],
     availableDays: ["Monday", "Thursday"],
     timeSlots: ["08:30 AM – 01:30 PM"],
-    image: "https://images.unsplash.com/photo-1594824813566-88855ce78905?auto=format&fit=crop&q=80&w=400",
-    bio: "Consultant Pulmonologist with focus on asthma, COPD, and critical respiratory care.",
+    image:
+      "https://images.unsplash.com/photo-1594824813566-88855ce78905?auto=format&fit=crop&q=80&w=400",
+    bio:
+      "Consultant Pulmonologist with focus on asthma, COPD, and critical respiratory care.",
     roomNumber: "Chest Clinic Suite A",
     status: "Active",
   },
@@ -505,8 +586,10 @@ export const DOCTORS: Doctor[] = [
     availability: ["Wednesday", "Saturday"],
     availableDays: ["Wednesday", "Saturday"],
     timeSlots: ["10:00 AM – 03:00 PM"],
-    image: "https://images.unsplash.com/photo-1612349317150-e413f6a5b16d?auto=format&fit=crop&q=80&w=400",
-    bio: "Consultant ENT Surgeon dealing with hearing loss, sinus surgery, and throat pathologies.",
+    image:
+      "https://images.unsplash.com/photo-1612349317150-e413f6a5b16d?auto=format&fit=crop&q=80&w=400",
+    bio:
+      "Consultant ENT Surgeon dealing with hearing loss, sinus surgery, and throat pathologies.",
     roomNumber: "ENT Clinic Room 2",
     status: "Active",
   },
@@ -527,8 +610,10 @@ export const DOCTORS: Doctor[] = [
     availability: ["Tuesday", "Friday"],
     availableDays: ["Tuesday", "Friday"],
     timeSlots: ["09:00 AM – 02:00 PM"],
-    image: "https://images.unsplash.com/photo-1559839734-2b71ea197ec2?auto=format&fit=crop&q=80&w=400",
-    bio: "Chief Consultant Nephrologist specializing in kidney disease prevention and dialysis management.",
+    image:
+      "https://images.unsplash.com/photo-1559839734-2b71ea197ec2?auto=format&fit=crop&q=80&w=400",
+    bio:
+      "Chief Consultant Nephrologist specializing in kidney disease prevention and dialysis management.",
     roomNumber: "Renal Suite B",
     status: "Active",
   },
@@ -549,8 +634,10 @@ export const DOCTORS: Doctor[] = [
     availability: ["Monday", "Wednesday"],
     availableDays: ["Monday", "Wednesday"],
     timeSlots: ["08:00 AM – 01:00 PM"],
-    image: "https://images.unsplash.com/photo-1537368910025-700350fe46c7?auto=format&fit=crop&q=80&w=400",
-    bio: "Consultant Haematologist expert in blood disorders, sickle cell anemia, and coagulation.",
+    image:
+      "https://images.unsplash.com/photo-1537368910025-700350fe46c7?auto=format&fit=crop&q=80&w=400",
+    bio:
+      "Consultant Haematologist expert in blood disorders, sickle cell anemia, and coagulation.",
     roomNumber: "Haematology Room 5",
     status: "Active",
   },
@@ -571,8 +658,10 @@ export const DOCTORS: Doctor[] = [
     availability: ["Tuesday", "Thursday", "Saturday"],
     availableDays: ["Tuesday", "Thursday", "Saturday"],
     timeSlots: ["10:00 AM – 03:00 PM"],
-    image: "https://images.unsplash.com/photo-1594824813566-88855ce78905?auto=format&fit=crop&q=80&w=400",
-    bio: "Consultant Gastroenterologist specializing in digestive disorders, liver health, and endoscopy.",
+    image:
+      "https://images.unsplash.com/photo-1594824813566-88855ce78905?auto=format&fit=crop&q=80&w=400",
+    bio:
+      "Consultant Gastroenterologist specializing in digestive disorders, liver health, and endoscopy.",
     roomNumber: "Gastro Clinic Suite 3",
     status: "Active",
   },
@@ -593,8 +682,10 @@ export const DOCTORS: Doctor[] = [
     availability: ["Monday", "Friday"],
     availableDays: ["Monday", "Friday"],
     timeSlots: ["09:00 AM – 03:00 PM"],
-    image: "https://images.unsplash.com/photo-1559839734-2b71ea197ec2?auto=format&fit=crop&q=80&w=400",
-    bio: "Senior Consultant Neurologist specializing in stroke management, epilepsy, and neuropathy.",
+    image:
+      "https://images.unsplash.com/photo-1559839734-2b71ea197ec2?auto=format&fit=crop&q=80&w=400",
+    bio:
+      "Senior Consultant Neurologist specializing in stroke management, epilepsy, and neuropathy.",
     roomNumber: "Neurology Clinic Wing B",
     status: "Active",
   },
@@ -615,8 +706,10 @@ export const DOCTORS: Doctor[] = [
     availability: ["Wednesday", "Saturday"],
     availableDays: ["Wednesday", "Saturday"],
     timeSlots: ["11:00 AM – 04:00 PM"],
-    image: "https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&q=80&w=400",
-    bio: "Consultant Rheumatologist specializing in joint disease, lupus, and inflammatory arthritis.",
+    image:
+      "https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&q=80&w=400",
+    bio:
+      "Consultant Rheumatologist specializing in joint disease, lupus, and inflammatory arthritis.",
     roomNumber: "Rheumatology Room 1",
     status: "Active",
   },
@@ -637,8 +730,10 @@ export const DOCTORS: Doctor[] = [
     availability: ["Monday", "Thursday"],
     availableDays: ["Monday", "Thursday"],
     timeSlots: ["10:00 AM – 03:00 PM"],
-    image: "https://images.unsplash.com/photo-1582750433449-648ed127bb54?auto=format&fit=crop&q=80&w=400",
-    bio: "Consultant Psychiatrist providing compassionate mental health care, stress therapy, and counseling.",
+    image:
+      "https://images.unsplash.com/photo-1582750433449-648ed127bb54?auto=format&fit=crop&q=80&w=400",
+    bio:
+      "Consultant Psychiatrist providing compassionate mental health care, stress therapy, and counseling.",
     roomNumber: "Behavioral Suite A",
     status: "Active",
   },
@@ -659,8 +754,10 @@ export const DOCTORS: Doctor[] = [
     availability: ["Tuesday", "Friday"],
     availableDays: ["Tuesday", "Friday"],
     timeSlots: ["08:30 AM – 01:30 PM"],
-    image: "https://images.unsplash.com/photo-1594824813566-88855ce78905?auto=format&fit=crop&q=80&w=400",
-    bio: "Clinical Dietitian providing therapeutic nutrition plans for metabolic conditions and health.",
+    image:
+      "https://images.unsplash.com/photo-1594824813566-88855ce78905?auto=format&fit=crop&q=80&w=400",
+    bio:
+      "Clinical Dietitian providing therapeutic nutrition plans for metabolic conditions and health.",
     roomNumber: "Nutrition Room 4",
     status: "Active",
   },
@@ -681,8 +778,10 @@ export const DOCTORS: Doctor[] = [
     availability: ["Monday", "Wednesday", "Saturday"],
     availableDays: ["Monday", "Wednesday", "Saturday"],
     timeSlots: ["09:00 AM – 02:00 PM"],
-    image: "https://images.unsplash.com/photo-1612349317150-e413f6a5b16d?auto=format&fit=crop&q=80&w=400",
-    bio: "Chief Consultant Urologist expert in prostate care, kidney stone surgery, and urinary tract health.",
+    image:
+      "https://images.unsplash.com/photo-1612349317150-e413f6a5b16d?auto=format&fit=crop&q=80&w=400",
+    bio:
+      "Chief Consultant Urologist expert in prostate care, kidney stone surgery, and urinary tract health.",
     roomNumber: "Urology Suite 2",
     status: "Active",
   },
@@ -700,12 +799,485 @@ export const DOCTORS: Doctor[] = [
     rating: 4.9,
     reviewCount: 52,
     consultationFee: 20000,
-    availability: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
-    availableDays: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
+    availability: [
+      "Monday",
+      "Tuesday",
+      "Wednesday",
+      "Thursday",
+      "Friday",
+      "Saturday",
+    ],
+    availableDays: [
+      "Monday",
+      "Tuesday",
+      "Wednesday",
+      "Thursday",
+      "Friday",
+      "Saturday",
+    ],
     timeSlots: ["08:00 AM – 04:00 PM"],
-    image: "https://images.unsplash.com/photo-1537368910025-700350fe46c7?auto=format&fit=crop&q=80&w=400",
-    bio: "Lead Consultant Physiotherapist specializing in stroke rehab, sports injury recovery, and pain relief.",
+    image:
+      "https://images.unsplash.com/photo-1537368910025-700350fe46c7?auto=format&fit=crop&q=80&w=400",
+    bio:
+      "Lead Consultant Physiotherapist specializing in stroke rehab, sports injury recovery, and pain relief.",
     roomNumber: "Physiotherapy Gym Suite",
     status: "Active",
   },
 ];
+
+/* =========================================================
+   DEPARTMENT HELPERS
+========================================================= */
+
+export function getDepartmentById(
+  departmentId: string | null | undefined,
+): Department | undefined {
+  const target = normalizeId(departmentId);
+
+  if (!target) {
+    return undefined;
+  }
+
+  return DEPARTMENTS.find(
+    (department) => normalizeId(department.id) === target,
+  );
+}
+
+export function getDepartment(
+  value: string | null | undefined,
+): Department | undefined {
+  const target = normalize(value);
+
+  if (!target) {
+    return undefined;
+  }
+
+  return DEPARTMENTS.find(
+    (department) =>
+      normalize(department.id) === target ||
+      normalize(department.name) === target,
+  );
+}
+
+/* =========================================================
+   DOCTOR LOOKUPS
+========================================================= */
+
+export function getDoctorById(
+  id: string | number | null | undefined,
+): Doctor | undefined {
+  const target = normalizeId(id);
+
+  if (!target) {
+    return undefined;
+  }
+
+  return DOCTORS.find(
+    (doctor) =>
+      normalizeId(doctor.id) === target ||
+      normalizeId(doctor.doc_id) === target,
+  );
+}
+
+export function getDoctorByAcronym(
+  acronym: string | null | undefined,
+): Doctor | undefined {
+  const target = normalize(acronym);
+
+  if (!target) {
+    return undefined;
+  }
+
+  return DOCTORS.find(
+    (doctor) => normalize(doctor.acronym) === target,
+  );
+}
+
+export function getDoctorByName(
+  name: string | null | undefined,
+): Doctor | undefined {
+  const target = normalize(name);
+
+  if (!target) {
+    return undefined;
+  }
+
+  return DOCTORS.find(
+    (doctor) =>
+      normalize(doctor.name) === target ||
+      normalize(doctor.fullName) === target,
+  );
+}
+
+export function findDoctor(
+  reference: DoctorReference | string | number | null | undefined,
+): Doctor | undefined {
+  if (reference == null) {
+    return undefined;
+  }
+
+  if (typeof reference === "string" || typeof reference === "number") {
+    const value = toSafeString(reference);
+
+    if (!value) {
+      return undefined;
+    }
+
+    return (
+      getDoctorById(value) ||
+      getDoctorByAcronym(value) ||
+      getDoctorByName(value)
+    );
+  }
+
+  const doctorId =
+    reference.doctorId ??
+    reference.doctor_id ??
+    reference.doc_id ??
+    reference.id;
+
+  const doctorName =
+    reference.doctorName ??
+    reference.doctor_name ??
+    reference.fullName ??
+    reference.full_name ??
+    reference.name;
+
+  const acronym = reference.acronym;
+
+  const specialty =
+    reference.doctorSpecialty ??
+    reference.doctor_specialty ??
+    reference.specialty;
+
+  const departmentId =
+    reference.departmentId ??
+    reference.department_id;
+
+  const departmentName =
+    reference.departmentName ??
+    reference.department_name;
+
+  const byId = getDoctorById(doctorId);
+
+  if (byId) {
+    return byId;
+  }
+
+  const byAcronym = getDoctorByAcronym(acronym);
+
+  if (byAcronym) {
+    return byAcronym;
+  }
+
+  const byName = getDoctorByName(doctorName);
+
+  if (byName) {
+    return byName;
+  }
+
+  const normalizedSpecialty = normalize(specialty);
+
+  if (normalizedSpecialty) {
+    const bySpecialty = DOCTORS.find(
+      (doctor) => normalize(doctor.specialty) === normalizedSpecialty,
+    );
+
+    if (bySpecialty) {
+      return bySpecialty;
+    }
+  }
+
+  const normalizedDepartmentId = normalize(departmentId);
+
+  if (normalizedDepartmentId) {
+    const byDepartmentId = DOCTORS.find(
+      (doctor) =>
+        normalize(doctor.departmentId) === normalizedDepartmentId,
+    );
+
+    if (byDepartmentId) {
+      return byDepartmentId;
+    }
+  }
+
+  const normalizedDepartmentName = normalize(departmentName);
+
+  if (normalizedDepartmentName) {
+    const department = DEPARTMENTS.find(
+      (item) =>
+        normalize(item.name) === normalizedDepartmentName ||
+        normalize(item.id) === normalizedDepartmentName,
+    );
+
+    if (department) {
+      return DOCTORS.find(
+        (doctor) =>
+          normalize(doctor.departmentId) === normalize(department.id),
+      );
+    }
+  }
+
+  return undefined;
+}
+
+/* =========================================================
+   DISPLAY HELPERS
+========================================================= */
+
+export function getDoctorRealName(
+  doctorOrBooking:
+    | DoctorReference
+    | string
+    | number
+    | null
+    | undefined,
+): string {
+  if (doctorOrBooking == null) {
+    return DEFAULT_DOCTOR_NAME;
+  }
+
+  if (
+    typeof doctorOrBooking === "string" ||
+    typeof doctorOrBooking === "number"
+  ) {
+    const raw = toSafeString(doctorOrBooking);
+
+    if (!raw) {
+      return DEFAULT_DOCTOR_NAME;
+    }
+
+    const match = findDoctor(raw);
+
+    if (match) {
+      return match.fullName || match.name;
+    }
+
+    return !isSpecialistLabel(raw) ? raw : DEFAULT_DOCTOR_NAME;
+  }
+
+  const rawName = toSafeString(
+    doctorOrBooking.doctorName ??
+    doctorOrBooking.doctor_name ??
+    doctorOrBooking.fullName ??
+    doctorOrBooking.full_name ??
+    doctorOrBooking.name,
+  );
+
+  const match = findDoctor(doctorOrBooking);
+
+  if (match) {
+    return match.fullName || match.name;
+  }
+
+  return rawName && !isSpecialistLabel(rawName)
+    ? rawName
+    : DEFAULT_DOCTOR_NAME;
+}
+
+export function getDoctorDisplayAcronym(
+  doctorOrBooking:
+    | DoctorReference
+    | string
+    | number
+    | null
+    | undefined,
+): string {
+  if (doctorOrBooking == null) {
+    return DEFAULT_SPECIALIST_PREFIX;
+  }
+
+  if (
+    typeof doctorOrBooking === "string" ||
+    typeof doctorOrBooking === "number"
+  ) {
+    const value = toSafeString(doctorOrBooking);
+
+    if (!value) {
+      return DEFAULT_SPECIALIST_PREFIX;
+    }
+
+    const match = findDoctor(value);
+
+    if (match) {
+      return match.acronym || match.name;
+    }
+
+    return isSpecialistLabel(value)
+      ? value
+      : DEFAULT_SPECIALIST_PREFIX;
+  }
+
+  const explicitAcronym = toSafeString(doctorOrBooking.acronym);
+
+  if (explicitAcronym) {
+    return explicitAcronym;
+  }
+
+  const match = findDoctor(doctorOrBooking);
+
+  if (match) {
+    return match.acronym || match.name;
+  }
+
+  const rawName = toSafeString(
+    doctorOrBooking.doctorName ??
+    doctorOrBooking.doctor_name ??
+    doctorOrBooking.name,
+  );
+
+  return isSpecialistLabel(rawName)
+    ? rawName
+    : DEFAULT_SPECIALIST_PREFIX;
+}
+
+/* =========================================================
+   FILTERING
+========================================================= */
+
+export function getActiveDoctors(): Doctor[] {
+  return DOCTORS.filter((doctor) => isDoctorActive(doctor.status));
+}
+
+export function getDoctorsByDepartment(
+  departmentIdOrName: string | null | undefined,
+): Doctor[] {
+  const target = normalize(departmentIdOrName);
+
+  if (!target) {
+    return [];
+  }
+
+  const department = DEPARTMENTS.find(
+    (item) =>
+      normalize(item.id) === target ||
+      normalize(item.name) === target,
+  );
+
+  if (!department) {
+    return [];
+  }
+
+  return DOCTORS.filter(
+    (doctor) =>
+      normalize(doctor.departmentId) === normalize(department.id),
+  );
+}
+
+export function getDoctorDepartment(
+  doctorOrBooking:
+    | DoctorReference
+    | string
+    | number
+    | null
+    | undefined,
+): Department | undefined {
+  const doctor = findDoctor(doctorOrBooking);
+
+  return doctor ? getDepartmentById(doctor.departmentId) : undefined;
+}
+
+/* =========================================================
+   VALIDATION
+========================================================= */
+
+export function validateDoctorData(): {
+  valid: boolean;
+  errors: string[];
+} {
+  const errors: string[] = [];
+  const doctorIds = new Set<string>();
+
+  for (const doctor of DOCTORS) {
+    const id = normalizeId(doctor.id);
+
+    if (!id) {
+      errors.push("Doctor has an empty ID.");
+    } else if (doctorIds.has(id)) {
+      errors.push(`Duplicate doctor ID: ${doctor.id}`);
+    } else {
+      doctorIds.add(id);
+    }
+
+    if (!doctor.name.trim()) {
+      errors.push(`Doctor ${doctor.id} has no name.`);
+    }
+
+    if (!doctor.specialty.trim()) {
+      errors.push(`Doctor ${doctor.id} has no specialty.`);
+    }
+
+    if (
+      !Number.isFinite(doctor.experienceYears) ||
+      doctor.experienceYears < 0
+    ) {
+      errors.push(`Doctor ${doctor.id} has an invalid experience value.`);
+    }
+
+    if (
+      !Number.isFinite(doctor.rating) ||
+      doctor.rating < 0 ||
+      doctor.rating > 5
+    ) {
+      errors.push(`Doctor ${doctor.id} has an invalid rating.`);
+    }
+
+    if (
+      !Number.isFinite(doctor.reviewCount) ||
+      doctor.reviewCount < 0
+    ) {
+      errors.push(`Doctor ${doctor.id} has an invalid review count.`);
+    }
+
+    if (
+      !Number.isFinite(doctor.consultationFee) ||
+      doctor.consultationFee < 0
+    ) {
+      errors.push(`Doctor ${doctor.id} has an invalid consultation fee.`);
+    }
+
+    if (!doctor.departmentId.trim()) {
+      errors.push(`Doctor ${doctor.id} has no department ID.`);
+    } else if (!getDepartmentById(doctor.departmentId)) {
+      errors.push(
+        `Doctor ${doctor.id} references unknown department "${doctor.departmentId}".`,
+      );
+    }
+
+    if (!doctor.availability.length) {
+      errors.push(`Doctor ${doctor.id} has no availability.`);
+    }
+
+    if (!doctor.timeSlots.length) {
+      errors.push(`Doctor ${doctor.id} has no time slots.`);
+    }
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+  };
+}
+
+/* =========================================================
+   DERIVED DEPARTMENT COUNTS
+========================================================= */
+
+export function getDepartmentsWithDoctorCounts(): Department[] {
+  return DEPARTMENTS.map((department) => ({
+    ...department,
+    doctorCount: DOCTORS.filter(
+      (doctor) =>
+        normalize(doctor.departmentId) === normalize(department.id),
+    ).length,
+  }));
+}
+
+export const DEPARTMENTS_WITH_COUNTS: Department[] =
+  getDepartmentsWithDoctorCounts();
+
+/* =========================================================
+   DEFAULT EXPORT
+========================================================= */
+
+export default DOCTORS;

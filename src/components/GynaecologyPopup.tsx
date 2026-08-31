@@ -137,13 +137,18 @@ export function GynaecologyPopup() {
               {/* Day Schedule Clean Rows */}
               <div className="space-y-1.5 text-[11px] font-bold">
                 <div className="p-2 rounded-xl bg-white/90 dark:bg-slate-900/90 border border-sky-200/80 dark:border-sky-900/80 flex items-center justify-between gap-2 shadow-2xs">
-                  <span className="text-[10px] uppercase tracking-wider text-sky-600 dark:text-sky-400 font-black">Mon, Tue, Thu, Fri, Sat</span>
+                  <span className="text-[10px] uppercase tracking-wider text-sky-600 dark:text-sky-400 font-black">Mon, Tue, Fri, Sat</span>
                   <span className="text-slate-900 dark:text-slate-100 font-extrabold text-xs">10:00 AM – 5:00 PM</span>
                 </div>
 
                 <div className="p-2 rounded-xl bg-white/90 dark:bg-slate-900/90 border border-purple-200/80 dark:border-purple-900/80 flex items-center justify-between gap-2 shadow-2xs">
                   <span className="text-[10px] uppercase tracking-wider text-purple-600 dark:text-purple-400 font-black">Wednesday</span>
                   <span className="text-slate-900 dark:text-slate-100 font-extrabold text-xs">2:00 PM – 5:00 PM</span>
+                </div>
+
+                <div className="p-2 rounded-xl bg-white/90 dark:bg-slate-900/90 border border-purple-200/80 dark:border-purple-900/80 flex items-center justify-between gap-2 shadow-2xs">
+                  <span className="text-[10px] uppercase tracking-wider text-purple-600 dark:text-purple-400 font-black">Thursday</span>
+                  <span className="text-slate-900 dark:text-slate-100 font-extrabold text-xs">4:00 PM – 7:00 PM</span>
                 </div>
 
                 <div className="p-2 rounded-xl bg-white/90 dark:bg-slate-900/90 border border-rose-200/80 dark:border-rose-900/80 flex items-center justify-between gap-2 shadow-2xs">
