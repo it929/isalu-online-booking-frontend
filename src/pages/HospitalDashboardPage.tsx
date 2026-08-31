@@ -107,7 +107,7 @@ export function HospitalDashboardPage() {
       try {
         const parsed = JSON.parse(saved);
         if (parsed && parsed.role) return parsed;
-      } catch {}
+      } catch { }
     }
     const legacyName = sessionStorage.getItem("isalu_staff_user") || "admin";
     const isAdmin = legacyName.toLowerCase().includes("admin");
@@ -133,7 +133,7 @@ export function HospitalDashboardPage() {
     confirmText: "Confirm",
     cancelText: "Cancel",
     variant: "primary",
-    onConfirm: () => {},
+    onConfirm: () => { },
   });
   const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [showNewUserPassword, setShowNewUserPassword] = useState(false);
@@ -713,7 +713,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
       const channel = new BroadcastChannel("isalu_role_channel");
       channel.postMessage({ type: "ROLES_UPDATED", roles: updatedRoles });
       channel.close();
-    } catch {}
+    } catch { }
     window.dispatchEvent(new CustomEvent("isalu_roles_updated", { detail: updatedRoles }));
     window.dispatchEvent(new Event("storage"));
   };
@@ -836,7 +836,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
       const channel = new BroadcastChannel("isalu_user_channel");
       channel.postMessage({ type: "USERS_UPDATED", users: updatedList });
       channel.close();
-    } catch {}
+    } catch { }
 
     window.dispatchEvent(new CustomEvent("isalu_users_updated", { detail: updatedList }));
     window.dispatchEvent(new Event("storage"));
@@ -847,7 +847,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
     setSystemUsers(Array.isArray(remote) ? remote : []);
     if (Array.isArray(remote)) {
       const savedProfile = sessionStorage.getItem("isalu_staff_user_profile");
-      if (savedProfile) { try { const parsedCur = JSON.parse(savedProfile); const matched = remote.find((u: any) => u.email?.toLowerCase() === parsedCur?.email?.toLowerCase() || u.name?.toLowerCase() === parsedCur?.name?.toLowerCase()); if (matched?.role) { const updatedProf = { ...parsedCur, role: matched.role, desk: matched.desk || getPrimaryDeskForRole(matched.role) }; sessionStorage.setItem("isalu_staff_user_profile", JSON.stringify(updatedProf)); setCurrentUser(updatedProf); } } catch {} }
+      if (savedProfile) { try { const parsedCur = JSON.parse(savedProfile); const matched = remote.find((u: any) => u.email?.toLowerCase() === parsedCur?.email?.toLowerCase() || u.name?.toLowerCase() === parsedCur?.name?.toLowerCase()); if (matched?.role) { const updatedProf = { ...parsedCur, role: matched.role, desk: matched.desk || getPrimaryDeskForRole(matched.role) }; sessionStorage.setItem("isalu_staff_user_profile", JSON.stringify(updatedProf)); setCurrentUser(updatedProf); } } catch { } }
     }
   };
 
@@ -1086,7 +1086,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
         if (targetId) {
           await updateHmoCompanyAPI(targetId, updatedData);
         }
-      } catch {}
+      } catch { }
 
       const updatedList = hmoCompanies.map((item) => {
         const itemId = item.id || item.hmo_id;
@@ -1170,7 +1170,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
       const channel = new BroadcastChannel("isalu_hmo_channel");
       channel.postMessage({ type: "HMO_UPDATED", hmoCompanies: updatedList });
       channel.close();
-    } catch {}
+    } catch { }
 
     window.dispatchEvent(new CustomEvent("isalu_hmo_updated", { detail: updatedList }));
     window.dispatchEvent(new Event("storage"));
@@ -1306,7 +1306,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
               }
             }
           }
-        } catch {}
+        } catch { }
 
         setHmoCompanies([]);
         broadcastHmoChange([]);
@@ -1398,7 +1398,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
       const channel = new BroadcastChannel("isalu_clinic_channel");
       channel.postMessage({ type: "CLINIC_UPDATED", clinics: updatedList });
       channel.close();
-    } catch {}
+    } catch { }
 
     window.dispatchEvent(new CustomEvent("isalu_clinic_updated", { detail: updatedList }));
     window.dispatchEvent(new Event("storage"));
@@ -1913,8 +1913,12 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
     };
 
     const scheduleRes = await createScheduleAPI(initialSchedulePayload);
-    if (!scheduleRes || scheduleRes.error) { setNewDocFormError(scheduleRes?.error || "Doctor saved, but the initial schedule could not be created on the server."); return; }
-
+    if (!scheduleRes) {
+      setNewDocFormError(
+        "Doctor saved, but the initial schedule could not be created on the server."
+      );
+      return;
+    }
     // 3. Re-fetch all doctors & schedules from Database to guarantee 100% synchronization
     const [remoteDocs, remoteSchedules] = await Promise.all([
       getDoctorsAPI(),
@@ -2644,7 +2648,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
       if (isRegisteringNewDocInSched) {
         // Step 1: Create Doctor on Django REST API FIRST
         const formattedDocName = schedNewDocName.trim().startsWith("Dr.") ? schedNewDocName.trim() : `Dr. ${schedNewDocName.trim()}`;
-          const deptMatch = clinics.find((d: any) => d.id === schedNewDocDeptId || d.dept_id === schedNewDocDeptId);
+        const deptMatch = clinics.find((d: any) => d.id === schedNewDocDeptId || d.dept_id === schedNewDocDeptId);
         const specName = deptMatch ? deptMatch.name : "Specialist Consultation";
 
         const newDocPayload = {
@@ -4173,7 +4177,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
         const channel = new BroadcastChannel("isalu_hospital_channel");
         channel.postMessage({ type: "booking_updated", refCode });
         channel.close();
-      } catch {}
+      } catch { }
 
       setIsEditBookingModalOpen(false);
       setEditingBooking(null);
@@ -4232,7 +4236,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
 
       try {
         await deleteBookingAPI(refCode);
-      } catch {}
+      } catch { }
 
       const updated = bookings.filter((b) => (b.refCode || b.ref_code) !== refCode);
       setBookings(updated);
@@ -4241,7 +4245,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
         const channel = new BroadcastChannel("isalu_hospital_channel");
         channel.postMessage({ type: "booking_disabled", refCode });
         channel.close();
-      } catch {}
+      } catch { }
 
       setIsDeleteBookingModalOpen(false);
       setDeletingBooking(null);
@@ -4314,7 +4318,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
         const channel = new BroadcastChannel("isalu_hospital_channel");
         channel.postMessage({ type: "booking_restored", refCode });
         channel.close();
-      } catch {}
+      } catch { }
 
       setToastAlert({
         title: "Booking Record Restored ✓",
@@ -4393,7 +4397,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
         const channel = new BroadcastChannel("isalu_hospital_channel");
         channel.postMessage({ type: "booking_rerouted_to_cashdesk", refCode, remarkText });
         channel.close();
-      } catch {}
+      } catch { }
 
       setIsRerouteModalOpen(false);
       setTargetRerouteBooking(null);
@@ -4462,7 +4466,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
                 sessionStorage.setItem("isalu_staff_user_profile", JSON.stringify(updatedProf));
                 setCurrentUser(updatedProf);
               }
-            } catch {}
+            } catch { }
           }
         }
         await loadRoles();
@@ -4487,7 +4491,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
           handleSync();
         }
       };
-    } catch {}
+    } catch { }
 
     let userChan: BroadcastChannel | null = null;
     try {
@@ -4497,7 +4501,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
           loadUsers();
         }
       };
-    } catch {}
+    } catch { }
 
     let roleChan: BroadcastChannel | null = null;
     try {
@@ -4507,7 +4511,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
           loadRoles();
         }
       };
-    } catch {}
+    } catch { }
 
     window.addEventListener("storage", handleSync);
     window.addEventListener("isalu_booking_created", handleSync);
@@ -4542,7 +4546,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
       const channel = new BroadcastChannel("isalu_hospital_channel");
       channel.postMessage({ type: "BOOKINGS_UPDATED", timestamp: Date.now() });
       channel.close();
-    } catch {}
+    } catch { }
   };
 
   const handleCheckIn = async (refCode: string) => {
@@ -4573,7 +4577,9 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
     if (res && res.error) {
       setToastAlert({
         title: "Check-In Blocked 🚫",
-        description: res.error,
+        description: typeof res.error === "string"
+          ? res.error
+          : "An unexpected error occurred.",
         type: "warning",
       });
       return;
@@ -4635,16 +4641,16 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
       const updated = bookings.map((b) =>
         (b.refCode === refCode || b.ref_code === refCode)
           ? {
-              ...b,
-              hmoPolicyCode: policy || b.hmoPolicyCode || b.hmo_policy_code || `POL-${Math.floor(100000 + Math.random() * 900000)}`,
-              hmo_policy_code: policy || b.hmoPolicyCode || b.hmo_policy_code || `POL-${Math.floor(100000 + Math.random() * 900000)}`,
-              hmoAuthCode: auth || b.hmoAuthCode || b.hmo_auth_code || `AUTH-${Math.floor(1000 + Math.random() * 9000)}`,
-              hmo_auth_code: auth || b.hmoAuthCode || b.hmo_auth_code || `AUTH-${Math.floor(1000 + Math.random() * 9000)}`,
-              hmoStatus: "Approved",
-              hmo_status: "Approved",
-              paymentStatus: "Cleared",
-              payment_status: "Cleared",
-            }
+            ...b,
+            hmoPolicyCode: policy || b.hmoPolicyCode || b.hmo_policy_code || `POL-${Math.floor(100000 + Math.random() * 900000)}`,
+            hmo_policy_code: policy || b.hmoPolicyCode || b.hmo_policy_code || `POL-${Math.floor(100000 + Math.random() * 900000)}`,
+            hmoAuthCode: auth || b.hmoAuthCode || b.hmo_auth_code || `AUTH-${Math.floor(1000 + Math.random() * 9000)}`,
+            hmo_auth_code: auth || b.hmoAuthCode || b.hmo_auth_code || `AUTH-${Math.floor(1000 + Math.random() * 9000)}`,
+            hmoStatus: "Approved",
+            hmo_status: "Approved",
+            paymentStatus: "Cleared",
+            payment_status: "Cleared",
+          }
           : b
       );
       saveBookings(updated);
@@ -4659,14 +4665,14 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
     const updated = bookings.map((b) =>
       (b.refCode === refCode || b.ref_code === refCode)
         ? {
-            ...b,
-            paymentStatus: "Cleared",
-            payment_status: "Cleared",
-            paymentMethod: method,
-            payment_method: method,
-            invoiceRef: `INV-${Math.floor(100000 + Math.random() * 900000)}`,
-            invoice_ref: `INV-${Math.floor(100000 + Math.random() * 900000)}`,
-          }
+          ...b,
+          paymentStatus: "Cleared",
+          payment_status: "Cleared",
+          paymentMethod: method,
+          payment_method: method,
+          invoiceRef: `INV-${Math.floor(100000 + Math.random() * 900000)}`,
+          invoice_ref: `INV-${Math.floor(100000 + Math.random() * 900000)}`,
+        }
         : b
     );
     saveBookings(updated);
@@ -4737,37 +4743,37 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
       hmoProviderFilter === "all"
         ? true
         : (() => {
-            const selectedHmo = hmoProviderFilter.toLowerCase().trim();
-            const bHmoName = (b.hmoName || b.hmo_name || b.hmoProvider || "").toLowerCase().trim();
-            return bHmoName === selectedHmo || bHmoName.includes(selectedHmo);
-          })();
+          const selectedHmo = hmoProviderFilter.toLowerCase().trim();
+          const bHmoName = (b.hmoName || b.hmo_name || b.hmoProvider || "").toLowerCase().trim();
+          return bHmoName === selectedHmo || bHmoName.includes(selectedHmo);
+        })();
 
     const matchesClinic =
       clinicFilter === "all"
         ? true
         : (() => {
-            const spec = (b.doctorSpecialty || b.doctor_specialty || "").toLowerCase();
-            const docId = b.doctorId || b.doctor_id || "";
-            const docObj = doctorsList.find((d) => d.doc_id === docId || d.id === docId);
-            const docDept = (docObj?.department_id || docObj?.departmentId || "").toLowerCase();
-            const docSpec = (docObj?.specialty || "").toLowerCase();
-            const selected = clinicFilter.toLowerCase();
-            const targetClinic = clinics.find(
-              (c) => (c.name || "").toLowerCase() === selected || (c.id || c.dept_id || "").toLowerCase() === selected
-            );
-            const targetName = (targetClinic?.name || selected).toLowerCase();
-            const targetId = (targetClinic?.id || targetClinic?.dept_id || selected).toLowerCase();
+          const spec = (b.doctorSpecialty || b.doctor_specialty || "").toLowerCase();
+          const docId = b.doctorId || b.doctor_id || "";
+          const docObj = doctorsList.find((d) => d.doc_id === docId || d.id === docId);
+          const docDept = (docObj?.department_id || docObj?.departmentId || "").toLowerCase();
+          const docSpec = (docObj?.specialty || "").toLowerCase();
+          const selected = clinicFilter.toLowerCase();
+          const targetClinic = clinics.find(
+            (c) => (c.name || "").toLowerCase() === selected || (c.id || c.dept_id || "").toLowerCase() === selected
+          );
+          const targetName = (targetClinic?.name || selected).toLowerCase();
+          const targetId = (targetClinic?.id || targetClinic?.dept_id || selected).toLowerCase();
 
-            return (
-              spec.includes(targetName) ||
-              spec.includes(targetId) ||
-              docDept === targetId ||
-              docSpec.includes(targetName) ||
-              (targetId === "gynaecology" && (spec.includes("gynaec") || spec.includes("obs"))) ||
-              (targetId === "ent" && (spec.includes("ent") || spec.includes("ear"))) ||
-              (targetId === "pulmonology" && (spec.includes("pulmon") || spec.includes("chest")))
-            );
-          })();
+          return (
+            spec.includes(targetName) ||
+            spec.includes(targetId) ||
+            docDept === targetId ||
+            docSpec.includes(targetName) ||
+            (targetId === "gynaecology" && (spec.includes("gynaec") || spec.includes("obs"))) ||
+            (targetId === "ent" && (spec.includes("ent") || spec.includes("ear"))) ||
+            (targetId === "pulmonology" && (spec.includes("pulmon") || spec.includes("chest")))
+          );
+        })();
 
     return matchesStatus && matchesHmo && matchesClinic;
   });
@@ -4962,11 +4968,10 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
                     {showEllipsis && <span className="px-1.5 text-xs text-slate-400 font-bold">...</span>}
                     <button
                       onClick={() => onPageChange(pg)}
-                      className={`px-3 py-1.5 text-xs font-black rounded-xl transition-all cursor-pointer ${
-                        currentPage === pg
-                          ? "bg-[#008ac9] text-white shadow-md shadow-[#008ac9]/30"
-                          : "border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
-                      }`}
+                      className={`px-3 py-1.5 text-xs font-black rounded-xl transition-all cursor-pointer ${currentPage === pg
+                        ? "bg-[#008ac9] text-white shadow-md shadow-[#008ac9]/30"
+                        : "border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
+                        }`}
                     >
                       {pg}
                     </button>
@@ -5019,7 +5024,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
     return (
       <div className="flex-1 bg-slate-100 dark:bg-slate-950 py-16 flex items-center justify-center min-h-[75vh] px-4">
         <div className="w-full max-w-md bg-white dark:bg-slate-900 border-2 border-slate-300 dark:border-slate-800 rounded-3xl p-8 shadow-2xl space-y-6 animate-fadeIn relative overflow-hidden">
-          
+
           {/* Animated Login Preloader Overlay */}
           {isLoggingIn && (
             <div className="absolute inset-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md rounded-3xl z-30 flex flex-col items-center justify-center p-8 text-center space-y-6 animate-fadeIn">
@@ -5029,7 +5034,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
                 <div className="absolute inset-0 rounded-full bg-[#008ac9]/20 animate-ping" />
                 <div className="absolute -inset-4 rounded-full border-2 border-dashed border-[#008ac9]/50 animate-spin" style={{ animationDuration: "6s" }} />
                 <div className="absolute -inset-8 rounded-full border border-sky-400/20 animate-pulse" />
-                
+
                 {/* Center Logo Box */}
                 <div className="relative p-4 bg-sky-50 dark:bg-slate-800 rounded-3xl border-2 border-[#008ac9]/40 shadow-2xl">
                   <IsaluLogo size="lg" />
@@ -5195,7 +5200,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
   return (
     <div className="flex-1 bg-slate-100 dark:bg-slate-950 py-8 md:py-12">
       <div className="container mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        
+
         {/* Top Header Banner */}
         <div className="bg-gradient-to-r from-[#011627] via-[#022b4a] to-[#004b7a] rounded-3xl p-6 sm:p-8 text-white shadow-xl mb-8 relative overflow-hidden">
           <div className="absolute top-0 right-0 w-96 h-96 bg-[#008ac9]/20 rounded-full blur-3xl pointer-events-none" />
@@ -5246,13 +5251,12 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
                 </button>
                 <button
                   onClick={() => handleSelectDesk("clinic")}
-                  className={`px-4 py-3 font-extrabold text-xs rounded-2xl backdrop-blur-md transition-all flex items-center justify-center gap-1.5 border ${
-                    activeDesk === "clinic"
-                      ? "bg-white text-[#008ac9] border-white shadow-lg font-black"
-                      : isDeskAllowed("clinic")
+                  className={`px-4 py-3 font-extrabold text-xs rounded-2xl backdrop-blur-md transition-all flex items-center justify-center gap-1.5 border ${activeDesk === "clinic"
+                    ? "bg-white text-[#008ac9] border-white shadow-lg font-black"
+                    : isDeskAllowed("clinic")
                       ? "bg-white/10 hover:bg-white/20 text-white border-white/30"
                       : "opacity-50 bg-white/5 text-slate-300 border-white/10 cursor-not-allowed"
-                  }`}
+                    }`}
                   title={isDeskAllowed("clinic") ? "Create & Manage Clinics" : "Access Restricted (Super Administrator Only)"}
                 >
                   {!isDeskAllowed("clinic") ? <Lock className="h-3.5 w-3.5 text-amber-400 shrink-0" /> : <Building2 className="h-4 w-4" />}
@@ -5261,13 +5265,12 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
 
                 <button
                   onClick={() => handleSelectDesk("users")}
-                  className={`px-4 py-3 font-extrabold text-xs rounded-2xl backdrop-blur-md transition-all flex items-center justify-center gap-1.5 border ${
-                    activeDesk === "users"
-                      ? "bg-white text-[#008ac9] border-white shadow-lg font-black"
-                      : isDeskAllowed("users")
+                  className={`px-4 py-3 font-extrabold text-xs rounded-2xl backdrop-blur-md transition-all flex items-center justify-center gap-1.5 border ${activeDesk === "users"
+                    ? "bg-white text-[#008ac9] border-white shadow-lg font-black"
+                    : isDeskAllowed("users")
                       ? "bg-white/10 hover:bg-white/20 text-white border-white/30"
                       : "opacity-50 bg-white/5 text-slate-300 border-white/10 cursor-not-allowed"
-                  }`}
+                    }`}
                   title={isDeskAllowed("users") ? "Manage System Users" : "Access Restricted (Super Administrator Only)"}
                 >
                   {!isDeskAllowed("users") ? <Lock className="h-3.5 w-3.5 text-amber-400 shrink-0" /> : <UserCog className="h-4 w-4" />}
@@ -5277,11 +5280,10 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
                 {isSuperAdminUser(currentUser) && (
                   <button
                     onClick={() => handleSelectDesk("disabled_bookings")}
-                    className={`px-4 py-3 font-extrabold text-xs rounded-2xl backdrop-blur-md transition-all flex items-center justify-center gap-1.5 border ${
-                      activeDesk === "disabled_bookings"
-                        ? "bg-white text-rose-600 border-white shadow-lg font-black"
-                        : "bg-rose-500/20 hover:bg-rose-500/30 text-white border-rose-400/40"
-                    }`}
+                    className={`px-4 py-3 font-extrabold text-xs rounded-2xl backdrop-blur-md transition-all flex items-center justify-center gap-1.5 border ${activeDesk === "disabled_bookings"
+                      ? "bg-white text-rose-600 border-white shadow-lg font-black"
+                      : "bg-rose-500/20 hover:bg-rose-500/30 text-white border-rose-400/40"
+                      }`}
                     title="Superadmin: Restore Disabled Bookings Archive"
                   >
                     <RotateCcw className="h-4 w-4 text-rose-300" />
@@ -5364,13 +5366,12 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
           <div className="bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 rounded-3xl p-3 shadow-md mb-8 flex flex-wrap gap-2">
             <button
               onClick={() => handleSelectDesk("helpdesk")}
-              className={`flex-1 min-w-[130px] sm:min-w-[140px] py-3 px-3 sm:px-4 rounded-2xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition-all ${
-                activeDesk === "helpdesk"
-                  ? "bg-[#008ac9] text-white shadow-lg shadow-[#008ac9]/30 border border-[#008ac9]"
-                  : isDeskAllowed("helpdesk")
+              className={`flex-1 min-w-[130px] sm:min-w-[140px] py-3 px-3 sm:px-4 rounded-2xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition-all ${activeDesk === "helpdesk"
+                ? "bg-[#008ac9] text-white shadow-lg shadow-[#008ac9]/30 border border-[#008ac9]"
+                : isDeskAllowed("helpdesk")
                   ? "text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
                   : "opacity-45 bg-slate-100 dark:bg-slate-800/40 text-slate-400 dark:text-slate-500 cursor-not-allowed border border-slate-200 dark:border-slate-800"
-              }`}
+                }`}
               title={isDeskAllowed("helpdesk") ? "Helpdesk Reception" : "Access Restricted for your Role"}
             >
               {!isDeskAllowed("helpdesk") ? <Lock className="h-3.5 w-3.5 text-amber-500 shrink-0" /> : <Building2 className="h-4 w-4 shrink-0" />}
@@ -5379,13 +5380,12 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
 
             <button
               onClick={() => handleSelectDesk("hmo")}
-              className={`flex-1 min-w-[130px] sm:min-w-[140px] py-3 px-3 sm:px-4 rounded-2xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition-all ${
-                activeDesk === "hmo"
-                  ? "bg-[#008ac9] text-white shadow-lg shadow-[#008ac9]/30 border border-[#008ac9]"
-                  : isDeskAllowed("hmo")
+              className={`flex-1 min-w-[130px] sm:min-w-[140px] py-3 px-3 sm:px-4 rounded-2xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition-all ${activeDesk === "hmo"
+                ? "bg-[#008ac9] text-white shadow-lg shadow-[#008ac9]/30 border border-[#008ac9]"
+                : isDeskAllowed("hmo")
                   ? "text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
                   : "opacity-45 bg-slate-100 dark:bg-slate-800/40 text-slate-400 dark:text-slate-500 cursor-not-allowed border border-slate-200 dark:border-slate-800"
-              }`}
+                }`}
               title={isDeskAllowed("hmo") ? "HMO Approval Desk" : "Access Restricted for your Role"}
             >
               {!isDeskAllowed("hmo") ? <Lock className="h-3.5 w-3.5 text-amber-500 shrink-0" /> : <ShieldCheck className="h-4 w-4 shrink-0" />}
@@ -5394,13 +5394,12 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
 
             <button
               onClick={() => handleSelectDesk("cashdesk")}
-              className={`flex-1 min-w-[130px] sm:min-w-[140px] py-3 px-3 sm:px-4 rounded-2xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition-all ${
-                activeDesk === "cashdesk"
-                  ? "bg-[#008ac9] text-white shadow-lg shadow-[#008ac9]/30 border border-[#008ac9]"
-                  : isDeskAllowed("cashdesk")
+              className={`flex-1 min-w-[130px] sm:min-w-[140px] py-3 px-3 sm:px-4 rounded-2xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition-all ${activeDesk === "cashdesk"
+                ? "bg-[#008ac9] text-white shadow-lg shadow-[#008ac9]/30 border border-[#008ac9]"
+                : isDeskAllowed("cashdesk")
                   ? "text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
                   : "opacity-45 bg-slate-100 dark:bg-slate-800/40 text-slate-400 dark:text-slate-500 cursor-not-allowed border border-slate-200 dark:border-slate-800"
-              }`}
+                }`}
               title={isDeskAllowed("cashdesk") ? "Cashdesk Private Billing" : "Access Restricted for your Role"}
             >
               {!isDeskAllowed("cashdesk") ? <Lock className="h-3.5 w-3.5 text-amber-500 shrink-0" /> : <CreditCard className="h-4 w-4 shrink-0" />}
@@ -5409,13 +5408,12 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
 
             <button
               onClick={() => handleSelectDesk("analytics")}
-              className={`flex-1 min-w-[130px] sm:min-w-[140px] py-3 px-3 sm:px-4 rounded-2xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition-all ${
-                activeDesk === "analytics"
-                  ? "bg-[#008ac9] text-white shadow-lg shadow-[#008ac9]/30 border border-[#008ac9]"
-                  : isDeskAllowed("analytics")
+              className={`flex-1 min-w-[130px] sm:min-w-[140px] py-3 px-3 sm:px-4 rounded-2xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition-all ${activeDesk === "analytics"
+                ? "bg-[#008ac9] text-white shadow-lg shadow-[#008ac9]/30 border border-[#008ac9]"
+                : isDeskAllowed("analytics")
                   ? "text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
                   : "opacity-45 bg-slate-100 dark:bg-slate-800/40 text-slate-400 dark:text-slate-500 cursor-not-allowed border border-slate-200 dark:border-slate-800"
-              }`}
+                }`}
               title={isDeskAllowed("analytics") ? "Queue Analytics" : "Access Restricted for your Role"}
             >
               {!isDeskAllowed("analytics") ? <Lock className="h-3.5 w-3.5 text-amber-500 shrink-0" /> : <TrendingUp className="h-4 w-4 shrink-0" />}
@@ -5424,13 +5422,12 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
 
             <button
               onClick={() => handleSelectDesk("monitor")}
-              className={`flex-1 min-w-[130px] sm:min-w-[140px] py-3 px-3 sm:px-4 rounded-2xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition-all ${
-                activeDesk === "monitor"
-                  ? "bg-[#008ac9] text-white shadow-lg shadow-[#008ac9]/30 border border-[#008ac9]"
-                  : isDeskAllowed("monitor")
+              className={`flex-1 min-w-[130px] sm:min-w-[140px] py-3 px-3 sm:px-4 rounded-2xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition-all ${activeDesk === "monitor"
+                ? "bg-[#008ac9] text-white shadow-lg shadow-[#008ac9]/30 border border-[#008ac9]"
+                : isDeskAllowed("monitor")
                   ? "text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
                   : "opacity-45 bg-slate-100 dark:bg-slate-800/40 text-slate-400 dark:text-slate-500 cursor-not-allowed border border-slate-200 dark:border-slate-800"
-              }`}
+                }`}
               title={isDeskAllowed("monitor") ? "Monitor Desk" : "Access Restricted for your Role"}
             >
               {!isDeskAllowed("monitor") ? <Lock className="h-3.5 w-3.5 text-amber-500 shrink-0" /> : <Monitor className="h-4 w-4 shrink-0" />}
@@ -5567,15 +5564,14 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
                           {b.refCode}
                         </span>
                         <span
-                          className={`px-3 py-0.5 rounded-full text-[11px] font-black ${
-                            b.status === "Checked In"
-                              ? "bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300"
-                              : b.status === "Completed"
+                          className={`px-3 py-0.5 rounded-full text-[11px] font-black ${b.status === "Checked In"
+                            ? "bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300"
+                            : b.status === "Completed"
                               ? "bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border-2 border-rose-400 font-extrabold"
                               : b.status === "Cancelled"
-                              ? "bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border border-rose-300"
-                              : "bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-300"
-                          }`}
+                                ? "bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border border-rose-300"
+                                : "bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-300"
+                            }`}
                         >
                           {b.status || "Confirmed"}
                         </span>
@@ -5686,9 +5682,8 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
                           {b.paymentType === "HMO Insurance" && (
                             <div>
                               <span className="text-slate-500 font-extrabold block text-[10px] uppercase">HMO Pre-Auth Code</span>
-                              <span className={`font-black px-2 py-0.5 rounded border inline-block ${
-                                b.hmoAuthCode ? "bg-emerald-50 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border-emerald-300" : "bg-amber-50 text-amber-800 border-amber-300"
-                              }`}>
+                              <span className={`font-black px-2 py-0.5 rounded border inline-block ${b.hmoAuthCode ? "bg-emerald-50 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border-emerald-300" : "bg-amber-50 text-amber-800 border-amber-300"
+                                }`}>
                                 🔑 {b.hmoAuthCode || "Pending HMO Pre-Auth"}
                               </span>
                             </div>
@@ -5760,180 +5755,178 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
 
             <div className="grid gap-4">
               {paginatedHmoBookings.map((b) => (
-                  <div
-                    key={b.refCode}
-                    className="bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 rounded-3xl p-5 sm:p-6 shadow-sm hover:shadow-md transition-all w-full space-y-3"
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div className="flex flex-wrap items-center gap-2.5">
-                        <span className="text-lg font-black text-[#008ac9] dark:text-sky-400 tracking-wider">
-                          {b.refCode}
-                        </span>
-                        <span
-                          className={`px-3 py-0.5 rounded-full text-[11px] font-black ${
-                            b.hmoStatus === "Approved"
-                              ? "bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300"
-                              : "bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-300"
+                <div
+                  key={b.refCode}
+                  className="bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 rounded-3xl p-5 sm:p-6 shadow-sm hover:shadow-md transition-all w-full space-y-3"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex flex-wrap items-center gap-2.5">
+                      <span className="text-lg font-black text-[#008ac9] dark:text-sky-400 tracking-wider">
+                        {b.refCode}
+                      </span>
+                      <span
+                        className={`px-3 py-0.5 rounded-full text-[11px] font-black ${b.hmoStatus === "Approved"
+                          ? "bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300"
+                          : "bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-300"
                           }`}
-                        >
-                          {b.hmoStatus === "Approved" ? "HMO Approved ✓" : "Pending Pre-Auth"}
-                        </span>
-                        <span className="text-[11px] font-black px-2.5 py-0.5 rounded-full bg-sky-50 dark:bg-slate-800 text-[#008ac9] border border-[#008ac9]/30">
-                          {b.hmoName || "Hygeia HMO"}
-                        </span>
-                        {isSuperAdminUser(currentUser) && (
-                          <div className="flex items-center gap-1.5 ml-auto shrink-0">
-                            <button
-                              type="button"
-                              onClick={() => openEditBookingModal(b)}
-                              className="p-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/70 text-amber-600 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/90 border border-amber-200 dark:border-amber-800 transition-all cursor-pointer shadow-2xs"
-                              title="Superadmin: Edit Booking Record"
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteBookingRecord(b)}
-                              className="p-1.5 rounded-lg bg-rose-50 dark:bg-rose-950/70 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/90 border border-rose-200 dark:border-rose-800 transition-all cursor-pointer shadow-2xs"
-                              title="Superadmin: Delete Booking Record from Database"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </button>
-                          </div>
-                        )}
-                      </div>
-
-                      {b.hmoStatus !== "Approved" && (
-                        <div className="flex flex-wrap items-center gap-2 ml-auto">
-                          <button
-                            onClick={() => {
-                              setSelectedBooking(b);
-                              setHmoPolicyCode(b.hmoPolicyCode || "");
-                              setHmoAuthCode(b.hmoAuthCode || "");
-                            }}
-                            className="px-5 py-2.5 bg-[#008ac9] hover:bg-[#0072b1] text-white font-black text-xs rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
-                          >
-                            <ShieldCheck className="h-4 w-4" /> Grant HMO Pre-Auth
-                          </button>
-
+                      >
+                        {b.hmoStatus === "Approved" ? "HMO Approved ✓" : "Pending Pre-Auth"}
+                      </span>
+                      <span className="text-[11px] font-black px-2.5 py-0.5 rounded-full bg-sky-50 dark:bg-slate-800 text-[#008ac9] border border-[#008ac9]/30">
+                        {b.hmoName || "Hygeia HMO"}
+                      </span>
+                      {isSuperAdminUser(currentUser) && (
+                        <div className="flex items-center gap-1.5 ml-auto shrink-0">
                           <button
                             type="button"
-                            onClick={() => openRerouteToCashdeskModal(b)}
-                            className="px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white font-black text-xs rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
-                            title="Pass HMO patient to Cashdesk as paying patient with remark"
+                            onClick={() => openEditBookingModal(b)}
+                            className="p-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/70 text-amber-600 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/90 border border-amber-200 dark:border-amber-800 transition-all cursor-pointer shadow-2xs"
+                            title="Superadmin: Edit Booking Record"
                           >
-                            <ArrowRightCircle className="h-4 w-4" /> Remark & Pass to Cashdesk →
+                            <Pencil className="h-4 w-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteBookingRecord(b)}
+                            className="p-1.5 rounded-lg bg-rose-50 dark:bg-rose-950/70 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/90 border border-rose-200 dark:border-rose-800 transition-all cursor-pointer shadow-2xs"
+                            title="Superadmin: Delete Booking Record from Database"
+                          >
+                            <Trash2 className="h-4 w-4" />
                           </button>
                         </div>
                       )}
                     </div>
 
-                    <div className="text-sm font-black text-slate-900 dark:text-white">
-                      Enrollee: {b.patientName} <span className="text-xs font-bold text-slate-500">({b.patientPhone})</span>
+                    {b.hmoStatus !== "Approved" && (
+                      <div className="flex flex-wrap items-center gap-2 ml-auto">
+                        <button
+                          onClick={() => {
+                            setSelectedBooking(b);
+                            setHmoPolicyCode(b.hmoPolicyCode || "");
+                            setHmoAuthCode(b.hmoAuthCode || "");
+                          }}
+                          className="px-5 py-2.5 bg-[#008ac9] hover:bg-[#0072b1] text-white font-black text-xs rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <ShieldCheck className="h-4 w-4" /> Grant HMO Pre-Auth
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => openRerouteToCashdeskModal(b)}
+                          className="px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white font-black text-xs rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
+                          title="Pass HMO patient to Cashdesk as paying patient with remark"
+                        >
+                          <ArrowRightCircle className="h-4 w-4" /> Remark & Pass to Cashdesk →
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="text-sm font-black text-slate-900 dark:text-white">
+                    Enrollee: {b.patientName} <span className="text-xs font-bold text-slate-500">({b.patientPhone})</span>
+                  </div>
+
+                  {/* Full Patient Information Record Panel */}
+                  <div className="mt-2.5 p-3.5 rounded-2xl bg-sky-50/70 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2 text-xs text-left w-full">
+                    <div className="flex items-center justify-between border-b border-slate-200/80 dark:border-slate-800 pb-1.5">
+                      <span className="font-black text-[#008ac9] dark:text-sky-400 uppercase text-[10px] tracking-wider flex items-center gap-1">
+                        <ShieldCheck className="h-3.5 w-3.5" /> HMO Insurance Pre-Auth Details
+                      </span>
+                      <span className="text-[10px] font-extrabold text-slate-500 flex items-center gap-1">
+                        <Clock className="h-3 w-3 text-[#008ac9]" /> Date Created: {formatCreatedDate(b.createdAt || b.created_at)}
+                      </span>
                     </div>
 
-                    {/* Full Patient Information Record Panel */}
-                    <div className="mt-2.5 p-3.5 rounded-2xl bg-sky-50/70 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2 text-xs text-left w-full">
-                      <div className="flex items-center justify-between border-b border-slate-200/80 dark:border-slate-800 pb-1.5">
-                        <span className="font-black text-[#008ac9] dark:text-sky-400 uppercase text-[10px] tracking-wider flex items-center gap-1">
-                          <ShieldCheck className="h-3.5 w-3.5" /> HMO Insurance Pre-Auth Details
-                        </span>
-                        <span className="text-[10px] font-extrabold text-slate-500 flex items-center gap-1">
-                          <Clock className="h-3 w-3 text-[#008ac9]" /> Date Created: {formatCreatedDate(b.createdAt || b.created_at)}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 font-semibold text-slate-800 dark:text-slate-200">
+                      <div>
+                        <span className="text-slate-500 font-extrabold block text-[10px] uppercase">Enrollee Name & Phone</span>
+                        <span className="font-black text-slate-900 dark:text-white text-xs">{b.patientName}</span>
+                        <span className="block text-slate-500 font-bold">{b.patientPhone}</span>
+                      </div>
+
+                      <div>
+                        <span className="text-slate-500 font-extrabold block text-[10px] uppercase">Email Address</span>
+                        <span className="font-bold text-slate-800 dark:text-slate-200">{b.patientEmail || "Not Provided"}</span>
+                      </div>
+
+                      <div>
+                        <span className="text-slate-500 font-extrabold block text-[10px] uppercase">Doctor & Specialty</span>
+                        <span className="font-black text-[#008ac9] dark:text-sky-400">{b.doctorName}</span>
+                        <span className="block text-slate-500 font-bold">{b.doctorSpecialty}</span>
+                      </div>
+
+                      <div>
+                        <span className="text-slate-500 font-extrabold block text-[10px] uppercase">Date & Time Slot</span>
+                        <span className="font-bold text-slate-900 dark:text-white">📅 {b.date}</span>
+                        <span className="block font-bold text-[#008ac9] dark:text-sky-400">🕒 {b.time}</span>
+                      </div>
+
+                      <div>
+                        <span className="text-slate-500 font-extrabold block text-[10px] uppercase">Date Created</span>
+                        <span className="font-extrabold text-slate-900 dark:text-white flex items-center gap-1 text-xs">
+                          <Clock className="h-3.5 w-3.5 text-[#008ac9]" />
+                          {formatCreatedDate(b.createdAt || b.created_at)}
                         </span>
                       </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 font-semibold text-slate-800 dark:text-slate-200">
-                        <div>
-                          <span className="text-slate-500 font-extrabold block text-[10px] uppercase">Enrollee Name & Phone</span>
-                          <span className="font-black text-slate-900 dark:text-white text-xs">{b.patientName}</span>
-                          <span className="block text-slate-500 font-bold">{b.patientPhone}</span>
-                        </div>
+                      <div>
+                        <span className="text-slate-500 font-extrabold block text-[10px] uppercase">HMO Provider Name</span>
+                        <span className="font-black text-[#008ac9] dark:text-sky-400">🛡️ {b.hmoName || "Hygeia HMO"}</span>
+                      </div>
 
-                        <div>
-                          <span className="text-slate-500 font-extrabold block text-[10px] uppercase">Email Address</span>
-                          <span className="font-bold text-slate-800 dark:text-slate-200">{b.patientEmail || "Not Provided"}</span>
-                        </div>
+                      <div>
+                        <span className="text-slate-500 font-extrabold block text-[10px] uppercase">Enrollee ID / Policy Code</span>
+                        <span className="font-black text-slate-900 dark:text-white">🆔 {b.hmoPolicyCode || "HYG-849201"}</span>
+                      </div>
 
-                        <div>
-                          <span className="text-slate-500 font-extrabold block text-[10px] uppercase">Doctor & Specialty</span>
-                          <span className="font-black text-[#008ac9] dark:text-sky-400">{b.doctorName}</span>
-                          <span className="block text-slate-500 font-bold">{b.doctorSpecialty}</span>
-                        </div>
-
-                        <div>
-                          <span className="text-slate-500 font-extrabold block text-[10px] uppercase">Date & Time Slot</span>
-                          <span className="font-bold text-slate-900 dark:text-white">📅 {b.date}</span>
-                          <span className="block font-bold text-[#008ac9] dark:text-sky-400">🕒 {b.time}</span>
-                        </div>
-
-                        <div>
-                          <span className="text-slate-500 font-extrabold block text-[10px] uppercase">Date Created</span>
-                          <span className="font-extrabold text-slate-900 dark:text-white flex items-center gap-1 text-xs">
-                            <Clock className="h-3.5 w-3.5 text-[#008ac9]" />
-                            {formatCreatedDate(b.createdAt || b.created_at)}
-                          </span>
-                        </div>
-
-                        <div>
-                          <span className="text-slate-500 font-extrabold block text-[10px] uppercase">HMO Provider Name</span>
-                          <span className="font-black text-[#008ac9] dark:text-sky-400">🛡️ {b.hmoName || "Hygeia HMO"}</span>
-                        </div>
-
-                        <div>
-                          <span className="text-slate-500 font-extrabold block text-[10px] uppercase">Enrollee ID / Policy Code</span>
-                          <span className="font-black text-slate-900 dark:text-white">🆔 {b.hmoPolicyCode || "HYG-849201"}</span>
-                        </div>
-
-                        <div>
-                          <span className="text-slate-500 font-extrabold block text-[10px] uppercase">HMO Pre-Auth Status</span>
-                          <span className={`font-black px-2 py-0.5 rounded border inline-block ${
-                            b.hmoStatus === "Approved" ? "bg-emerald-50 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border-emerald-300" : "bg-amber-50 text-amber-800 border-amber-300"
+                      <div>
+                        <span className="text-slate-500 font-extrabold block text-[10px] uppercase">HMO Pre-Auth Status</span>
+                        <span className={`font-black px-2 py-0.5 rounded border inline-block ${b.hmoStatus === "Approved" ? "bg-emerald-50 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border-emerald-300" : "bg-amber-50 text-amber-800 border-amber-300"
                           }`}>
-                            🔑 {b.hmoAuthCode ? `Approved (${b.hmoAuthCode})` : "Pending Pre-Auth Code"}
-                          </span>
-                        </div>
-
-                        {(b.referralDocName || b.referral_doc_name) && (
-                          <div className="col-span-1 sm:col-span-2">
-                            <span className="text-slate-500 font-extrabold block text-[10px] uppercase">Attached Referral Document</span>
-                            <button
-                              type="button"
-                              onClick={() => handleOpenReferralDoc(b)}
-                              className="group inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-sky-50 hover:bg-sky-100 dark:bg-sky-950/70 dark:hover:bg-sky-900/90 text-[#008ac9] dark:text-sky-300 border border-sky-300 dark:border-sky-700 text-xs font-bold transition-all shadow-xs hover:shadow-md cursor-pointer mt-1"
-                              title="Click to preview & download attached referral document"
-                            >
-                              <FileText className="h-4 w-4 text-[#008ac9] dark:text-sky-400 group-hover:scale-110 transition-transform shrink-0" />
-                              <span className="font-extrabold truncate max-w-[200px]">📎 {b.referralDocName || b.referral_doc_name}</span>
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[#008ac9] text-white text-[10px] font-black group-hover:bg-[#0072b1] transition-colors shrink-0 shadow-2xs">
-                                <Eye className="h-3 w-3" /> Preview Document
-                              </span>
-                            </button>
-                          </div>
-                        )}
-
-                        {b.reason && (
-                          <div className="col-span-1 sm:col-span-2 lg:col-span-4 pt-1 border-t border-slate-200/60 dark:border-slate-800/60">
-                            <span className="text-slate-500 font-extrabold block text-[10px] uppercase">Reason for Visit / Clinical Symptoms</span>
-                            <p className="font-semibold text-slate-800 dark:text-slate-200 italic bg-white dark:bg-slate-900 p-2 rounded-xl border border-slate-200 dark:border-slate-800 mt-0.5">
-                              "{b.reason}"
-                            </p>
-                          </div>
-                        )}
+                          🔑 {b.hmoAuthCode ? `Approved (${b.hmoAuthCode})` : "Pending Pre-Auth Code"}
+                        </span>
                       </div>
+
+                      {(b.referralDocName || b.referral_doc_name) && (
+                        <div className="col-span-1 sm:col-span-2">
+                          <span className="text-slate-500 font-extrabold block text-[10px] uppercase">Attached Referral Document</span>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenReferralDoc(b)}
+                            className="group inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-sky-50 hover:bg-sky-100 dark:bg-sky-950/70 dark:hover:bg-sky-900/90 text-[#008ac9] dark:text-sky-300 border border-sky-300 dark:border-sky-700 text-xs font-bold transition-all shadow-xs hover:shadow-md cursor-pointer mt-1"
+                            title="Click to preview & download attached referral document"
+                          >
+                            <FileText className="h-4 w-4 text-[#008ac9] dark:text-sky-400 group-hover:scale-110 transition-transform shrink-0" />
+                            <span className="font-extrabold truncate max-w-[200px]">📎 {b.referralDocName || b.referral_doc_name}</span>
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[#008ac9] text-white text-[10px] font-black group-hover:bg-[#0072b1] transition-colors shrink-0 shadow-2xs">
+                              <Eye className="h-3 w-3" /> Preview Document
+                            </span>
+                          </button>
+                        </div>
+                      )}
+
+                      {b.reason && (
+                        <div className="col-span-1 sm:col-span-2 lg:col-span-4 pt-1 border-t border-slate-200/60 dark:border-slate-800/60">
+                          <span className="text-slate-500 font-extrabold block text-[10px] uppercase">Reason for Visit / Clinical Symptoms</span>
+                          <p className="font-semibold text-slate-800 dark:text-slate-200 italic bg-white dark:bg-slate-900 p-2 rounded-xl border border-slate-200 dark:border-slate-800 mt-0.5">
+                            "{b.reason}"
+                          </p>
+                        </div>
+                      )}
                     </div>
                   </div>
-                ))}
+                </div>
+              ))}
 
-                {renderPaginationBar(
-                  currentHmoPage,
-                  totalHmoPages,
-                  hmoList.length,
-                  hmoItemsPerPage,
-                  setHmoCurrentPage,
-                  (val) => { setHmoItemsPerPage(val); setHmoCurrentPage(1); },
-                  "HMO pre-auth requests"
-                )}
+              {renderPaginationBar(
+                currentHmoPage,
+                totalHmoPages,
+                hmoList.length,
+                hmoItemsPerPage,
+                setHmoCurrentPage,
+                (val) => { setHmoItemsPerPage(val); setHmoCurrentPage(1); },
+                "HMO pre-auth requests"
+              )}
             </div>
           </div>
         )}
@@ -5968,11 +5961,10 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
                         {b.refCode}
                       </span>
                       <span
-                        className={`px-3 py-0.5 rounded-full text-[11px] font-black ${
-                          b.paymentStatus === "Cleared"
-                            ? "bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300"
-                            : "bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300 border border-purple-300"
-                        }`}
+                        className={`px-3 py-0.5 rounded-full text-[11px] font-black ${b.paymentStatus === "Cleared"
+                          ? "bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300"
+                          : "bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300 border border-purple-300"
+                          }`}
                       >
                         {b.paymentStatus === "Cleared" ? "Paid & Cleared ✓" : "Payment Pending ⏳"}
                       </span>
@@ -6114,232 +6106,232 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
               </div>
             </div>
 
-          {/* CREATE NEW CLINIC MODAL DIALOG */}
-      {showCreateClinicModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-fadeIn">
-          <div className="bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 rounded-3xl max-w-xl w-full p-6 shadow-2xl space-y-5 animate-scaleUp">
-            <div className="flex items-center justify-between border-b-2 border-slate-100 dark:border-slate-800 pb-4">
-              <div className="flex items-center gap-3">
-                <div className="p-3 rounded-2xl bg-sky-100 dark:bg-slate-800 text-[#008ac9] font-black">
-                  <Building2 className="h-6 w-6" />
-                </div>
-                <div>
-                  <h3 className="text-xl font-black text-slate-900 dark:text-white">Create New Clinic / Department</h3>
-                  <p className="text-xs font-semibold text-slate-500">Register a new medical clinic module in Isalu Hospitals.</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setShowCreateClinicModal(false)}
-                className="p-2 rounded-xl text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
-              >
-                <XCircle className="h-6 w-6" />
-              </button>
-            </div>
+            {/* CREATE NEW CLINIC MODAL DIALOG */}
+            {showCreateClinicModal && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-fadeIn">
+                <div className="bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 rounded-3xl max-w-xl w-full p-6 shadow-2xl space-y-5 animate-scaleUp">
+                  <div className="flex items-center justify-between border-b-2 border-slate-100 dark:border-slate-800 pb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="p-3 rounded-2xl bg-sky-100 dark:bg-slate-800 text-[#008ac9] font-black">
+                        <Building2 className="h-6 w-6" />
+                      </div>
+                      <div>
+                        <h3 className="text-xl font-black text-slate-900 dark:text-white">Create New Clinic / Department</h3>
+                        <p className="text-xs font-semibold text-slate-500">Register a new medical clinic module in Isalu Hospitals.</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setShowCreateClinicModal(false)}
+                      className="p-2 rounded-xl text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                    >
+                      <XCircle className="h-6 w-6" />
+                    </button>
+                  </div>
 
-            {clinicFormError && (
-              <div className="p-3.5 bg-rose-50 border border-rose-200 text-rose-700 rounded-2xl text-xs font-black flex items-center gap-2">
-                <AlertCircle className="h-4 w-4 shrink-0" />
-                <span>{clinicFormError}</span>
+                  {clinicFormError && (
+                    <div className="p-3.5 bg-rose-50 border border-rose-200 text-rose-700 rounded-2xl text-xs font-black flex items-center gap-2">
+                      <AlertCircle className="h-4 w-4 shrink-0" />
+                      <span>{clinicFormError}</span>
+                    </div>
+                  )}
+
+                  <form onSubmit={handleCreateClinic} className="space-y-4">
+                    <div className="space-y-1">
+                      <label className="text-xs font-black text-slate-700 dark:text-slate-300">
+                        Clinic / Department Name <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. Neurology & Brain Care Clinic"
+                        value={newClinicName}
+                        onChange={(e) => setNewClinicName(e.target.value)}
+                        className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold focus:outline-none focus:border-[#008ac9]"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <label className="text-xs font-black text-slate-700 dark:text-slate-300">
+                          Clinic ID / Code (Optional)
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="e.g. neurology"
+                          value={newClinicId}
+                          onChange={(e) => setNewClinicId(e.target.value)}
+                          className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold focus:outline-none focus:border-[#008ac9]"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-xs font-black text-slate-700 dark:text-slate-300">
+                          Operational Status
+                        </label>
+                        <select
+                          value={newClinicStatus}
+                          onChange={(e) => setNewClinicStatus(e.target.value)}
+                          className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold focus:outline-none focus:border-[#008ac9]"
+                        >
+                          <option value="Active">Active ✓</option>
+                          <option value="Maintenance">Under Maintenance 🛠️</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-xs font-black text-slate-700 dark:text-slate-300">
+                        Hospital Location / Suite Wing
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Main Hospital Building - West Wing Floor 2"
+                        value={newClinicLocation}
+                        onChange={(e) => setNewClinicLocation(e.target.value)}
+                        className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold focus:outline-none focus:border-[#008ac9]"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-xs font-black text-slate-700 dark:text-slate-300">
+                        Description & Medical Scope
+                      </label>
+                      <textarea
+                        rows={3}
+                        placeholder="Describe medical services, specialists, and conditions treated at this clinic..."
+                        value={newClinicDescription}
+                        onChange={(e) => setNewClinicDescription(e.target.value)}
+                        className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold focus:outline-none focus:border-[#008ac9]"
+                      />
+                    </div>
+
+                    <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-end gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setShowCreateClinicModal(false)}
+                        className="px-5 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-extrabold hover:bg-slate-200 transition-all"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        className="px-6 py-2.5 bg-[#008ac9] hover:bg-[#0072b1] text-white font-black text-xs rounded-xl shadow-lg shadow-[#008ac9]/25 transition-all flex items-center gap-1.5"
+                      >
+                        <Plus className="h-4 w-4" /> Create Clinic
+                      </button>
+                    </div>
+                  </form>
+                </div>
               </div>
             )}
 
-            <form onSubmit={handleCreateClinic} className="space-y-4">
-              <div className="space-y-1">
-                <label className="text-xs font-black text-slate-700 dark:text-slate-300">
-                  Clinic / Department Name <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Neurology & Brain Care Clinic"
-                  value={newClinicName}
-                  onChange={(e) => setNewClinicName(e.target.value)}
-                  className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold focus:outline-none focus:border-[#008ac9]"
-                />
-              </div>
+            {/* EDIT CLINIC MODAL DIALOG */}
+            {editingClinic && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm p-4 animate-fadeIn">
+                <div className="bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 rounded-3xl max-w-xl w-full p-6 shadow-2xl space-y-5 animate-scaleUp">
+                  <div className="flex items-center justify-between border-b-2 border-slate-100 dark:border-slate-800 pb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="p-3 rounded-2xl bg-sky-100 dark:bg-slate-800 text-[#008ac9] font-black">
+                        <Pencil className="h-6 w-6" />
+                      </div>
+                      <div>
+                        <h3 className="text-xl font-black text-slate-900 dark:text-white">Edit Clinic Details</h3>
+                        <p className="text-xs font-semibold text-slate-500">Update module details for {editingClinic.name}.</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setEditingClinic(null)}
+                      className="p-2 rounded-xl text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                    >
+                      <XCircle className="h-6 w-6" />
+                    </button>
+                  </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="text-xs font-black text-slate-700 dark:text-slate-300">
-                    Clinic ID / Code (Optional)
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. neurology"
-                    value={newClinicId}
-                    onChange={(e) => setNewClinicId(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold focus:outline-none focus:border-[#008ac9]"
-                  />
+                  {editClinicFormError && (
+                    <div className="p-3.5 bg-rose-50 border border-rose-200 text-rose-700 rounded-2xl text-xs font-black flex items-center gap-2">
+                      <AlertCircle className="h-4 w-4 shrink-0" />
+                      <span>{editClinicFormError}</span>
+                    </div>
+                  )}
+
+                  <form onSubmit={handleSaveEditClinic} className="space-y-4">
+                    <div className="space-y-1">
+                      <label className="text-xs font-black text-slate-700 dark:text-slate-300">
+                        Clinic / Department Name
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={editClinicName}
+                        onChange={(e) => setEditClinicName(e.target.value)}
+                        className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold focus:outline-none focus:border-[#008ac9]"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <label className="text-xs font-black text-slate-700 dark:text-slate-300">
+                          Location Wing
+                        </label>
+                        <input
+                          type="text"
+                          value={editClinicLocation}
+                          onChange={(e) => setEditClinicLocation(e.target.value)}
+                          className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold focus:outline-none focus:border-[#008ac9]"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-xs font-black text-slate-700 dark:text-slate-300">
+                          Operational Status
+                        </label>
+                        <select
+                          value={editClinicStatus}
+                          onChange={(e) => setEditClinicStatus(e.target.value)}
+                          className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold focus:outline-none focus:border-[#008ac9]"
+                        >
+                          <option value="Active">Active ✓</option>
+                          <option value="Maintenance">Under Maintenance 🛠️</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-xs font-black text-slate-700 dark:text-slate-300">
+                        Description & Medical Scope
+                      </label>
+                      <textarea
+                        rows={3}
+                        value={editClinicDescription}
+                        onChange={(e) => setEditClinicDescription(e.target.value)}
+                        className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold focus:outline-none focus:border-[#008ac9]"
+                      />
+                    </div>
+
+                    <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-end gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setEditingClinic(null)}
+                        className="px-5 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-extrabold hover:bg-slate-200 transition-all"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        className="px-6 py-2.5 bg-[#008ac9] hover:bg-[#0072b1] text-white font-black text-xs rounded-xl shadow-lg shadow-[#008ac9]/25 transition-all flex items-center gap-1.5"
+                      >
+                        <Pencil className="h-4 w-4" /> Save Changes
+                      </button>
+                    </div>
+                  </form>
                 </div>
-
-                <div className="space-y-1">
-                  <label className="text-xs font-black text-slate-700 dark:text-slate-300">
-                    Operational Status
-                  </label>
-                  <select
-                    value={newClinicStatus}
-                    onChange={(e) => setNewClinicStatus(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold focus:outline-none focus:border-[#008ac9]"
-                  >
-                    <option value="Active">Active ✓</option>
-                    <option value="Maintenance">Under Maintenance 🛠️</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-xs font-black text-slate-700 dark:text-slate-300">
-                  Hospital Location / Suite Wing
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Main Hospital Building - West Wing Floor 2"
-                  value={newClinicLocation}
-                  onChange={(e) => setNewClinicLocation(e.target.value)}
-                  className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold focus:outline-none focus:border-[#008ac9]"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-xs font-black text-slate-700 dark:text-slate-300">
-                  Description & Medical Scope
-                </label>
-                <textarea
-                  rows={3}
-                  placeholder="Describe medical services, specialists, and conditions treated at this clinic..."
-                  value={newClinicDescription}
-                  onChange={(e) => setNewClinicDescription(e.target.value)}
-                  className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold focus:outline-none focus:border-[#008ac9]"
-                />
-              </div>
-
-              <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={() => setShowCreateClinicModal(false)}
-                  className="px-5 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-extrabold hover:bg-slate-200 transition-all"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-6 py-2.5 bg-[#008ac9] hover:bg-[#0072b1] text-white font-black text-xs rounded-xl shadow-lg shadow-[#008ac9]/25 transition-all flex items-center gap-1.5"
-                >
-                  <Plus className="h-4 w-4" /> Create Clinic
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* EDIT CLINIC MODAL DIALOG */}
-      {editingClinic && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm p-4 animate-fadeIn">
-          <div className="bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 rounded-3xl max-w-xl w-full p-6 shadow-2xl space-y-5 animate-scaleUp">
-            <div className="flex items-center justify-between border-b-2 border-slate-100 dark:border-slate-800 pb-4">
-              <div className="flex items-center gap-3">
-                <div className="p-3 rounded-2xl bg-sky-100 dark:bg-slate-800 text-[#008ac9] font-black">
-                  <Pencil className="h-6 w-6" />
-                </div>
-                <div>
-                  <h3 className="text-xl font-black text-slate-900 dark:text-white">Edit Clinic Details</h3>
-                  <p className="text-xs font-semibold text-slate-500">Update module details for {editingClinic.name}.</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setEditingClinic(null)}
-                className="p-2 rounded-xl text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
-              >
-                <XCircle className="h-6 w-6" />
-              </button>
-            </div>
-
-            {editClinicFormError && (
-              <div className="p-3.5 bg-rose-50 border border-rose-200 text-rose-700 rounded-2xl text-xs font-black flex items-center gap-2">
-                <AlertCircle className="h-4 w-4 shrink-0" />
-                <span>{editClinicFormError}</span>
               </div>
             )}
 
-            <form onSubmit={handleSaveEditClinic} className="space-y-4">
-              <div className="space-y-1">
-                <label className="text-xs font-black text-slate-700 dark:text-slate-300">
-                  Clinic / Department Name
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={editClinicName}
-                  onChange={(e) => setEditClinicName(e.target.value)}
-                  className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold focus:outline-none focus:border-[#008ac9]"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="text-xs font-black text-slate-700 dark:text-slate-300">
-                    Location Wing
-                  </label>
-                  <input
-                    type="text"
-                    value={editClinicLocation}
-                    onChange={(e) => setEditClinicLocation(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold focus:outline-none focus:border-[#008ac9]"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-xs font-black text-slate-700 dark:text-slate-300">
-                    Operational Status
-                  </label>
-                  <select
-                    value={editClinicStatus}
-                    onChange={(e) => setEditClinicStatus(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold focus:outline-none focus:border-[#008ac9]"
-                  >
-                    <option value="Active">Active ✓</option>
-                    <option value="Maintenance">Under Maintenance 🛠️</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-xs font-black text-slate-700 dark:text-slate-300">
-                  Description & Medical Scope
-                </label>
-                <textarea
-                  rows={3}
-                  value={editClinicDescription}
-                  onChange={(e) => setEditClinicDescription(e.target.value)}
-                  className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold focus:outline-none focus:border-[#008ac9]"
-                />
-              </div>
-
-              <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={() => setEditingClinic(null)}
-                  className="px-5 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-extrabold hover:bg-slate-200 transition-all"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-6 py-2.5 bg-[#008ac9] hover:bg-[#0072b1] text-white font-black text-xs rounded-xl shadow-lg shadow-[#008ac9]/25 transition-all flex items-center gap-1.5"
-                >
-                  <Pencil className="h-4 w-4" /> Save Changes
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-        {/* CONFIRMATION DIALOG MODAL */}
+            {/* CONFIRMATION DIALOG MODAL */}
             {/* Robust AI Executive Report Generator Container */}
             <div className="bg-gradient-to-br from-slate-950 via-[#011627] to-slate-900 border-2 border-sky-500/50 rounded-3xl p-6 sm:p-8 text-white shadow-2xl space-y-6 relative overflow-hidden">
-              
+
               {/* Card Header & Neural Status Badge */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
                 <div className="flex items-center gap-3">
@@ -6408,11 +6400,10 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
                           setAiPrompt(item.prompt);
                           handleGenerateAiReport(item.prompt);
                         }}
-                        className={`p-3 rounded-2xl text-left border transition-all flex items-center justify-between gap-2 shadow-sm cursor-pointer ${
-                          isSelected
-                            ? "bg-[#008ac9] text-white border-sky-300 shadow-lg shadow-sky-500/20 font-black"
-                            : "bg-white/5 hover:bg-white/10 text-slate-200 border-white/10 font-bold"
-                        }`}
+                        className={`p-3 rounded-2xl text-left border transition-all flex items-center justify-between gap-2 shadow-sm cursor-pointer ${isSelected
+                          ? "bg-[#008ac9] text-white border-sky-300 shadow-lg shadow-sky-500/20 font-black"
+                          : "bg-white/5 hover:bg-white/10 text-slate-200 border-white/10 font-bold"
+                          }`}
                       >
                         <div className="flex items-center gap-2 min-w-0">
                           <IconComp className={`h-4 w-4 shrink-0 ${item.color}`} />
@@ -6460,7 +6451,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
               {/* Rendered AI Report Box */}
               {generatedAiReport && (
                 <div className="bg-slate-950/95 border-2 border-sky-500/50 rounded-2xl p-5 shadow-2xl space-y-4 animate-fadeIn">
-                  
+
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
                     <div className="flex items-center gap-2">
                       <FileText className="h-4 w-4 text-sky-400" />
@@ -7097,108 +7088,107 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
                       return st !== "completed" && st !== "cancelled" && st !== "done" && st !== "discharged";
                     })
                     .map((b, bIdx) => {
-                    const refCode = b.refCode || b.ref_code || `ISALU-REF-${bIdx + 1}`;
-                    const paymentType = b.paymentType || b.payment_type || "Private Self-Pay";
-                    const hmoStatus = b.hmoStatus || b.hmo_status || "N/A";
-                    const paymentStatus = b.paymentStatus || b.payment_status || "Pending";
-                    const patientName = b.patientName || b.patient_name || "Patient";
-                    const patientPhone = b.patientPhone || b.patient_phone || "";
-                    const hmoName = b.hmoName || b.hmo_name || "";
+                      const refCode = b.refCode || b.ref_code || `ISALU-REF-${bIdx + 1}`;
+                      const paymentType = b.paymentType || b.payment_type || "Private Self-Pay";
+                      const hmoStatus = b.hmoStatus || b.hmo_status || "N/A";
+                      const paymentStatus = b.paymentStatus || b.payment_status || "Pending";
+                      const patientName = b.patientName || b.patient_name || "Patient";
+                      const patientPhone = b.patientPhone || b.patient_phone || "";
+                      const hmoName = b.hmoName || b.hmo_name || "";
 
-                    const isHmoApproved = paymentType === "HMO Insurance" && (hmoStatus === "Approved" || hmoStatus.toLowerCase().includes("approved"));
-                    const isPayCleared = (paymentType === "Private Self-Pay" || !paymentType) && (paymentStatus === "Cleared" || paymentStatus.toLowerCase().includes("cleared") || paymentStatus.toLowerCase().includes("paid"));
-                    const isEligibleForCheckIn = isHmoApproved || isPayCleared;
+                      const isHmoApproved = paymentType === "HMO Insurance" && (hmoStatus === "Approved" || hmoStatus.toLowerCase().includes("approved"));
+                      const isPayCleared = (paymentType === "Private Self-Pay" || !paymentType) && (paymentStatus === "Cleared" || paymentStatus.toLowerCase().includes("cleared") || paymentStatus.toLowerCase().includes("paid"));
+                      const isEligibleForCheckIn = isHmoApproved || isPayCleared;
 
-                    const docDisplay = getDoctorRealName(b);
-                    const matchedDoc = doctorsList.find((d) => d.fullName === docDisplay || d.name === docDisplay || d.acronym === (b.doctorName || b.doctor_name));
-                    const docSpecialty = b.doctorSpecialty || b.doctor_specialty || matchedDoc?.specialty || "Obstetrics & Gynaecology";
-                    const docAcronym = b.doctorAcronym || b.doctor_acronym || matchedDoc?.acronym;
+                      const docDisplay = getDoctorRealName(b);
+                      const matchedDoc = doctorsList.find((d) => d.fullName === docDisplay || d.name === docDisplay || d.acronym === (b.doctorName || b.doctor_name));
+                      const docSpecialty = b.doctorSpecialty || b.doctor_specialty || matchedDoc?.specialty || "Obstetrics & Gynaecology";
+                      const docAcronym = b.doctorAcronym || b.doctor_acronym || matchedDoc?.acronym;
 
-                    return (
-                      <div
-                        key={refCode}
-                        className="bg-slate-50 dark:bg-slate-950 border-2 border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm hover:border-[#008ac9] transition-all flex flex-col justify-between space-y-3"
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="text-lg font-black text-[#008ac9] dark:text-sky-400 tracking-wider">
-                            {refCode}
-                          </span>
-                          <span
-                            className={`px-2.5 py-0.5 rounded-full font-black text-[10px] ${
-                              isEligibleForCheckIn
+                      return (
+                        <div
+                          key={refCode}
+                          className="bg-slate-50 dark:bg-slate-950 border-2 border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm hover:border-[#008ac9] transition-all flex flex-col justify-between space-y-3"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-lg font-black text-[#008ac9] dark:text-sky-400 tracking-wider">
+                              {refCode}
+                            </span>
+                            <span
+                              className={`px-2.5 py-0.5 rounded-full font-black text-[10px] ${isEligibleForCheckIn
                                 ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300"
                                 : "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300"
-                            }`}
-                          >
-                            {isEligibleForCheckIn ? "Eligible for Check-In ✓" : "Pending Clearance ⏳"}
-                          </span>
-                        </div>
-
-                        <div>
-                          <div className="text-sm font-black text-slate-900 dark:text-white flex items-center justify-between">
-                            <span>{patientName}</span>
-                            {patientPhone && <span className="text-[11px] font-bold text-slate-500">{patientPhone}</span>}
-                          </div>
-                          <div className="mt-1.5 space-y-2">
-                            {/* Colorful Modern Patient Type Badge */}
-                            <div>
-                              {paymentType === "HMO Insurance" ? (
-                                <span className="inline-flex items-center gap-2 px-3 py-1 rounded-xl text-xs font-black bg-gradient-to-r from-purple-600 via-indigo-600 to-violet-600 text-white shadow-md shadow-purple-500/25 border border-purple-400/40 tracking-wide">
-                                  <ShieldCheck className="h-4 w-4 text-white shrink-0" />
-                                  <span>HMO INSURANCE</span>
-                                  {hmoName && <span className="bg-white/25 text-white px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider">• {hmoName}</span>}
-                                </span>
-                              ) : (
-                                <span className="inline-flex items-center gap-2 px-3 py-1 rounded-xl text-xs font-black bg-gradient-to-r from-cyan-600 via-teal-600 to-emerald-600 text-white shadow-md shadow-teal-500/25 border border-teal-400/40 tracking-wide">
-                                  <CreditCard className="h-4 w-4 text-white shrink-0" />
-                                  <span>PRIVATE SELF-PAY</span>
-                                </span>
-                              )}
-                            </div>
-
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className="text-xs font-black text-[#008ac9] dark:text-sky-400">
-                                🩺 {docDisplay}
-                              </span>
-                              {docAcronym && String(docAcronym).toLowerCase() !== String(docDisplay).toLowerCase() && (
-                                <span className="px-2 py-0.5 rounded-md bg-sky-100 dark:bg-sky-950/80 text-[#008ac9] dark:text-sky-300 text-[10px] font-black border border-sky-300 dark:border-sky-800 shadow-2xs">
-                                  {docAcronym}
-                                </span>
-                              )}
-                            </div>
-                            <div className="text-[11px] font-bold text-slate-600 dark:text-slate-300 flex items-center gap-1">
-                              <span className="text-slate-400">Specialty:</span>
-                              <span className="font-extrabold text-slate-800 dark:text-slate-200">{docSpecialty}</span>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="pt-2 border-t border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-600 dark:text-slate-400 flex flex-col gap-2">
-                          <div className="flex justify-between text-[11px]">
-                            <span>📅 {b.date || "N/A"}</span>
-                            <span>🕒 {b.time || "N/A"}</span>
-                          </div>
-
-                          {isEligibleForCheckIn ? (
-                            <button
-                              onClick={() => handleMarkCompleted(refCode)}
-                              className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-black text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                                }`}
                             >
-                              <CheckCircle2 className="h-4 w-4" /> Mark Consultation Completed ✓
-                            </button>
-                          ) : paymentType === "HMO Insurance" ? (
-                            <div className="w-full py-2.5 bg-amber-100 dark:bg-amber-950/70 border border-amber-300 text-amber-800 dark:text-amber-300 font-extrabold text-[11px] rounded-xl text-center flex items-center justify-center gap-1.5">
-                              ⏳ Ineligible: Awaiting HMO Pre-Auth Approval
+                              {isEligibleForCheckIn ? "Eligible for Check-In ✓" : "Pending Clearance ⏳"}
+                            </span>
+                          </div>
+
+                          <div>
+                            <div className="text-sm font-black text-slate-900 dark:text-white flex items-center justify-between">
+                              <span>{patientName}</span>
+                              {patientPhone && <span className="text-[11px] font-bold text-slate-500">{patientPhone}</span>}
                             </div>
-                          ) : (
-                            <div className="w-full py-2.5 bg-slate-200 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-extrabold text-[11px] rounded-xl text-center flex items-center justify-center gap-1.5">
-                              💳 Ineligible: Awaiting Cashdesk Payment Clearance
+                            <div className="mt-1.5 space-y-2">
+                              {/* Colorful Modern Patient Type Badge */}
+                              <div>
+                                {paymentType === "HMO Insurance" ? (
+                                  <span className="inline-flex items-center gap-2 px-3 py-1 rounded-xl text-xs font-black bg-gradient-to-r from-purple-600 via-indigo-600 to-violet-600 text-white shadow-md shadow-purple-500/25 border border-purple-400/40 tracking-wide">
+                                    <ShieldCheck className="h-4 w-4 text-white shrink-0" />
+                                    <span>HMO INSURANCE</span>
+                                    {hmoName && <span className="bg-white/25 text-white px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider">• {hmoName}</span>}
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-2 px-3 py-1 rounded-xl text-xs font-black bg-gradient-to-r from-cyan-600 via-teal-600 to-emerald-600 text-white shadow-md shadow-teal-500/25 border border-teal-400/40 tracking-wide">
+                                    <CreditCard className="h-4 w-4 text-white shrink-0" />
+                                    <span>PRIVATE SELF-PAY</span>
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="text-xs font-black text-[#008ac9] dark:text-sky-400">
+                                  🩺 {docDisplay}
+                                </span>
+                                {docAcronym && String(docAcronym).toLowerCase() !== String(docDisplay).toLowerCase() && (
+                                  <span className="px-2 py-0.5 rounded-md bg-sky-100 dark:bg-sky-950/80 text-[#008ac9] dark:text-sky-300 text-[10px] font-black border border-sky-300 dark:border-sky-800 shadow-2xs">
+                                    {docAcronym}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[11px] font-bold text-slate-600 dark:text-slate-300 flex items-center gap-1">
+                                <span className="text-slate-400">Specialty:</span>
+                                <span className="font-extrabold text-slate-800 dark:text-slate-200">{docSpecialty}</span>
+                              </div>
                             </div>
-                          )}
+                          </div>
+
+                          <div className="pt-2 border-t border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-600 dark:text-slate-400 flex flex-col gap-2">
+                            <div className="flex justify-between text-[11px]">
+                              <span>📅 {b.date || "N/A"}</span>
+                              <span>🕒 {b.time || "N/A"}</span>
+                            </div>
+
+                            {isEligibleForCheckIn ? (
+                              <button
+                                onClick={() => handleMarkCompleted(refCode)}
+                                className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-black text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                              >
+                                <CheckCircle2 className="h-4 w-4" /> Mark Consultation Completed ✓
+                              </button>
+                            ) : paymentType === "HMO Insurance" ? (
+                              <div className="w-full py-2.5 bg-amber-100 dark:bg-amber-950/70 border border-amber-300 text-amber-800 dark:text-amber-300 font-extrabold text-[11px] rounded-xl text-center flex items-center justify-center gap-1.5">
+                                ⏳ Ineligible: Awaiting HMO Pre-Auth Approval
+                              </div>
+                            ) : (
+                              <div className="w-full py-2.5 bg-slate-200 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-extrabold text-[11px] rounded-xl text-center flex items-center justify-center gap-1.5">
+                                💳 Ineligible: Awaiting Cashdesk Payment Clearance
+                              </div>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
                 </div>
               )}
             </div>
@@ -7407,22 +7397,20 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
               <button
                 type="button"
                 onClick={() => setUserSubTab("users")}
-                className={`px-5 py-2.5 rounded-2xl text-xs font-black transition-all flex items-center gap-2 border-2 ${
-                  userSubTab === "users"
-                    ? "bg-[#008ac9] text-white border-[#008ac9] shadow-md"
-                    : "bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:bg-slate-50"
-                }`}
+                className={`px-5 py-2.5 rounded-2xl text-xs font-black transition-all flex items-center gap-2 border-2 ${userSubTab === "users"
+                  ? "bg-[#008ac9] text-white border-[#008ac9] shadow-md"
+                  : "bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:bg-slate-50"
+                  }`}
               >
                 <Users className="h-4 w-4" /> User Accounts Directory ({systemUsers.length})
               </button>
               <button
                 type="button"
                 onClick={() => setUserSubTab("roles")}
-                className={`px-5 py-2.5 rounded-2xl text-xs font-black transition-all flex items-center gap-2 border-2 ${
-                  userSubTab === "roles"
-                    ? "bg-purple-600 text-white border-purple-600 shadow-md"
-                    : "bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:bg-slate-50"
-                }`}
+                className={`px-5 py-2.5 rounded-2xl text-xs font-black transition-all flex items-center gap-2 border-2 ${userSubTab === "roles"
+                  ? "bg-purple-600 text-white border-purple-600 shadow-md"
+                  : "bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:bg-slate-50"
+                  }`}
               >
                 <ShieldCheck className="h-4 w-4" /> User Roles & Access Control Table ({roles.length})
               </button>
@@ -7520,11 +7508,10 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
                             {u.desk}
                           </td>
                           <td className="py-4 px-3">
-                            <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black ${
-                              u.status === "Active"
-                                ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300"
-                                : "bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300 border border-rose-300"
-                            }`}>
+                            <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black ${u.status === "Active"
+                              ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300"
+                              : "bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300 border border-rose-300"
+                              }`}>
                               {u.status === "Active" ? "Active ✓" : "Disabled 🚫"}
                             </span>
                           </td>
@@ -7545,11 +7532,10 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
                               {u.role !== "Super Administrator" ? (
                                 <button
                                   onClick={() => handleRequestToggleUserDisable(u)}
-                                  className={`px-3 py-1 rounded-xl text-[11px] font-black transition-all border ${
-                                    u.status === "Active"
-                                      ? "bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-300"
-                                      : "bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300"
-                                  }`}
+                                  className={`px-3 py-1 rounded-xl text-[11px] font-black transition-all border ${u.status === "Active"
+                                    ? "bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-300"
+                                    : "bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300"
+                                    }`}
                                 >
                                   {u.status === "Active" ? "Disable" : "Enable"}
                                 </button>
@@ -7560,19 +7546,19 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
                           </td>
                         </tr>
                       ))}
-                  </tbody>
-                </table>
-              </div>
+                    </tbody>
+                  </table>
+                </div>
 
-              {renderPaginationBar(
-                currentUsersDirPage,
-                totalUsersDirPages,
-                filteredSystemUsers.length,
-                usersDirItemsPerPage,
-                setUsersDirCurrentPage,
-                (val) => { setUsersDirItemsPerPage(val); setUsersDirCurrentPage(1); },
-                "user accounts"
-              )}
+                {renderPaginationBar(
+                  currentUsersDirPage,
+                  totalUsersDirPages,
+                  filteredSystemUsers.length,
+                  usersDirItemsPerPage,
+                  setUsersDirCurrentPage,
+                  (val) => { setUsersDirItemsPerPage(val); setUsersDirCurrentPage(1); },
+                  "user accounts"
+                )}
               </div>
             )}
 
@@ -7619,11 +7605,10 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
                               {r.name}
                             </td>
                             <td className="py-4 px-3">
-                              <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black ${
-                                isSystem
-                                  ? "bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300 border border-purple-300"
-                                  : "bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-300 border border-teal-300"
-                              }`}>
+                              <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black ${isSystem
+                                ? "bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300 border border-purple-300"
+                                : "bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-300 border border-teal-300"
+                                }`}>
                                 {isSystem ? "Built-in System Role 🛡️" : "Custom Role ✨"}
                               </span>
                             </td>
@@ -7989,11 +7974,10 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
                             <span className="block text-slate-500 text-[11px] font-semibold">{b.doctorSpecialty}</span>
                           </td>
                           <td className="py-4 px-3">
-                            <span className={`px-2.5 py-1 rounded-xl text-[11px] font-black inline-block ${
-                              b.paymentType === "HMO Insurance"
-                                ? "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300 border border-sky-300"
-                                : "bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300 border border-purple-300"
-                            }`}>
+                            <span className={`px-2.5 py-1 rounded-xl text-[11px] font-black inline-block ${b.paymentType === "HMO Insurance"
+                              ? "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300 border border-sky-300"
+                              : "bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300 border border-purple-300"
+                              }`}>
                               {b.paymentType || "Private Self-Pay"}
                             </span>
                           </td>
@@ -8002,13 +7986,12 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
                             <span className="block text-slate-500 text-[11px]">🕒 {b.time}</span>
                           </td>
                           <td className="py-4 px-3">
-                            <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black ${
-                              b.status === "Checked In"
-                                ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300"
-                                : b.status === "Completed"
+                            <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black ${b.status === "Checked In"
+                              ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300"
+                              : b.status === "Completed"
                                 ? "bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300 border-2 border-rose-400 font-extrabold"
                                 : "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300"
-                            }`}>
+                              }`}>
                               {b.status || "Confirmed"}
                             </span>
                           </td>
@@ -8099,47 +8082,47 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                     {paginatedCheckedInBookings.map((b) => (
-                        <tr key={b.refCode} className="hover:bg-slate-50 dark:hover:bg-slate-950/60 transition-colors">
-                          <td className="py-4 px-3 font-black text-[#008ac9]">{b.refCode}</td>
-                          <td className="py-4 px-3 font-black text-slate-900 dark:text-white">
-                            {b.patientName}
-                            <span className="block text-slate-500 text-xs font-semibold">{b.patientPhone}</span>
+                      <tr key={b.refCode} className="hover:bg-slate-50 dark:hover:bg-slate-950/60 transition-colors">
+                        <td className="py-4 px-3 font-black text-[#008ac9]">{b.refCode}</td>
+                        <td className="py-4 px-3 font-black text-slate-900 dark:text-white">
+                          {b.patientName}
+                          <span className="block text-slate-500 text-xs font-semibold">{b.patientPhone}</span>
+                        </td>
+                        <td className="py-4 px-3 font-extrabold text-slate-800 dark:text-slate-200">
+                          🩺 {b.doctorName} ({b.doctorSpecialty})
+                        </td>
+                        <td className="py-4 px-3 font-extrabold text-slate-800 dark:text-slate-200">
+                          {b.paymentType === "HMO Insurance" ? `🛡️ ${b.hmoName || "HMO"}` : "💳 Private Self-Pay"}
+                        </td>
+                        <td className="py-4 px-3">
+                          <span className="px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 font-black text-xs border border-emerald-300">
+                            Checked In ✓
+                          </span>
+                        </td>
+                        {isSuperAdminUser(currentUser) && (
+                          <td className="py-4 px-3 text-right">
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => openEditBookingModal(b)}
+                                className="p-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/70 text-amber-600 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/90 border border-amber-200 dark:border-amber-800 transition-all cursor-pointer shadow-2xs"
+                                title="Superadmin: Edit Booking Record"
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteBookingRecord(b)}
+                                className="p-1.5 rounded-lg bg-rose-50 dark:bg-rose-950/70 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/90 border border-rose-200 dark:border-rose-800 transition-all cursor-pointer shadow-2xs"
+                                title="Superadmin: Delete Booking Record from Database"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
                           </td>
-                          <td className="py-4 px-3 font-extrabold text-slate-800 dark:text-slate-200">
-                            🩺 {b.doctorName} ({b.doctorSpecialty})
-                          </td>
-                          <td className="py-4 px-3 font-extrabold text-slate-800 dark:text-slate-200">
-                            {b.paymentType === "HMO Insurance" ? `🛡️ ${b.hmoName || "HMO"}` : "💳 Private Self-Pay"}
-                          </td>
-                          <td className="py-4 px-3">
-                            <span className="px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 font-black text-xs border border-emerald-300">
-                              Checked In ✓
-                            </span>
-                          </td>
-                          {isSuperAdminUser(currentUser) && (
-                            <td className="py-4 px-3 text-right">
-                              <div className="flex items-center justify-end gap-1.5">
-                                <button
-                                  type="button"
-                                  onClick={() => openEditBookingModal(b)}
-                                  className="p-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/70 text-amber-600 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/90 border border-amber-200 dark:border-amber-800 transition-all cursor-pointer shadow-2xs"
-                                  title="Superadmin: Edit Booking Record"
-                                >
-                                  <Pencil className="h-3.5 w-3.5" />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleDeleteBookingRecord(b)}
-                                  className="p-1.5 rounded-lg bg-rose-50 dark:bg-rose-950/70 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/90 border border-rose-200 dark:border-rose-800 transition-all cursor-pointer shadow-2xs"
-                                  title="Superadmin: Delete Booking Record from Database"
-                                >
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </button>
-                              </div>
-                            </td>
-                          )}
-                        </tr>
-                      ))}
+                        )}
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
@@ -8312,11 +8295,10 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
                           {hmo.contactPerson || hmo.contact_person}
                         </td>
                         <td className="py-4 px-3">
-                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black ${
-                            hmo.status === "Disabled Partner"
-                              ? "bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300 border border-rose-300"
-                              : "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300"
-                          }`}>
+                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black ${hmo.status === "Disabled Partner"
+                            ? "bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300 border border-rose-300"
+                            : "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300"
+                            }`}>
                             {hmo.status === "Disabled Partner" ? "Disabled Partner 🚫" : "Active Partner ✓"}
                           </span>
                         </td>
@@ -8334,11 +8316,10 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
 
                             <button
                               onClick={() => handleRequestToggleHmoDisable(hmo)}
-                              className={`px-3 py-1 rounded-xl text-[11px] font-black transition-all border ${
-                                hmo.status === "Disabled Partner"
-                                  ? "bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300"
-                                  : "bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-300"
-                              }`}
+                              className={`px-3 py-1 rounded-xl text-[11px] font-black transition-all border ${hmo.status === "Disabled Partner"
+                                ? "bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300"
+                                : "bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-300"
+                                }`}
                             >
                               {hmo.status === "Disabled Partner" ? "Enable Partner" : "Disable Partner"}
                             </button>
@@ -8391,31 +8372,30 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                     {paginatedHmoEnrolleesBookings.map((b) => (
-                        <tr key={b.refCode} className="hover:bg-slate-50 dark:hover:bg-slate-950/60 transition-colors">
-                          <td className="py-4 px-3 font-black text-slate-900 dark:text-white">
-                            {b.patientName}
-                            <span className="block text-slate-500 text-xs font-semibold">{b.patientPhone}</span>
-                          </td>
-                          <td className="py-4 px-3 font-black text-[#008ac9]">
-                            🛡️ {b.hmoName || "Hygeia HMO"}
-                          </td>
-                          <td className="py-4 px-3 font-bold text-slate-900 dark:text-white">
-                            🆔 {b.hmoPolicyCode || "HYG-849201"}
-                          </td>
-                          <td className="py-4 px-3">
-                            <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black ${
-                              b.hmoStatus === "Approved"
-                                ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300"
-                                : "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300"
+                      <tr key={b.refCode} className="hover:bg-slate-50 dark:hover:bg-slate-950/60 transition-colors">
+                        <td className="py-4 px-3 font-black text-slate-900 dark:text-white">
+                          {b.patientName}
+                          <span className="block text-slate-500 text-xs font-semibold">{b.patientPhone}</span>
+                        </td>
+                        <td className="py-4 px-3 font-black text-[#008ac9]">
+                          🛡️ {b.hmoName || "Hygeia HMO"}
+                        </td>
+                        <td className="py-4 px-3 font-bold text-slate-900 dark:text-white">
+                          🆔 {b.hmoPolicyCode || "HYG-849201"}
+                        </td>
+                        <td className="py-4 px-3">
+                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black ${b.hmoStatus === "Approved"
+                            ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300"
+                            : "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300"
                             }`}>
-                              {b.hmoStatus === "Approved" ? "HMO Approved ✓" : "Pending Pre-Auth ⏳"}
-                            </span>
-                          </td>
-                          <td className="py-4 px-3 font-black text-slate-800 dark:text-slate-200">
-                            🔑 {b.hmoAuthCode || "Pending Auth Code"}
-                          </td>
-                        </tr>
-                      ))}
+                            {b.hmoStatus === "Approved" ? "HMO Approved ✓" : "Pending Pre-Auth ⏳"}
+                          </span>
+                        </td>
+                        <td className="py-4 px-3 font-black text-slate-800 dark:text-slate-200">
+                          🔑 {b.hmoAuthCode || "Pending Auth Code"}
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
@@ -8477,29 +8457,28 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                     {paginatedPrivatePatientsBookings.map((b) => (
-                        <tr key={b.refCode} className="hover:bg-slate-50 dark:hover:bg-slate-950/60 transition-colors">
-                          <td className="py-4 px-3 font-black text-[#008ac9]">{b.refCode}</td>
-                          <td className="py-4 px-3 font-black text-slate-900 dark:text-white">
-                            {b.patientName}
-                            <span className="block text-slate-500 text-xs font-semibold">{b.patientPhone}</span>
-                          </td>
-                          <td className="py-4 px-3 font-extrabold text-slate-800 dark:text-slate-200">
-                            🩺 {b.doctorName}
-                          </td>
-                          <td className="py-4 px-3 font-bold text-slate-700 dark:text-slate-300">
-                            📄 {b.invoiceRef || "INV-994120"}
-                          </td>
-                          <td className="py-4 px-3">
-                            <span className={`px-3 py-1 rounded-full text-xs font-black border ${
-                              b.paymentStatus === "Cleared"
-                                ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border-emerald-300"
-                                : "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300"
+                      <tr key={b.refCode} className="hover:bg-slate-50 dark:hover:bg-slate-950/60 transition-colors">
+                        <td className="py-4 px-3 font-black text-[#008ac9]">{b.refCode}</td>
+                        <td className="py-4 px-3 font-black text-slate-900 dark:text-white">
+                          {b.patientName}
+                          <span className="block text-slate-500 text-xs font-semibold">{b.patientPhone}</span>
+                        </td>
+                        <td className="py-4 px-3 font-extrabold text-slate-800 dark:text-slate-200">
+                          🩺 {b.doctorName}
+                        </td>
+                        <td className="py-4 px-3 font-bold text-slate-700 dark:text-slate-300">
+                          📄 {b.invoiceRef || "INV-994120"}
+                        </td>
+                        <td className="py-4 px-3">
+                          <span className={`px-3 py-1 rounded-full text-xs font-black border ${b.paymentStatus === "Cleared"
+                            ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border-emerald-300"
+                            : "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300"
                             }`}>
-                              {b.paymentStatus === "Cleared" ? "Paid & Cleared ✓" : "Payment Pending ⏳"}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
+                            {b.paymentStatus === "Cleared" ? "Paid & Cleared ✓" : "Payment Pending ⏳"}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
@@ -8754,11 +8733,10 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
 
                                 <button
                                   onClick={() => handleToggleScheduleStatus(sched)}
-                                  className={`px-3 py-1 rounded-xl text-[11px] font-black transition-all border ${
-                                    (sched.status === false || (typeof sched.status === "string" && sched.status.includes("Disabled")))
-                                      ? "bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300"
-                                      : "bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-300"
-                                  }`}
+                                  className={`px-3 py-1 rounded-xl text-[11px] font-black transition-all border ${(sched.status === false || (typeof sched.status === "string" && sched.status.includes("Disabled")))
+                                    ? "bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300"
+                                    : "bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-300"
+                                    }`}
                                 >
                                   {(sched.status === false || (typeof sched.status === "string" && sched.status.includes("Disabled"))) ? "Enable Shift" : "Disable Shift"}
                                 </button>
@@ -8820,11 +8798,10 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
                         type="button"
                         key={pg}
                         onClick={() => setSchedCurrentPage(pg)}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all border ${
-                          pg === currentSchedPage
-                            ? "bg-[#008ac9] text-white border-[#008ac9] shadow-sm"
-                            : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
-                        }`}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all border ${pg === currentSchedPage
+                          ? "bg-[#008ac9] text-white border-[#008ac9] shadow-sm"
+                          : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                          }`}
                       >
                         {pg}
                       </button>
@@ -8933,11 +8910,10 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
                     return (
                       <div
                         key={doc.id || doc.doc_id || idx}
-                        className={`p-4 rounded-2xl border-2 transition-all space-y-3 flex flex-col justify-between ${
-                          isDisabled
-                            ? "bg-rose-50/50 dark:bg-rose-950/20 border-rose-200 dark:border-rose-900/60 opacity-80"
-                            : "bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 hover:border-[#008ac9]/40 shadow-sm"
-                        }`}
+                        className={`p-4 rounded-2xl border-2 transition-all space-y-3 flex flex-col justify-between ${isDisabled
+                          ? "bg-rose-50/50 dark:bg-rose-950/20 border-rose-200 dark:border-rose-900/60 opacity-80"
+                          : "bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 hover:border-[#008ac9]/40 shadow-sm"
+                          }`}
                       >
                         <div className="space-y-3">
                           <div className="flex items-start justify-between gap-2">
@@ -8953,11 +8929,10 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
                               </span>
                             </div>
                             <span
-                              className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
-                                isDisabled
-                                  ? "bg-rose-100 text-rose-700 border border-rose-300"
-                                  : "bg-emerald-100 text-emerald-700 border border-emerald-300"
-                              }`}
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-black ${isDisabled
+                                ? "bg-rose-100 text-rose-700 border border-rose-300"
+                                : "bg-emerald-100 text-emerald-700 border border-emerald-300"
+                                }`}
                             >
                               {isDisabled ? "Disabled" : "Active"}
                             </span>
@@ -8985,11 +8960,10 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
                           <button
                             type="button"
                             onClick={() => handleToggleDoctorStatus(doc)}
-                            className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all border shadow-sm ${
-                              isDisabled
-                                ? "bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-500"
-                                : "bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-300"
-                            }`}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all border shadow-sm ${isDisabled
+                              ? "bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-500"
+                              : "bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-300"
+                              }`}
                           >
                             {isDisabled ? "Enable Doctor" : "Disable Doctor"}
                           </button>
@@ -9525,22 +9499,20 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
                   <button
                     type="button"
                     onClick={() => setIsRegisteringNewDocInSched(false)}
-                    className={`flex-1 py-2 text-xs font-black rounded-xl transition-all flex items-center justify-center gap-1.5 ${
-                      !isRegisteringNewDocInSched
-                        ? "bg-[#008ac9] text-white shadow-md"
-                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
-                    }`}
+                    className={`flex-1 py-2 text-xs font-black rounded-xl transition-all flex items-center justify-center gap-1.5 ${!isRegisteringNewDocInSched
+                      ? "bg-[#008ac9] text-white shadow-md"
+                      : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
+                      }`}
                   >
                     <User className="h-3.5 w-3.5" /> Select Existing Specialist
                   </button>
                   <button
                     type="button"
                     onClick={() => setIsRegisteringNewDocInSched(true)}
-                    className={`flex-1 py-2 text-xs font-black rounded-xl transition-all flex items-center justify-center gap-1.5 ${
-                      isRegisteringNewDocInSched
-                        ? "bg-[#008ac9] text-white shadow-md"
-                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
-                    }`}
+                    className={`flex-1 py-2 text-xs font-black rounded-xl transition-all flex items-center justify-center gap-1.5 ${isRegisteringNewDocInSched
+                      ? "bg-[#008ac9] text-white shadow-md"
+                      : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
+                      }`}
                   >
                     <Plus className="h-3.5 w-3.5" /> Register New Doctor & Schedule
                   </button>
@@ -9654,11 +9626,10 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
                           key={day}
                           type="button"
                           onClick={() => handleToggleSchedDay(day)}
-                          className={`px-3.5 py-2 rounded-xl text-xs font-black transition-all border ${
-                            selected
-                              ? "bg-[#008ac9] text-white border-[#008ac9] shadow-sm scale-105"
-                              : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700"
-                          }`}
+                          className={`px-3.5 py-2 rounded-xl text-xs font-black transition-all border ${selected
+                            ? "bg-[#008ac9] text-white border-[#008ac9] shadow-sm scale-105"
+                            : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700"
+                            }`}
                         >
                           {day} {selected ? "✓" : ""}
                         </button>
@@ -9729,11 +9700,10 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
                                       <button
                                         type="button"
                                         onClick={() => handleOpenSlotCustomTime(`create-${day}`, idx, shiftTime)}
-                                        className={`px-2.5 py-2 rounded-xl text-[11px] font-black border transition-all shrink-0 flex items-center gap-1 ${
-                                          isCustomActive
-                                            ? "bg-amber-600 text-white border-amber-600 shadow-sm"
-                                            : "bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-700 hover:bg-amber-100"
-                                        }`}
+                                        className={`px-2.5 py-2 rounded-xl text-[11px] font-black border transition-all shrink-0 flex items-center gap-1 ${isCustomActive
+                                          ? "bg-amber-600 text-white border-amber-600 shadow-sm"
+                                          : "bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-700 hover:bg-amber-100"
+                                          }`}
                                         title="Add custom start to end time"
                                       >
                                         <Clock className="h-3.5 w-3.5" /> + Start–End Time
@@ -9927,11 +9897,10 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
                               key={day}
                               type="button"
                               onClick={() => handleToggleEditDay(day)}
-                              className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all border ${
-                                selected
-                                  ? "bg-[#008ac9] text-white border-[#008ac9] shadow-sm scale-105"
-                                  : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700"
-                              }`}
+                              className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all border ${selected
+                                ? "bg-[#008ac9] text-white border-[#008ac9] shadow-sm scale-105"
+                                : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700"
+                                }`}
                             >
                               {day} {selected ? "✓" : ""}
                             </button>
@@ -9991,11 +9960,10 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
                                           <button
                                             type="button"
                                             onClick={() => handleOpenSlotCustomTime(`edit-${day}`, idx, shiftTime)}
-                                            className={`px-2.5 py-1.5 rounded-xl text-[11px] font-black border transition-all shrink-0 flex items-center gap-1 ${
-                                              isCustomActive
-                                                ? "bg-amber-600 text-white border-amber-600 shadow-sm"
-                                                : "bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-700 hover:bg-amber-100"
-                                            }`}
+                                            className={`px-2.5 py-1.5 rounded-xl text-[11px] font-black border transition-all shrink-0 flex items-center gap-1 ${isCustomActive
+                                              ? "bg-amber-600 text-white border-amber-600 shadow-sm"
+                                              : "bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-700 hover:bg-amber-100"
+                                              }`}
                                             title="Add custom start to end time"
                                           >
                                             <Clock className="h-3.5 w-3.5" /> + Start–End Time
@@ -10218,9 +10186,8 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
                                     setSpecDateDoctorSearch(adminName);
                                     setShowSpecDoctorDropdown(false);
                                   }}
-                                  className={`w-full text-left p-2.5 rounded-xl hover:bg-emerald-50 dark:hover:bg-slate-800 transition-colors flex items-center justify-between ${
-                                    (specDateDoctorId === d.doc_id || specDateDoctorId === d.id) ? "bg-emerald-50 dark:bg-slate-800 border border-emerald-500/30" : ""
-                                  }`}
+                                  className={`w-full text-left p-2.5 rounded-xl hover:bg-emerald-50 dark:hover:bg-slate-800 transition-colors flex items-center justify-between ${(specDateDoctorId === d.doc_id || specDateDoctorId === d.id) ? "bg-emerald-50 dark:bg-slate-800 border border-emerald-500/30" : ""
+                                    }`}
                                 >
                                   <div>
                                     <div className="text-xs font-black text-slate-900 dark:text-white">🩺 {adminName}</div>
@@ -10417,11 +10384,10 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
                               const derivedPreset = derivePatternFromWeeks(updatedWeeks, dName);
                               setSpecDateWeekPreset(derivedPreset);
                             }}
-                            className={`py-2 px-1 text-[10px] font-black rounded-xl transition-all text-center border ${
-                              isChecked
-                                ? "bg-emerald-600 text-white border-emerald-600 shadow-sm ring-1 ring-emerald-400 scale-105"
-                                : "bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:border-emerald-500 opacity-80 hover:opacity-100"
-                            }`}
+                            className={`py-2 px-1 text-[10px] font-black rounded-xl transition-all text-center border ${isChecked
+                              ? "bg-emerald-600 text-white border-emerald-600 shadow-sm ring-1 ring-emerald-400 scale-105"
+                              : "bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:border-emerald-500 opacity-80 hover:opacity-100"
+                              }`}
                           >
                             {wk} {isChecked ? "✓" : ""}
                           </button>
@@ -11693,11 +11659,10 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
                           setDeleteReasonText(preset);
                           setDeleteReasonError("");
                         }}
-                        className={`px-2.5 py-1 rounded-xl text-[11px] font-bold transition-all cursor-pointer border ${
-                          deleteReasonText === preset
-                            ? "bg-rose-600 text-white border-rose-600 shadow-sm"
-                            : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:bg-slate-200"
-                        }`}
+                        className={`px-2.5 py-1 rounded-xl text-[11px] font-bold transition-all cursor-pointer border ${deleteReasonText === preset
+                          ? "bg-rose-600 text-white border-rose-600 shadow-sm"
+                          : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:bg-slate-200"
+                          }`}
                       >
                         {preset}
                       </button>
@@ -12034,11 +11999,10 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
             <div className="bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl space-y-4">
               <div className="flex items-center gap-3">
                 <div
-                  className={`p-3 rounded-2xl ${
-                    confirmModalConfig.variant === "danger"
-                      ? "bg-rose-100 dark:bg-rose-950 text-rose-600 dark:text-rose-300 border border-rose-300"
-                      : "bg-sky-100 dark:bg-slate-800 text-[#008ac9] border border-sky-300"
-                  }`}
+                  className={`p-3 rounded-2xl ${confirmModalConfig.variant === "danger"
+                    ? "bg-rose-100 dark:bg-rose-950 text-rose-600 dark:text-rose-300 border border-rose-300"
+                    : "bg-sky-100 dark:bg-slate-800 text-[#008ac9] border border-sky-300"
+                    }`}
                 >
                   <AlertCircle className="h-6 w-6" />
                 </div>
@@ -12070,11 +12034,10 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
                     setConfirmModalConfig((prev) => ({ ...prev, isOpen: false }));
                     if (action) action();
                   }}
-                  className={`px-5 py-2.5 text-white font-black text-xs rounded-xl shadow-md transition-all ${
-                    confirmModalConfig.variant === "danger"
-                      ? "bg-rose-600 hover:bg-rose-700"
-                      : "bg-[#008ac9] hover:bg-[#0072b1]"
-                  }`}
+                  className={`px-5 py-2.5 text-white font-black text-xs rounded-xl shadow-md transition-all ${confirmModalConfig.variant === "danger"
+                    ? "bg-rose-600 hover:bg-rose-700"
+                    : "bg-[#008ac9] hover:bg-[#0072b1]"
+                    }`}
                 >
                   {confirmModalConfig.confirmText || "Confirm"}
                 </button>
@@ -12087,7 +12050,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
         {selectedReferralBooking && (
           <div className="fixed inset-0 z-[110] flex items-center justify-center p-3 sm:p-6 bg-slate-950/80 backdrop-blur-md animate-fadeIn">
             <div className="relative w-full max-w-4xl bg-white dark:bg-slate-900 border-2 border-sky-400 dark:border-sky-600 rounded-3xl p-4 sm:p-6 shadow-2xl space-y-4 animate-scaleUp overflow-y-auto max-h-[92vh]">
-              
+
               {/* Modal Top Navigation Bar */}
               <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3 gap-2">
                 <div className="flex items-center gap-3 min-w-0">
@@ -12160,7 +12123,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
 
               {/* MAIN IN-APP DOCUMENT READER PAPER WINDOW */}
               <div className="p-4 sm:p-6 rounded-2xl bg-white dark:bg-slate-950 border-2 border-slate-300 dark:border-slate-800 shadow-xl space-y-4 max-h-[55vh] overflow-y-auto custom-scrollbar">
-                
+
                 {/* Paper Header Seal */}
                 <div className="border-b-2 border-sky-500 pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <div>
@@ -12194,7 +12157,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
                   />
                 ) : (
                   <div className="p-4 sm:p-5 bg-slate-50 dark:bg-slate-900/90 rounded-xl border border-slate-200 dark:border-slate-800 space-y-4 font-mono text-xs text-slate-800 dark:text-slate-200 leading-relaxed">
-                    
+
                     {selectedReferralBooking.referralDocText ? (
                       <div className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-slate-800 dark:text-slate-200 p-3 bg-white dark:bg-slate-950 rounded-lg border border-slate-200 dark:border-slate-800">
                         {selectedReferralBooking.referralDocText}
@@ -12288,7 +12251,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
         {isAiReportModalOpen && (
           <div className="fixed inset-0 z-[120] flex items-center justify-center p-3 sm:p-6 bg-slate-950/85 backdrop-blur-md animate-fadeIn">
             <div className="relative w-full max-w-5xl bg-slate-900 border-2 border-sky-500 rounded-3xl p-5 sm:p-7 shadow-2xl space-y-5 animate-scaleUp overflow-y-auto max-h-[95vh] text-white">
-              
+
               {/* Modal Header */}
               <div className="flex items-start justify-between border-b border-slate-800 pb-4">
                 <div className="flex items-center gap-3">
@@ -12412,145 +12375,145 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
           </div>
         )}
 
-      {/* EDIT HMO PROVIDER MODAL (ADMIN ONLY) */}
-      {showEditHmoModal && editingHmoItem && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-fadeIn">
-          <div className="bg-white dark:bg-slate-900 border-2 border-[#008ac9] rounded-3xl p-6 sm:p-8 max-w-lg w-full shadow-2xl space-y-6 relative overflow-hidden">
-            <div className="flex items-center justify-between border-b-2 border-slate-100 dark:border-slate-800 pb-4">
-              <div className="flex items-center gap-3">
-                <div className="p-3 rounded-2xl bg-sky-100 dark:bg-slate-800 text-[#008ac9]">
-                  <Pencil className="h-6 w-6 text-[#008ac9]" />
+        {/* EDIT HMO PROVIDER MODAL (ADMIN ONLY) */}
+        {showEditHmoModal && editingHmoItem && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-fadeIn">
+            <div className="bg-white dark:bg-slate-900 border-2 border-[#008ac9] rounded-3xl p-6 sm:p-8 max-w-lg w-full shadow-2xl space-y-6 relative overflow-hidden">
+              <div className="flex items-center justify-between border-b-2 border-slate-100 dark:border-slate-800 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 rounded-2xl bg-sky-100 dark:bg-slate-800 text-[#008ac9]">
+                    <Pencil className="h-6 w-6 text-[#008ac9]" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-black text-slate-900 dark:text-white">Edit HMO Provider Details</h3>
+                    <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">Update accreditation information & desk contacts</p>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="text-xl font-black text-slate-900 dark:text-white">Edit HMO Provider Details</h3>
-                  <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">Update accreditation information & desk contacts</p>
-                </div>
-              </div>
-              <button
-                onClick={() => {
-                  setShowEditHmoModal(false);
-                  setEditingHmoItem(null);
-                }}
-                className="p-2 rounded-xl text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
-              >
-                ✕
-              </button>
-            </div>
-
-            {hmoFormError && (
-              <div className="p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-950/60 border border-rose-300 text-xs font-black text-rose-700 dark:text-rose-300">
-                ⚠️ {hmoFormError}
-              </div>
-            )}
-
-            <form onSubmit={handleSaveEditHmoCompany} className="space-y-4">
-              <div className="space-y-1">
-                <label className="text-xs font-black text-slate-700 dark:text-slate-300">HMO Company Name *</label>
-                <input
-                  type="text"
-                  required
-                  value={hmoCompanyName}
-                  onChange={(e) => setHmoCompanyName(e.target.value)}
-                  className="w-full px-4 py-2.5 text-xs font-bold rounded-2xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-[#008ac9]"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="text-xs font-black text-slate-700 dark:text-slate-300">Registration Code</label>
-                  <input
-                    type="text"
-                    value={hmoCompanyCode}
-                    onChange={(e) => setHmoCompanyCode(e.target.value)}
-                    className="w-full px-4 py-2.5 text-xs font-bold rounded-2xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-[#008ac9]"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-xs font-black text-slate-700 dark:text-slate-300">Partnership Status</label>
-                  <select
-                    value={hmoCompanyStatus}
-                    onChange={(e) => setHmoCompanyStatus(e.target.value)}
-                    className="w-full px-4 py-2.5 text-xs font-bold rounded-2xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-[#008ac9]"
-                  >
-                    <option value="Active Partner">Active Partner ✓</option>
-                    <option value="Disabled Partner">Disabled Partner 🚫</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="text-xs font-black text-slate-700 dark:text-slate-300">Pre-Auth Desk Email *</label>
-                  <input
-                    type="email"
-                    required
-                    value={hmoCompanyEmail}
-                    onChange={(e) => setHmoCompanyEmail(e.target.value)}
-                    className="w-full px-4 py-2.5 text-xs font-bold rounded-2xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-[#008ac9]"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-xs font-black text-slate-700 dark:text-slate-300">Helpline Phone *</label>
-                  <input
-                    type="text"
-                    required
-                    value={hmoCompanyPhone}
-                    onChange={(e) => setHmoCompanyPhone(e.target.value)}
-                    className="w-full px-4 py-2.5 text-xs font-bold rounded-2xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-[#008ac9]"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-xs font-black text-slate-700 dark:text-slate-300">Contact Officer / Desk Officer</label>
-                <input
-                  type="text"
-                  value={hmoCompanyContact}
-                  onChange={(e) => setHmoCompanyContact(e.target.value)}
-                  className="w-full px-4 py-2.5 text-xs font-bold rounded-2xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-[#008ac9]"
-                />
-              </div>
-
-              {isSubmittingHmoCompany && (
-                <div className="p-3 rounded-2xl bg-sky-50 dark:bg-slate-900 border-2 border-[#008ac9] text-[#008ac9] dark:text-sky-300 text-xs font-bold flex items-center justify-center gap-2.5 animate-pulse shadow-sm">
-                  <RefreshCw className="h-4 w-4 animate-spin text-[#008ac9]" />
-                  <span>Saving HMO partner changes... Please wait.</span>
-                </div>
-              )}
-
-              <div className="pt-4 flex items-center justify-end gap-3 border-t border-slate-100 dark:border-slate-800">
                 <button
-                  type="button"
-                  disabled={isSubmittingHmoCompany}
                   onClick={() => {
                     setShowEditHmoModal(false);
                     setEditingHmoItem(null);
                   }}
-                  className="px-5 py-2.5 rounded-2xl text-xs font-black bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="p-2 rounded-xl text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
                 >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmittingHmoCompany}
-                  className="px-6 py-2.5 rounded-2xl text-xs font-black bg-[#008ac9] hover:bg-[#0072b1] text-white shadow-lg shadow-[#008ac9]/30 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isSubmittingHmoCompany ? (
-                    <>
-                      <RefreshCw className="h-4 w-4 animate-spin text-white" />
-                      <span>Saving...</span>
-                    </>
-                  ) : (
-                    <>Save Changes ✓</>
-                  )}
+                  ✕
                 </button>
               </div>
-            </form>
+
+              {hmoFormError && (
+                <div className="p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-950/60 border border-rose-300 text-xs font-black text-rose-700 dark:text-rose-300">
+                  ⚠️ {hmoFormError}
+                </div>
+              )}
+
+              <form onSubmit={handleSaveEditHmoCompany} className="space-y-4">
+                <div className="space-y-1">
+                  <label className="text-xs font-black text-slate-700 dark:text-slate-300">HMO Company Name *</label>
+                  <input
+                    type="text"
+                    required
+                    value={hmoCompanyName}
+                    onChange={(e) => setHmoCompanyName(e.target.value)}
+                    className="w-full px-4 py-2.5 text-xs font-bold rounded-2xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-[#008ac9]"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-xs font-black text-slate-700 dark:text-slate-300">Registration Code</label>
+                    <input
+                      type="text"
+                      value={hmoCompanyCode}
+                      onChange={(e) => setHmoCompanyCode(e.target.value)}
+                      className="w-full px-4 py-2.5 text-xs font-bold rounded-2xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-[#008ac9]"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-xs font-black text-slate-700 dark:text-slate-300">Partnership Status</label>
+                    <select
+                      value={hmoCompanyStatus}
+                      onChange={(e) => setHmoCompanyStatus(e.target.value)}
+                      className="w-full px-4 py-2.5 text-xs font-bold rounded-2xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-[#008ac9]"
+                    >
+                      <option value="Active Partner">Active Partner ✓</option>
+                      <option value="Disabled Partner">Disabled Partner 🚫</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-xs font-black text-slate-700 dark:text-slate-300">Pre-Auth Desk Email *</label>
+                    <input
+                      type="email"
+                      required
+                      value={hmoCompanyEmail}
+                      onChange={(e) => setHmoCompanyEmail(e.target.value)}
+                      className="w-full px-4 py-2.5 text-xs font-bold rounded-2xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-[#008ac9]"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-xs font-black text-slate-700 dark:text-slate-300">Helpline Phone *</label>
+                    <input
+                      type="text"
+                      required
+                      value={hmoCompanyPhone}
+                      onChange={(e) => setHmoCompanyPhone(e.target.value)}
+                      className="w-full px-4 py-2.5 text-xs font-bold rounded-2xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-[#008ac9]"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-black text-slate-700 dark:text-slate-300">Contact Officer / Desk Officer</label>
+                  <input
+                    type="text"
+                    value={hmoCompanyContact}
+                    onChange={(e) => setHmoCompanyContact(e.target.value)}
+                    className="w-full px-4 py-2.5 text-xs font-bold rounded-2xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-[#008ac9]"
+                  />
+                </div>
+
+                {isSubmittingHmoCompany && (
+                  <div className="p-3 rounded-2xl bg-sky-50 dark:bg-slate-900 border-2 border-[#008ac9] text-[#008ac9] dark:text-sky-300 text-xs font-bold flex items-center justify-center gap-2.5 animate-pulse shadow-sm">
+                    <RefreshCw className="h-4 w-4 animate-spin text-[#008ac9]" />
+                    <span>Saving HMO partner changes... Please wait.</span>
+                  </div>
+                )}
+
+                <div className="pt-4 flex items-center justify-end gap-3 border-t border-slate-100 dark:border-slate-800">
+                  <button
+                    type="button"
+                    disabled={isSubmittingHmoCompany}
+                    onClick={() => {
+                      setShowEditHmoModal(false);
+                      setEditingHmoItem(null);
+                    }}
+                    className="px-5 py-2.5 rounded-2xl text-xs font-black bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmittingHmoCompany}
+                    className="px-6 py-2.5 rounded-2xl text-xs font-black bg-[#008ac9] hover:bg-[#0072b1] text-white shadow-lg shadow-[#008ac9]/30 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isSubmittingHmoCompany ? (
+                      <>
+                        <RefreshCw className="h-4 w-4 animate-spin text-white" />
+                        <span>Saving...</span>
+                      </>
+                    ) : (
+                      <>Save Changes ✓</>
+                    )}
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
         {/* HMO PASS PATIENT TO CASHDESK REMARK MODAL */}
         {isRerouteModalOpen && targetRerouteBooking && (
@@ -12638,11 +12601,10 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
                           setRerouteRemark(preset);
                           setRerouteError("");
                         }}
-                        className={`px-2.5 py-1 rounded-xl text-[11px] font-bold transition-all cursor-pointer border ${
-                          rerouteRemark === preset
-                            ? "bg-amber-600 text-white border-amber-600 shadow-sm"
-                            : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:bg-slate-200"
-                        }`}
+                        className={`px-2.5 py-1 rounded-xl text-[11px] font-bold transition-all cursor-pointer border ${rerouteRemark === preset
+                          ? "bg-amber-600 text-white border-amber-600 shadow-sm"
+                          : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:bg-slate-200"
+                          }`}
                       >
                         {preset}
                       </button>
@@ -12694,22 +12656,20 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
         {toastAlert && (
           <div className="fixed top-24 right-4 sm:right-6 z-[120] max-w-md w-full animate-fadeIn shadow-2xl">
             <div
-              className={`bg-white dark:bg-slate-900 border-2 ${
-                toastAlert.type === "warning"
-                  ? "border-amber-400 dark:border-amber-500 shadow-amber-500/20"
-                  : toastAlert.type === "danger"
+              className={`bg-white dark:bg-slate-900 border-2 ${toastAlert.type === "warning"
+                ? "border-amber-400 dark:border-amber-500 shadow-amber-500/20"
+                : toastAlert.type === "danger"
                   ? "border-rose-500 dark:border-rose-600 shadow-rose-500/20"
                   : "border-[#008ac9] dark:border-sky-500 shadow-[#008ac9]/20"
-              } rounded-3xl p-5 shadow-2xl flex items-start gap-3.5 relative`}
+                } rounded-3xl p-5 shadow-2xl flex items-start gap-3.5 relative`}
             >
               <div
-                className={`p-2.5 rounded-2xl shrink-0 mt-0.5 border ${
-                  toastAlert.type === "warning"
-                    ? "bg-amber-100 dark:bg-amber-950/80 text-amber-600 dark:text-amber-300 border-amber-300"
-                    : toastAlert.type === "danger"
+                className={`p-2.5 rounded-2xl shrink-0 mt-0.5 border ${toastAlert.type === "warning"
+                  ? "bg-amber-100 dark:bg-amber-950/80 text-amber-600 dark:text-amber-300 border-amber-300"
+                  : toastAlert.type === "danger"
                     ? "bg-rose-100 dark:bg-rose-950/80 text-rose-600 dark:text-rose-300 border-rose-300"
                     : "bg-emerald-100 dark:bg-emerald-950/80 text-emerald-600 dark:text-emerald-300 border-emerald-300"
-                }`}
+                  }`}
               >
                 {toastAlert.type === "warning" || toastAlert.type === "danger" ? (
                   <AlertCircle className="h-6 w-6" />
