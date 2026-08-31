@@ -33,8 +33,8 @@ export class ErrorBoundary extends Component<Props, State> {
 
   private handleClearCache = () => {
     try {
-      localStorage.clear();
-      sessionStorage.clear();
+      // Do not clear application/server data from the browser.
+      sessionStorage.removeItem("isalu_staff_jwt");
     } catch {}
     window.location.href = "/";
   };

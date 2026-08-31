@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useSearchParams, Link } from "react-router-dom";
 import { jsPDF } from "jspdf";
-import { DOCTORS, DEPARTMENTS, Doctor, getDoctorDisplayAcronym } from "../data/doctors";
+type Doctor = any;
+const getDoctorDisplayAcronym = (doctor: any) => doctor?.acronym || doctor?.name || "Specialist";
 import {
   Calendar,
   Clock,
@@ -111,37 +112,8 @@ export function BookAppointmentPage() {
   const [selectedDate, setSelectedDate] = useState<string>("");
   const [selectedTime, setSelectedTime] = useState<string>("");
 
-  const [specialistSchedulesList, setSpecialistSchedulesList] = useState<any[]>(() => {
-    const saved = localStorage.getItem("isalu_specialist_schedules");
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (parsed && Array.isArray(parsed) && parsed.length > 0) return parsed;
-      } catch {}
-    }
-    return [];
-  });
+  const [specialistSchedulesList, setSpecialistSchedulesList] = useState<any[]>([]);
 
-  const NIGERIAN_HMO_PROVIDERS = [
-    "Hygeia HMO",
-    "Reliance HMO",
-    "AXA Mansard Health",
-    "Avon HMO",
-    "Leadway Health",
-    "Clearline HMO",
-    "Total Health Trust",
-    "Redcare HMO",
-    "Anchor HMO",
-    "Metrohealth HMO",
-    "Bastion HMO",
-    "Ultimate Health HMO",
-    "Ronsolve HMO",
-    "Healthcare International",
-    "AIICO Multishield",
-    "KBL Healthcare",
-    "Standard Alliance Life",
-    "DOT HMO",
-  ];
 
   const [patientName, setPatientName] = useState<string>("");
   const [patientPhone, setPatientPhone] = useState<string>("");
@@ -176,6 +148,7 @@ export function BookAppointmentPage() {
   };
 
   const [departmentsList, setDepartmentsList] = useState<any[]>([]);
+  const [hmoCompanies, setHmoCompanies] = useState<any[]>([]);
 
   const sanitizeDoctor = (doc: any) => {
     let rawTypes = doc.acceptedPatientTypes || doc.accepted_patient_types;
@@ -192,8 +165,8 @@ export function BookAppointmentPage() {
     if (!rawDeptId && doc.departmentId) rawDeptId = String(doc.departmentId);
     if (!rawDeptId && doc.department_id) rawDeptId = String(doc.department_id);
 
-    const deptObj = DEPARTMENTS.find(d => d.id === rawDeptId || d.name.toLowerCase() === rawDeptId.toLowerCase()) ||
-                    DEPARTMENTS.find(d => rawDeptName && d.name.toLowerCase() === rawDeptName.toLowerCase());
+    const deptObj = departmentsList.find(d => d.id === rawDeptId || d.name?.toLowerCase() === rawDeptId.toLowerCase()) ||
+                    departmentsList.find(d => rawDeptName && d.name?.toLowerCase() === rawDeptName.toLowerCase());
 
     const finalDeptId = deptObj ? deptObj.id : rawDeptId;
     const finalDeptName = deptObj ? deptObj.name : (rawDeptName || doc.specialty || "General Medicine");
@@ -208,16 +181,7 @@ export function BookAppointmentPage() {
     };
   };
 
-  const [allDoctors, setAllDoctors] = useState<Doctor[]>(() => {
-    const saved = localStorage.getItem("isalu_hospital_doctors");
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed.map(sanitizeDoctor);
-      } catch {}
-    }
-    return DOCTORS.map(sanitizeDoctor);
-  });
+  const [allDoctors, setAllDoctors] = useState<Doctor[]>([]);
 
   useEffect(() => {
     async function syncData() {
@@ -240,14 +204,14 @@ export function BookAppointmentPage() {
       if (remoteDoctors && Array.isArray(remoteDoctors) && remoteDoctors.length > 0) {
         const sanitized = remoteDoctors.map(sanitizeDoctor);
         setAllDoctors(sanitized);
-        localStorage.setItem("isalu_hospital_doctors", JSON.stringify(sanitized));
       }
 
       const remoteSchedules = await getSchedulesAPI();
-      if (remoteSchedules && Array.isArray(remoteSchedules) && remoteSchedules.length > 0) {
+      if (remoteSchedules && Array.isArray(remoteSchedules)) {
         setSpecialistSchedulesList(remoteSchedules);
-        localStorage.setItem("isalu_specialist_schedules", JSON.stringify(remoteSchedules));
       }
+      const remoteHmos = await (await import("../api/client")).getHmoCompaniesAPI();
+      if (Array.isArray(remoteHmos)) setHmoCompanies(remoteHmos);
     }
     syncData();
   }, [selectedDept]);
@@ -275,7 +239,7 @@ export function BookAppointmentPage() {
       (d: any) =>
         String(d.id || d.dept_id || "").toLowerCase().trim() === String(deptId).toLowerCase().trim() ||
         String(d.name || "").toLowerCase().trim() === String(deptId).toLowerCase().trim()
-    ) || DEPARTMENTS.find(
+    ) || departmentsList.find(
       (d: any) =>
         String(d.id || "").toLowerCase().trim() === String(deptId).toLowerCase().trim() ||
         String(d.name || "").toLowerCase().trim() === String(deptId).toLowerCase().trim()
@@ -331,7 +295,7 @@ export function BookAppointmentPage() {
 
   const selectedDeptObj = departmentsList.find(
     (d: any) => String(d.id || d.dept_id).toLowerCase().trim() === String(selectedDept).toLowerCase().trim() || String(d.name).toLowerCase().trim() === String(selectedDept).toLowerCase().trim()
-  ) || DEPARTMENTS.find(
+  ) || departmentsList.find(
     (d) => d.id === selectedDept || d.name.toLowerCase() === selectedDept.toLowerCase()
   );
 
@@ -341,16 +305,12 @@ export function BookAppointmentPage() {
   const getDoctorSlotStatsForDate = (doctorId: string, dateStr: string) => {
     let existingBookings: any[] = [];
     try {
-      existingBookings = JSON.parse(localStorage.getItem("isalu_bookings") || localStorage.getItem("medicare_bookings") || "[]") || [];
     } catch {}
     const bookedOnDate = existingBookings.filter(
       (b) => b.doctorId === doctorId && b.date === dateStr && b.status !== "Cancelled"
     ).length;
 
-    let savedSchedules: any[] = [];
-    try {
-      savedSchedules = JSON.parse(localStorage.getItem("isalu_specialist_schedules") || "[]") || [];
-    } catch {}
+    const savedSchedules: any[] = specialistSchedulesList || [];
     const matchedSched = savedSchedules.find((s) => s.doctorId === doctorId || s.doctorId === selectedDoctor?.doc_id);
 
     let maxCapacity = 15;
@@ -378,7 +338,6 @@ export function BookAppointmentPage() {
   const getDoctorSlotStats = (doctorId: string, timeSlotsCount: number) => {
     let existingBookings: any[] = [];
     try {
-      existingBookings = JSON.parse(localStorage.getItem("isalu_bookings") || localStorage.getItem("medicare_bookings") || "[]") || [];
     } catch {}
     const bookedForDoc = existingBookings.filter((b) => b.doctorId === doctorId && b.status !== "Cancelled").length;
     const totalCapacity = Math.max(8, timeSlotsCount * 2);
@@ -389,13 +348,7 @@ export function BookAppointmentPage() {
   const getDoctorEffectiveAvailableDays = (doctor: Doctor | undefined): string[] => {
     if (!doctor) return [];
 
-    // 1. Check saved specialist schedules from component state & localStorage
-    let savedSchedules: any[] = specialistSchedulesList || [];
-    if (!savedSchedules || savedSchedules.length === 0) {
-      try {
-        savedSchedules = JSON.parse(localStorage.getItem("isalu_specialist_schedules") || "[]") || [];
-      } catch {}
-    }
+    const savedSchedules: any[] = specialistSchedulesList || [];
     const docSchedules = savedSchedules.filter((s) => {
       const sDocId = String(s.doctorId || s.doctor_id || "").toLowerCase().trim();
       const dId = String(doctor.id || "").toLowerCase().trim();
@@ -712,13 +665,7 @@ export function BookAppointmentPage() {
     const dayName = dateObj.toLocaleDateString("en-US", { weekday: "long" });
     const dayShort = dateObj.toLocaleDateString("en-US", { weekday: "short" });
 
-    // 1. Check saved specialist schedules from component state or localStorage
-    let savedSchedules: any[] = specialistSchedulesList || [];
-    if (!savedSchedules || savedSchedules.length === 0) {
-      try {
-        savedSchedules = JSON.parse(localStorage.getItem("isalu_specialist_schedules") || "[]") || [];
-      } catch {}
-    }
+    const savedSchedules: any[] = specialistSchedulesList || [];
     const matchedSched = savedSchedules.find(
       (s) => s.doctorId === doctor.id || s.doctorId === (doctor as any).doc_id || s.doctorName?.includes(doctor.name)
     );
@@ -758,7 +705,7 @@ export function BookAppointmentPage() {
     // 2. Check doctor.timeSlots array
     if (doctor.timeSlots && Array.isArray(doctor.timeSlots) && doctor.timeSlots.length > 0) {
       const daySlot = doctor.timeSlots.find(
-        (ts) => ts.toLowerCase().includes(dayShort.toLowerCase()) || ts.toLowerCase().includes(dayName.toLowerCase())
+        (ts: string) => ts.toLowerCase().includes(dayShort.toLowerCase()) || ts.toLowerCase().includes(dayName.toLowerCase())
       );
       if (daySlot) {
         const match = daySlot.match(/\d{1,2}:\d{2}\s*(?:AM|PM)\s*–\s*\d{1,2}:\d{2}\s*(?:AM|PM)/i);
@@ -813,10 +760,6 @@ export function BookAppointmentPage() {
     return timeDiffMinutes < 30;
   };
 
-  const generateTicketRef = () => {
-    const random = Math.floor(100000 + Math.random() * 900000);
-    return `ISALU-${random}`;
-  };
 
   const getOrdinalSuffix = (day: number): string => {
     if (day > 3 && day < 21) return `${day}th`;
@@ -1292,10 +1235,7 @@ export function BookAppointmentPage() {
     setIsSubmittingBooking(true);
     await new Promise((resolve) => setTimeout(resolve, 450));
 
-    const refCode = generateTicketRef();
     const newBooking = {
-      refCode,
-      ref_code: refCode,
       doctorId: selectedDoctor.id,
       doctor_id: selectedDoctor.id,
       doctorName: selectedDoctor.fullName || selectedDoctor.name,
@@ -1329,8 +1269,6 @@ export function BookAppointmentPage() {
       hmo_status: patientType === "HMO Insurance" ? "Pending Pre-Auth" : "N/A",
       paymentStatus: patientType === "HMO Insurance" ? "HMO Cover" : "Pending",
       payment_status: patientType === "HMO Insurance" ? "HMO Cover" : "Pending",
-      createdAt: new Date().toISOString(),
-      status: "Confirmed",
     };
 
     let savedRecord = newBooking;
@@ -1348,9 +1286,12 @@ export function BookAppointmentPage() {
         setIsSubmittingBooking(false);
         return;
       }
-      if (res && (res.refCode || res.ref_code)) {
-        savedRecord = { ...newBooking, ...res };
+      if (!res || res.error || !(res.refCode || res.ref_code)) {
+        alert("The hospital server did not return a valid booking record. No local booking was created.");
+        setIsSubmittingBooking(false);
+        return;
       }
+      savedRecord = res;
     } catch (e: any) {
       console.warn("createBookingAPI error:", e);
       alert(`API Error: ${e.message || "Could not save booking to backend database."}`);
@@ -1358,10 +1299,6 @@ export function BookAppointmentPage() {
       return;
     }
 
-    const existing = (JSON.parse(localStorage.getItem("isalu_bookings") || localStorage.getItem("medicare_bookings") || "[]") || []) as any[];
-    const updated = [savedRecord, ...existing.filter((b: any) => (b.refCode || b.ref_code) !== (savedRecord.refCode || savedRecord.ref_code))];
-    localStorage.setItem("isalu_bookings", JSON.stringify(updated));
-    localStorage.setItem("isalu_bookings_updated", String(Date.now()));
 
     // Broadcast across windows and tabs
     try {
@@ -1519,17 +1456,7 @@ export function BookAppointmentPage() {
                       {showHmoSuggestions && hmoSearchQuery.trim().length >= 2 && (
                         <div className="absolute z-30 left-0 right-0 mt-1 bg-white dark:bg-slate-900 border-2 border-[#008ac9] rounded-2xl shadow-xl max-h-52 overflow-y-auto p-1.5 animate-fadeIn">
                           {(() => {
-                            const savedHmoStr = localStorage.getItem("isalu_hmo_companies");
-                            let allHmoNames = NIGERIAN_HMO_PROVIDERS;
-                            if (savedHmoStr) {
-                              try {
-                                const parsed = JSON.parse(savedHmoStr);
-                                if (Array.isArray(parsed) && parsed.length > 0) {
-                                  const dynamicNames = parsed.map((h: any) => (typeof h === "string" ? h : h.name)).filter(Boolean);
-                                  allHmoNames = Array.from(new Set([...dynamicNames, ...NIGERIAN_HMO_PROVIDERS]));
-                                }
-                              } catch {}
-                            }
+                            const allHmoNames = hmoCompanies.map((h: any) => h.name).filter(Boolean);
 
                             const matches = allHmoNames.filter((provider) =>
                               provider.toLowerCase().includes(hmoSearchQuery.trim().toLowerCase())

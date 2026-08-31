@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { jsPDF } from "jspdf";
-import { DOCTORS, DEPARTMENTS, getAcronymForIndex, getDoctorRealName } from "../data/doctors";
+const getAcronymForIndex = (index: number) => { let letters = "", n = index; while (n >= 0) { letters = String.fromCharCode(65 + (n % 26)) + letters; n = Math.floor(n / 26) - 1; } return `Specialist ${letters}`; };
+const getDoctorRealName = (value: any) => { if (!value) return "Specialist"; if (typeof value === "string") return value; return value.doctorName || value.doctor_name || value.fullName || value.full_name || value.name || "Specialist"; };
 import {
   Building2,
   ShieldCheck,
@@ -83,6 +84,10 @@ import {
   loginStaffAPI,
   updateBookingAPI,
   createCustomTimeSlotAPI,
+  clearAllBookingsAPI,
+  generateAiReportAPI,
+  getAppSettingAPI,
+  saveAppSettingAPI,
 } from "../api/client";
 import { IsaluLogo } from "../components/IsaluLogo";
 
@@ -344,7 +349,7 @@ export function HospitalDashboardPage() {
       sessionStorage.removeItem("isalu_staff_authenticated");
       sessionStorage.removeItem("isalu_staff_user");
       sessionStorage.removeItem("isalu_staff_jwt");
-      localStorage.removeItem("isalu_auth_tokens");
+      sessionStorage.removeItem("isalu_auth_tokens");
     };
 
     window.addEventListener("isalu_auth_401", handle401AuthError);
@@ -678,61 +683,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
   };
 
   // User Management State Module
-  const [systemUsers, setSystemUsers] = useState<any[]>(() => {
-    const saved = localStorage.getItem("isalu_system_users");
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch {}
-    }
-    return [
-      {
-        id: "usr-1",
-        name: "Dr. Chief Administrator",
-        email: "admin@isaluhospitals.com",
-        role: "Super Administrator",
-        desk: "All Access",
-        status: "Active",
-        lastActive: "Just now",
-      },
-      {
-        id: "usr-2",
-        name: "Mrs. Adesuwa Receptionist",
-        email: "reception@isaluhospitals.com",
-        role: "Helpdesk Officer",
-        desk: "Helpdesk Reception",
-        status: "Active",
-        lastActive: "5 mins ago",
-      },
-      {
-        id: "usr-3",
-        name: "Mr. Kunle HMO Officer",
-        email: "hmo.desk@isaluhospitals.com",
-        role: "HMO Approval Officer",
-        desk: "HMO Approval Desk",
-        status: "Active",
-        lastActive: "12 mins ago",
-      },
-      {
-        id: "usr-4",
-        name: "Mrs. Blessing Cashier",
-        email: "cashdesk@isaluhospitals.com",
-        role: "Cashdesk Billing Officer",
-        desk: "Cashdesk",
-        status: "Active",
-        lastActive: "20 mins ago",
-      },
-      {
-        id: "usr-5",
-        name: "Mr. Tunde Floor Controller",
-        email: "floor.monitor@isaluhospitals.com",
-        role: "Monitor Desk Operator",
-        desk: "Monitor Desk",
-        status: "Active",
-        lastActive: "2 mins ago",
-      },
-    ];
-  });
+  const [systemUsers, setSystemUsers] = useState<any[]>([]);
 
   const [userSearchQuery, setUserSearchQuery] = useState("");
   const [userRoleFilter, setUserRoleFilter] = useState("all");
@@ -740,20 +691,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
 
   // User & Roles Management Module State
   const [userSubTab, setUserSubTab] = useState<"users" | "roles">("users");
-  const [roles, setRoles] = useState<any[]>(() => {
-    const saved = localStorage.getItem("isalu_system_roles");
-    if (saved) {
-      try { return JSON.parse(saved); } catch {}
-    }
-    return [
-      { id: "role-1", name: "Super Administrator", description: "Full administrative control over all hospital operations.", primaryDesk: "analytics", allowedDesks: ["helpdesk", "hmo", "cashdesk", "analytics", "monitor", "users", "clinic", "all_patients", "checked_in_patients", "hmo_enrollees", "private_patients", "create_specialist_schedule", "disabled_bookings"], isSystemRole: true, status: "Active" },
-      { id: "role-2", name: "Helpdesk Officer", description: "Front-desk reception patient intake and queue checking.", primaryDesk: "helpdesk", allowedDesks: ["helpdesk", "all_patients", "checked_in_patients"], isSystemRole: true, status: "Active" },
-      { id: "role-3", name: "HMO Approval Officer", description: "Verification of HMO insurance policies and pre-auth codes.", primaryDesk: "hmo", allowedDesks: ["hmo", "hmo_enrollees"], isSystemRole: true, status: "Active" },
-      { id: "role-4", name: "Cashdesk Billing Officer", description: "Private self-pay payments clearance and invoicing.", primaryDesk: "cashdesk", allowedDesks: ["cashdesk", "private_patients"], isSystemRole: true, status: "Active" },
-      { id: "role-5", name: "Monitor Desk Operator", description: "Real-time consultation queue monitoring.", primaryDesk: "monitor", allowedDesks: ["monitor"], isSystemRole: true, status: "Active" },
-      { id: "role-6", name: "Queue Analytics Officer", description: "Executive intelligence and department metrics.", primaryDesk: "analytics", allowedDesks: ["analytics"], isSystemRole: true, status: "Active" },
-    ];
-  });
+  const [roles, setRoles] = useState<any[]>([]);
 
   const [showCreateRoleModal, setShowCreateRoleModal] = useState(false);
   const [newRoleName, setNewRoleName] = useState("");
@@ -771,7 +709,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
 
   const broadcastRoleChange = (updatedRoles: any[]) => {
     try {
-      localStorage.setItem("isalu_system_roles", JSON.stringify(updatedRoles));
+
       const channel = new BroadcastChannel("isalu_role_channel");
       channel.postMessage({ type: "ROLES_UPDATED", roles: updatedRoles });
       channel.close();
@@ -782,10 +720,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
 
   const loadRoles = async () => {
     const remote = await getRolesAPI();
-    if (remote && Array.isArray(remote) && remote.length > 0) {
-      setRoles(remote);
-      broadcastRoleChange(remote);
-    }
+    if (Array.isArray(remote)) { setRoles(remote); }
   };
 
   const handleCreateRole = async (e: React.FormEvent) => {
@@ -794,10 +729,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
       setRoleFormError("Please enter a role title/name.");
       return;
     }
-    const roleId = `role-${Date.now()}`;
     const newRoleObj = {
-      id: roleId,
-      role_id: roleId,
       name: newRoleName.trim(),
       description: newRoleDescription.trim(),
       primaryDesk: newRolePrimaryDesk,
@@ -810,9 +742,10 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
     };
 
     const res = await createRoleAPI(newRoleObj);
-    const created = res || newRoleObj;
+    if (!res || res.error) { setRoleFormError(res?.error || "Failed to create role on the server."); return; }
+    const created = res;
     const remoteRoles = await getRolesAPI();
-    const updated = remoteRoles && remoteRoles.length > 0 ? remoteRoles : [created, ...roles];
+    const updated = Array.isArray(remoteRoles) ? remoteRoles : roles;
     setRoles(updated);
     broadcastRoleChange(updated);
 
@@ -899,7 +832,6 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
 
   const broadcastUserChange = (updatedList: any[]) => {
     try {
-      localStorage.setItem("isalu_system_users", JSON.stringify(updatedList));
 
       const channel = new BroadcastChannel("isalu_user_channel");
       channel.postMessage({ type: "USERS_UPDATED", users: updatedList });
@@ -911,42 +843,11 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
   };
 
   const loadUsers = async () => {
-    const localStr = localStorage.getItem("isalu_system_users");
-    let localParsed: any[] = [];
-    if (localStr) {
-      try { localParsed = JSON.parse(localStr); } catch {}
-    }
-
     const remote = await getSystemUsersAPI();
-    if (remote && Array.isArray(remote)) {
-      setSystemUsers(remote);
-      localStorage.setItem("isalu_system_users", JSON.stringify(remote));
-
-      // Sync active session user profile if role was updated on another system
+    setSystemUsers(Array.isArray(remote) ? remote : []);
+    if (Array.isArray(remote)) {
       const savedProfile = sessionStorage.getItem("isalu_staff_user_profile");
-      if (savedProfile) {
-        try {
-          const parsedCur = JSON.parse(savedProfile);
-          const curEmail = (parsedCur?.email || "").toLowerCase().trim();
-          const curName = (parsedCur?.name || "").toLowerCase().trim();
-          const matched = remote.find(
-            (u: any) =>
-              (u.email && u.email.toLowerCase().trim() === curEmail) ||
-              (u.name && u.name.toLowerCase().trim() === curName)
-          );
-          if (matched && matched.role && (matched.role !== parsedCur.role || matched.desk !== parsedCur.desk)) {
-            const updatedProf = {
-              ...parsedCur,
-              role: matched.role,
-              desk: matched.desk || getPrimaryDeskForRole(matched.role),
-            };
-            sessionStorage.setItem("isalu_staff_user_profile", JSON.stringify(updatedProf));
-            setCurrentUser(updatedProf);
-          }
-        } catch {}
-      }
-    } else if (localParsed.length > 0) {
-      setSystemUsers(localParsed);
+      if (savedProfile) { try { const parsedCur = JSON.parse(savedProfile); const matched = remote.find((u: any) => u.email?.toLowerCase() === parsedCur?.email?.toLowerCase() || u.name?.toLowerCase() === parsedCur?.name?.toLowerCase()); if (matched?.role) { const updatedProf = { ...parsedCur, role: matched.role, desk: matched.desk || getPrimaryDeskForRole(matched.role) }; sessionStorage.setItem("isalu_staff_user_profile", JSON.stringify(updatedProf)); setCurrentUser(updatedProf); } } catch {} }
     }
   };
 
@@ -1030,10 +931,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
 
     setIsCreatingUser(true);
     try {
-      const userIdStr = `usr-${Date.now()}`;
       const newUser = {
-        id: userIdStr,
-        user_id: userIdStr,
         name: newUserName.trim(),
         email: newUserEmail.trim(),
         password: newUserPassword.trim(),
@@ -1045,10 +943,9 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
       };
 
       const res = await createSystemUserAPI(newUser);
-      const createdRecord = res || newUser;
-
+      if (!res || res.error) throw new Error(res?.error || "Failed to create user on the server.");
       const remoteUsers = await getSystemUsersAPI();
-      const updated = remoteUsers && remoteUsers.length > 0 ? remoteUsers : [createdRecord, ...systemUsers];
+      const updated = Array.isArray(remoteUsers) ? remoteUsers : systemUsers;
 
       setSystemUsers(updated);
       broadcastUserChange(updated);
@@ -1070,16 +967,6 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
     }
   };
 
-  const DEFAULT_HMO_COMPANIES = [
-    { id: "hmo-1", name: "Hygeia HMO", code: "HMO-HYG-001", email: "preauth@hygeiahmo.com", phone: "+234 700 494 342", contactPerson: "Mrs. Victoria Adeleke", status: "Active Partner" },
-    { id: "hmo-2", name: "Reliance HMO", code: "HMO-RLN-002", email: "claims@reliancehmo.com", phone: "+234 1 700 1555", contactPerson: "Mr. Chukwuma Eze", status: "Active Partner" },
-    { id: "hmo-3", name: "AXA Mansard Health", code: "HMO-AXA-003", email: "hmo@axamansard.com", phone: "+234 1 448 5433", contactPerson: "Dr. Funke Akindele", status: "Active Partner" },
-    { id: "hmo-4", name: "Avon HMO", code: "HMO-AVN-004", email: "preauth@avonhmo.com", phone: "+234 700 286 6466", contactPerson: "Mr. Segun Oladipo", status: "Active Partner" },
-    { id: "hmo-5", name: "Leadway Health", code: "HMO-LWD-005", email: "medical@leadwayhealth.com", phone: "+234 1 280 2060", contactPerson: "Mrs. Blessing Okafor", status: "Active Partner" },
-    { id: "hmo-6", name: "Clearline HMO", code: "HMO-CLR-006", email: "desk@clearlinehmo.com", phone: "+234 1 462 8111", contactPerson: "Mr. Ibrahim Bello", status: "Active Partner" },
-    { id: "hmo-7", name: "Total Health Trust", code: "HMO-THT-007", email: "authorizations@totalhealthtrust.com", phone: "+234 700 868 2543", contactPerson: "Dr. Kemi Balogun", status: "Active Partner" },
-    { id: "hmo-8", name: "Redcare HMO", code: "HMO-RDC-008", email: "info@redcarehmo.com", phone: "+234 1 700 7332", contactPerson: "Mr. Tunde Lawal", status: "Active Partner" },
-  ];
 
   const mergeHmoData = (defaultList: any[], localList: any[], remoteList: any[]) => {
     const mergedMap = new Map<string, any>();
@@ -1121,21 +1008,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
   };
 
   // HMO Provider Companies List State
-  const [hmoCompanies, setHmoCompanies] = useState<any[]>(() => {
-    const isCleared = localStorage.getItem("isalu_hmo_cleared");
-    if (isCleared === "true") return [];
-
-    const saved = localStorage.getItem("isalu_hmo_companies");
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (parsed && Array.isArray(parsed)) {
-          return parsed;
-        }
-      } catch {}
-    }
-    return DEFAULT_HMO_COMPANIES;
-  });
+  const [hmoCompanies, setHmoCompanies] = useState<any[]>([]);
 
   // Create & Edit HMO Provider Company Form State
   const [showCreateHmoModal, setShowCreateHmoModal] = useState(false);
@@ -1247,8 +1120,6 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
     setIsSubmittingHmoCompany(true);
 
     const newCompany = {
-      id: `hmo-${Date.now()}`,
-      hmo_id: `hmo-${Date.now()}`,
       name: hmoCompanyName.trim(),
       code: hmoCompanyCode.trim() || `HMO-${hmoCompanyName.substring(0, 3).toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`,
       email: hmoCompanyEmail.trim(),
@@ -1268,7 +1139,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
       const remoteHmos = await getHmoCompaniesAPI();
       if (remoteHmos && Array.isArray(remoteHmos)) {
         setHmoCompanies(remoteHmos);
-        localStorage.setItem("isalu_hmo_companies", JSON.stringify(remoteHmos));
+
       }
     } catch (e: any) {
       setHmoFormError(`Failed to save HMO company to database: ${e.message}`);
@@ -1295,7 +1166,6 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
 
   const broadcastHmoChange = (updatedList: any[]) => {
     try {
-      localStorage.setItem("isalu_hmo_companies", JSON.stringify(updatedList));
 
       const channel = new BroadcastChannel("isalu_hmo_channel");
       channel.postMessage({ type: "HMO_UPDATED", hmoCompanies: updatedList });
@@ -1355,7 +1225,6 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
         const contactPerson = cols[4] || "Desk Officer";
 
         const hmoObj = {
-          id: `hmo-${Date.now()}-${idx}-${Math.floor(Math.random() * 1000)}`,
           name,
           code,
           email,
@@ -1367,10 +1236,8 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
 
         try {
           const apiRes = await createHmoCompanyAPI(hmoObj);
-          newHmos.push(apiRes || hmoObj);
-        } catch {
-          newHmos.push(hmoObj);
-        }
+          if (apiRes && !apiRes.error) newHmos.push(apiRes);
+        } catch { /* server remains authoritative */ }
       }
 
       if (newHmos.length === 0) {
@@ -1382,7 +1249,6 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
         return;
       }
 
-      localStorage.removeItem("isalu_hmo_cleared");
       const remoteHmos = await getHmoCompaniesAPI();
       const masterList = remoteHmos && Array.isArray(remoteHmos) && remoteHmos.length > 0 ? remoteHmos : newHmos;
 
@@ -1442,8 +1308,6 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
           }
         } catch {}
 
-        localStorage.setItem("isalu_hmo_cleared", "true");
-        localStorage.setItem("isalu_hmo_companies", JSON.stringify([]));
         setHmoCompanies([]);
         broadcastHmoChange([]);
         setToastAlert({
@@ -1474,8 +1338,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
         location: d.location || "Main Hospital Complex - Suite Wing",
       }));
       setClinics(mapped);
-      localStorage.setItem("isalu_clinics_list", JSON.stringify(mapped));
-      localStorage.setItem("isalu_hospital_departments", JSON.stringify(mapped));
+
     }
   };
 
@@ -1531,8 +1394,6 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
 
   const broadcastClinicChange = (updatedList: any[]) => {
     try {
-      localStorage.setItem("isalu_clinics_list", JSON.stringify(updatedList));
-      localStorage.setItem("isalu_hospital_departments", JSON.stringify(updatedList));
 
       const channel = new BroadcastChannel("isalu_clinic_channel");
       channel.postMessage({ type: "CLINIC_UPDATED", clinics: updatedList });
@@ -1731,7 +1592,6 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
           : hmoCompanies.map((item) => ((item.id === targetId || item.hmo_id === targetId) ? { ...item, status: newStatus } : item));
 
         setHmoCompanies(updated);
-        localStorage.setItem("isalu_hmo_companies", JSON.stringify(updated));
 
         setToastAlert({
           title: isDisabling ? "HMO Partner Disabled 🚫" : "HMO Partner Re-Enabled ✓",
@@ -1743,35 +1603,15 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
   };
 
   // Specialist Schedule Management State
-  const [specialistSchedules, setSpecialistSchedules] = useState<any[]>(() => {
-    const saved = localStorage.getItem("isalu_specialist_schedules");
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      } catch {}
-    }
-    localStorage.removeItem("isalu_specialist_schedules");
-    return [];
-  });
+  const [specialistSchedules, setSpecialistSchedules] = useState<any[]>([]);
 
   // Registered Doctors State
-  const [doctorsList, setDoctorsList] = useState<any[]>(() => {
-    const saved = localStorage.getItem("isalu_hospital_doctors");
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      } catch {}
-    }
-    localStorage.removeItem("isalu_hospital_doctors");
-    return [];
-  });
+  const [doctorsList, setDoctorsList] = useState<any[]>([]);
 
   // New Specialist Doctor Modal State
   const [showAddDoctorModal, setShowAddDoctorModal] = useState(false);
   const [newDocName, setNewDocName] = useState("");
-  const [newDocSpecialty, setNewDocSpecialty] = useState(DEPARTMENTS[0]?.name || "Cardiology");
+  const [newDocSpecialty, setNewDocSpecialty] = useState(clinics[0]?.name || "Cardiology");
   const [newDocQualifications, setNewDocQualifications] = useState("");
   const [newDocRoom, setNewDocRoom] = useState("");
   const [newDocAcceptedTypes, setNewDocAcceptedTypes] = useState<string[]>(["Private Self-Pay", "HMO Insurance"]);
@@ -1900,7 +1740,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
   const handleOpenEditDoctor = (doc: any) => {
     setEditingDoctor(doc);
     setEditDocName(doc.fullName || doc.name || "");
-    setEditDocSpecialty(doc.specialty || DEPARTMENTS[0]?.name || "Cardiology");
+    setEditDocSpecialty(doc.specialty || clinics[0]?.name || "Cardiology");
     setEditDocDeptId(doc.departmentId || "cardiology");
     setEditDocQualifications(doc.qualification || doc.qualifications || "MBBS, FWACS");
     setEditDocRoom(doc.room || doc.roomNumber || "Consultation Suite");
@@ -1948,7 +1788,6 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
       (item.id === targetId || item.doc_id === targetId) ? updatedDocData : item
     );
     setDoctorsList(updatedList);
-    localStorage.setItem("isalu_hospital_doctors", JSON.stringify(updatedList));
 
     // Update matching schedule records in API & DB too
     const updatedSchedules = specialistSchedules.map((sched) => {
@@ -1966,7 +1805,6 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
       return sched;
     });
     setSpecialistSchedules(updatedSchedules);
-    localStorage.setItem("isalu_specialist_schedules", JSON.stringify(updatedSchedules));
 
     setIsSubmittingDoctor(false);
     setEditingDoctor(null);
@@ -2013,17 +1851,14 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
 
     const autoAcronym = getAcronymForIndex(doctorsList.length);
     const formattedName = newDocName.trim().startsWith("Dr.") ? newDocName.trim() : `Dr. ${newDocName.trim()}`;
-    const deptMatch = DEPARTMENTS.find((d) =>
+    const deptMatch = clinics.find((d) =>
       d.name.toLowerCase().includes(newDocSpecialty.toLowerCase()) ||
       newDocSpecialty.toLowerCase().includes(d.name.toLowerCase()) ||
       d.id.toLowerCase().includes(newDocSpecialty.toLowerCase())
     );
 
-    const generatedId = `doc-${Date.now()}`;
     const defaultRoom = newDocRoom.trim() || "Consultation Suite";
     const newDocPayload = {
-      doc_id: generatedId,
-      id: generatedId,
       name: formattedName,
       fullName: formattedName,
       full_name: formattedName,
@@ -2052,14 +1887,13 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
       return;
     }
 
-    const savedDoc = doctorApiRes && !doctorApiRes.error ? doctorApiRes : newDocPayload;
-    const docId = savedDoc.id || savedDoc.doc_id || generatedId;
+    if (!doctorApiRes || doctorApiRes.error) { setNewDocFormError(doctorApiRes?.error || "Failed to save doctor to the server."); return; }
+    const savedDoc = doctorApiRes;
+    const docId = savedDoc.id || savedDoc.doc_id;
     const docAdminName = `${savedDoc.fullName || savedDoc.full_name || savedDoc.name} (${savedDoc.acronym || autoAcronym})`;
 
     // 2. Save Initial Entry to SpecialistSchedule Table in Database
     const initialSchedulePayload = {
-      sched_id: `sched-${Date.now()}`,
-      id: `sched-${Date.now()}`,
       doctorId: docId,
       doctor_id: docId,
       doctorName: docAdminName,
@@ -2078,7 +1912,8 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
       status: true,
     };
 
-    await createScheduleAPI(initialSchedulePayload);
+    const scheduleRes = await createScheduleAPI(initialSchedulePayload);
+    if (!scheduleRes || scheduleRes.error) { setNewDocFormError(scheduleRes?.error || "Doctor saved, but the initial schedule could not be created on the server."); return; }
 
     // 3. Re-fetch all doctors & schedules from Database to guarantee 100% synchronization
     const [remoteDocs, remoteSchedules] = await Promise.all([
@@ -2091,11 +1926,10 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
       : [savedDoc, ...doctorsList.filter((d) => d.id !== docId && d.doc_id !== docId)];
 
     setDoctorsList(updatedDoctorsList);
-    localStorage.setItem("isalu_hospital_doctors", JSON.stringify(updatedDoctorsList));
 
     if (remoteSchedules && Array.isArray(remoteSchedules) && remoteSchedules.length > 0) {
       setSpecialistSchedules(remoteSchedules);
-      localStorage.setItem("isalu_specialist_schedules", JSON.stringify(remoteSchedules));
+
     }
 
     // Auto-select this newly created doctor in schedule form fields
@@ -2140,7 +1974,6 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
           (item.id === targetId || item.doc_id === targetId) ? { ...item, status: newStatus } : item
         );
         setDoctorsList(updatedList);
-        localStorage.setItem("isalu_hospital_doctors", JSON.stringify(updatedList));
 
         // Persist status change directly to existing DB record via PATCH
         await updateDoctorAPI(targetId, { status: newStatus });
@@ -2161,7 +1994,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
   const [schedNewDocName, setSchedNewDocName] = useState("");
   const [schedNewDocDeptId, setSchedNewDocDeptId] = useState("cardiology");
   const [schedNewDocQual, setSchedNewDocQual] = useState("MBBS, FWACS");
-  const [schedDoctorId, setSchedDoctorId] = useState(DOCTORS[0]?.id || "");
+  const [schedDoctorId, setSchedDoctorId] = useState(doctorsList[0]?.id || "");
   const [schedDoctorSearch, setSchedDoctorSearch] = useState("");
   const [showDoctorDropdown, setShowDoctorDropdown] = useState(false);
   const [schedRoom, setSchedRoom] = useState("");
@@ -2266,20 +2099,21 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
     setCustomInputSlotKey(key);
   };
 
-  const handleApplyCustomStartEndTime = (day: string, idx: number, isEditModal: boolean = false) => {
+  const handleApplyCustomStartEndTime = async (day: string, idx: number, isEditModal: boolean = false) => {
     if (!slotCustomStart.trim() || !slotCustomEnd.trim()) return;
 
     const formattedShiftTime = `${slotCustomStart.trim()} – ${slotCustomEnd.trim()}`;
 
     if (!shiftTimeOptions.includes(formattedShiftTime)) {
-      createCustomTimeSlotAPI({
+      await createCustomTimeSlotAPI({
         startTime: slotCustomStart.trim(),
         endTime: slotCustomEnd.trim(),
         formatted: formattedShiftTime,
       });
       const updatedOptions = [formattedShiftTime, ...shiftTimeOptions];
       setShiftTimeOptions(updatedOptions);
-      localStorage.setItem("isalu_shift_time_options", JSON.stringify(updatedOptions));
+      await saveAppSettingAPI("shift_time_options", updatedOptions);
+
     }
 
     if (isEditModal) {
@@ -2297,21 +2131,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
     });
   };
   // Custom Shift Time Options State
-  const [shiftTimeOptions, setShiftTimeOptions] = useState<string[]>(() => {
-    const saved = localStorage.getItem("isalu_shift_time_options");
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch {}
-    }
-    return [
-      "08:00 AM – 02:00 PM (Morning Shift)",
-      "01:00 PM – 06:00 PM (Afternoon Shift)",
-      "06:00 PM – 10:00 PM (Evening Shift)",
-      "09:00 AM – 05:00 PM (Full Day)",
-      "10:00 PM – 06:00 AM (Night Duty Shift)",
-    ];
-  });
+  const [shiftTimeOptions, setShiftTimeOptions] = useState<string[]>([]);
 
   // Create Custom Shift Time Modal Form State
   const [showCreateTimeModal, setShowCreateTimeModal] = useState(false);
@@ -2339,7 +2159,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
       });
       const updated = [formattedShiftTime, ...shiftTimeOptions];
       setShiftTimeOptions(updated);
-      localStorage.setItem("isalu_shift_time_options", JSON.stringify(updated));
+
     }
 
     // Auto-select the newly created shift time
@@ -2358,7 +2178,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
   };
   // Create Specific Date Schedule Modal Form State
   const [showCreateSpecificDateModal, setShowCreateSpecificDateModal] = useState(false);
-  const [specDateDoctorId, setSpecDateDoctorId] = useState(DOCTORS[0]?.id || "");
+  const [specDateDoctorId, setSpecDateDoctorId] = useState(doctorsList[0]?.id || "");
   const [specDateDoctorSearch, setSpecDateDoctorSearch] = useState("");
   const [showSpecDoctorDropdown, setShowSpecDoctorDropdown] = useState(false);
   const [specDateValue, setSpecDateValue] = useState("");
@@ -2406,16 +2226,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
   };
 
   // Saved Custom Week Patterns State
-  const [savedCustomPatterns, setSavedCustomPatterns] = useState<string[]>(() => {
-    const saved = localStorage.getItem("isalu_custom_patterns");
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return parsed;
-      } catch {}
-    }
-    return ["1ST, 2ND & 4TH SATURDAYS", "3RD & 5TH SUNDAYS"];
-  });
+  const [savedCustomPatterns, setSavedCustomPatterns] = useState<string[]>([]);
 
   const [showCustomPatternInput, setShowCustomPatternInput] = useState(false);
   const [customPatternInput, setCustomPatternInput] = useState("");
@@ -2426,7 +2237,8 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
     if (!savedCustomPatterns.includes(formatted)) {
       const updated = [formatted, ...savedCustomPatterns];
       setSavedCustomPatterns(updated);
-      localStorage.setItem("isalu_custom_patterns", JSON.stringify(updated));
+      void saveAppSettingAPI("custom_week_patterns", updated);
+
     }
     setSpecDateWeekPreset(formatted);
     const derivedWeeks = deriveWeeksFromPattern(formatted);
@@ -2490,7 +2302,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
       return;
     }
 
-    const selectedDoc = doctorsList.find((d) => d.id === specDateDoctorId || d.doc_id === specDateDoctorId) || doctorsList[0] || DOCTORS[0];
+    const selectedDoc = doctorsList.find((d) => d.id === specDateDoctorId || d.doc_id === specDateDoctorId) || doctorsList[0] || doctorsList[0];
     const docAdminName = selectedDoc.fullName || selectedDoc.full_name ? `${selectedDoc.fullName || selectedDoc.full_name} (${selectedDoc.acronym || selectedDoc.name})` : selectedDoc.name;
 
     let formattedDateLabel = "";
@@ -2568,12 +2380,9 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
       dutyDaysList.push(`📅 ON-DUTY (${dayNameStr})`);
     }
 
-    const generatedSchedId = `sched-spec-${Date.now()}`;
     const docTargetId = selectedDoc.id || selectedDoc.doc_id;
 
     const newSchedulePayload = {
-      sched_id: generatedSchedId,
-      id: generatedSchedId,
       doctorId: docTargetId,
       doctor_id: docTargetId,
       doctorName: docAdminName,
@@ -2617,13 +2426,13 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
     const remoteSchedules = await getSchedulesAPI();
     if (remoteSchedules && Array.isArray(remoteSchedules)) {
       setSpecialistSchedules(remoteSchedules);
-      localStorage.setItem("isalu_specialist_schedules", JSON.stringify(remoteSchedules));
+
     }
 
     const remoteDocs = await getDoctorsAPI();
     if (remoteDocs && Array.isArray(remoteDocs) && remoteDocs.length > 0) {
       setDoctorsList(remoteDocs);
-      localStorage.setItem("isalu_hospital_doctors", JSON.stringify(remoteDocs));
+
     }
 
     // Reset Form
@@ -2784,12 +2593,12 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
 
       if (remoteSchedules && Array.isArray(remoteSchedules)) {
         setSpecialistSchedules(remoteSchedules);
-        localStorage.setItem("isalu_specialist_schedules", JSON.stringify(remoteSchedules));
+
       }
 
       if (remoteDocs && Array.isArray(remoteDocs)) {
         setDoctorsList(remoteDocs);
-        localStorage.setItem("isalu_hospital_doctors", JSON.stringify(remoteDocs));
+
       }
 
       setEditingSchedule(null);
@@ -2835,13 +2644,10 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
       if (isRegisteringNewDocInSched) {
         // Step 1: Create Doctor on Django REST API FIRST
         const formattedDocName = schedNewDocName.trim().startsWith("Dr.") ? schedNewDocName.trim() : `Dr. ${schedNewDocName.trim()}`;
-        const docGenId = `doc-${Date.now()}`;
-        const deptMatch = DEPARTMENTS.find((d: any) => d.id === schedNewDocDeptId || d.dept_id === schedNewDocDeptId);
+          const deptMatch = clinics.find((d: any) => d.id === schedNewDocDeptId || d.dept_id === schedNewDocDeptId);
         const specName = deptMatch ? deptMatch.name : "Specialist Consultation";
 
         const newDocPayload = {
-          doc_id: docGenId,
-          id: docGenId,
           name: formattedDocName,
           fullName: formattedDocName,
           full_name: formattedDocName,
@@ -2866,7 +2672,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
           return;
         }
 
-        docTargetId = docRes.doc_id || docRes.id || docGenId;
+        docTargetId = docRes.doc_id || docRes.id;
         docAdminName = formattedDocName;
         docSpecialty = specName;
       } else {
@@ -2875,7 +2681,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
           const id1 = String(d.doc_id || "").trim();
           const id2 = String(d.id || "").trim();
           return (id1 && id1 === targetDocIdStr) || (id2 && id2 === targetDocIdStr);
-        }) || doctorsList[0] || DOCTORS[0];
+        }) || doctorsList[0] || doctorsList[0];
 
         docTargetId = selectedDoc?.doc_id || selectedDoc?.id;
         docAdminName = selectedDoc?.fullName || selectedDoc?.full_name ? `${selectedDoc.fullName || selectedDoc.full_name} (${selectedDoc.acronym || selectedDoc.name})` : (selectedDoc?.name || "Specialist Doctor");
@@ -2890,11 +2696,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
       });
 
       const totalCapacity = schedDutyDays.reduce((acc, day) => acc + (schedDaySchedules[day]?.capacity || schedCapacity), 0);
-      const generatedSchedId = `sched-${Date.now()}`;
-
       const newSchedulePayload = {
-        sched_id: generatedSchedId,
-        id: generatedSchedId,
         doctor: docTargetId,
         doctorId: docTargetId,
         doctor_id: docTargetId,
@@ -2929,12 +2731,12 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
 
       if (remoteSchedules && Array.isArray(remoteSchedules)) {
         setSpecialistSchedules(remoteSchedules);
-        localStorage.setItem("isalu_specialist_schedules", JSON.stringify(remoteSchedules));
+
       }
 
       if (remoteDocs && Array.isArray(remoteDocs)) {
         setDoctorsList(remoteDocs);
-        localStorage.setItem("isalu_hospital_doctors", JSON.stringify(remoteDocs));
+
       }
 
       // Reset Form
@@ -2975,14 +2777,13 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
           (item.id === targetId || item.sched_id === targetId) ? { ...item, status: newStatus } : item
         );
         setSpecialistSchedules(updatedSchedules);
-        localStorage.setItem("isalu_specialist_schedules", JSON.stringify(updatedSchedules));
 
         await updateScheduleAPI(targetId, { status: newStatus });
 
         const remoteSchedules = await getSchedulesAPI();
         if (remoteSchedules && Array.isArray(remoteSchedules)) {
           setSpecialistSchedules(remoteSchedules);
-          localStorage.setItem("isalu_specialist_schedules", JSON.stringify(remoteSchedules));
+
         }
 
         setToastAlert({
@@ -3011,7 +2812,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
         const remoteSchedules = await getSchedulesAPI();
         if (remoteSchedules && Array.isArray(remoteSchedules)) {
           setSpecialistSchedules(remoteSchedules);
-          localStorage.setItem("isalu_specialist_schedules", JSON.stringify(remoteSchedules));
+
         }
 
         setToastAlert({
@@ -3038,6 +2839,10 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
         const newStatus = isDisabling ? "Disabled" : "Active";
 
         await updateSystemUserAPI(targetId, { status: newStatus });
+
+        const [shiftSetting, patternSetting] = await Promise.all([getAppSettingAPI("shift_time_options"), getAppSettingAPI("custom_week_patterns")]);
+        if (Array.isArray(shiftSetting?.value)) setShiftTimeOptions(shiftSetting.value);
+        if (Array.isArray(patternSetting?.value)) setSavedCustomPatterns(patternSetting.value);
 
         const remoteUsers = await getSystemUsersAPI();
         const updated = (remoteUsers && remoteUsers.length > 0)
@@ -3212,332 +3017,12 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
   const [copiedAiReport, setCopiedAiReport] = useState(false);
   const [isAiReportModalOpen, setIsAiReportModalOpen] = useState(false);
 
-  const [aiReportHistory, setAiReportHistory] = useState<Array<{ prompt: string; date: string; report: string }>>(() => {
-    const saved = localStorage.getItem("isalu_ai_reports");
-    if (saved) {
-      try { return JSON.parse(saved); } catch {}
-    }
-    return [];
-  });
+  const [aiReportHistory, setAiReportHistory] = useState<Array<{ prompt: string; date: string; report: string }>>([]);
 
-  const handleGenerateAiReport = (customPrompt?: string) => {
+  const handleGenerateAiReport = async (customPrompt?: string) => {
     const p = (customPrompt || aiPrompt || "Generate Full Executive Board Report").trim();
-    setIsGeneratingAiReport(true);
-    setCopiedAiReport(false);
-    setAiProcessingProgress(15);
-    setAiProcessingStep("Ingesting Helpdesk, HMO & Cashdesk Patient Records...");
-
-    setTimeout(() => {
-      setAiProcessingProgress(45);
-      setAiProcessingStep("Auditing Department Traffic & Specialist Duty Shifts...");
-    }, 400);
-
-    setTimeout(() => {
-      setAiProcessingProgress(75);
-      setAiProcessingStep("Calculating Revenue Clearance Rates & HMO Pre-Auth Lag...");
-    }, 800);
-
-    setTimeout(() => {
-      setAiProcessingProgress(95);
-      setAiProcessingStep("Synthesizing Executive Board Strategic Insights & Risk Score...");
-    }, 1200);
-
-    setTimeout(() => {
-      const nowStr = new Date().toLocaleString("en-US", {
-        dateStyle: "full",
-        timeStyle: "short",
-      });
-
-      const total = totalBookings;
-      const checkedIn = checkedInCount;
-      const completed = completedCount;
-      const pendingHmo = pendingHmoCount;
-      const hmoApproved = hmoApprovedCount;
-      const pendingCash = pendingCashCount;
-      const cleared = clearedPaymentCount;
-      const activeStaff = activeStaffCount;
-      const activeShifts = activeShiftsCount;
-      const clearanceRate = total > 0 ? Math.round((cleared / total) * 100) : 0;
-      const hmoRatio = total > 0 ? Math.round((hmoEnrolleeCount / total) * 100) : 0;
-      const selfPayRatio = total > 0 ? Math.round((privateSelfPayCount / total) * 100) : 0;
-      const referralCount = referralDocCount;
-
-      let topDeptName = "Obstetrics & Gynaecology";
-      let topDeptCount = 0;
-      DEPARTMENTS.forEach((dept) => {
-        const count = bookings.filter((b) => {
-          const spec = (b.doctorSpecialty || b.doctor_specialty || "").toLowerCase();
-          return spec.includes(dept.name.toLowerCase()) || (dept.id === "gynaecology" && spec.includes("gynaec"));
-        }).length;
-        if (count > topDeptCount) {
-          topDeptCount = count;
-          topDeptName = dept.name;
-        }
-      });
-
-      let reportText = "";
-      const pLower = p.toLowerCase();
-
-      // UNIVERSAL PLATFORM DATASET SEARCH & SYNTHESIS ENGINE
-      const matchedDoctor = DOCTORS.find((d) => 
-        pLower.includes(d.name.toLowerCase()) || 
-        d.name.toLowerCase().split(" ").some((part) => part.length > 2 && pLower.includes(part))
-      );
-
-      const matchedDept = DEPARTMENTS.find((d) => 
-        pLower.includes(d.name.toLowerCase()) || 
-        (d.id === "gynaecology" && (pLower.includes("gynae") || pLower.includes("obstet") || pLower.includes("women"))) ||
-        (d.id === "pediatrics" && (pLower.includes("pedia") || pLower.includes("child") || pLower.includes("baby"))) ||
-        (d.id === "surgery" && pLower.includes("surg")) ||
-        (d.id === "cardiology" && pLower.includes("cardio"))
-      );
-
-      const matchedHmo = ["hygeia", "reliance", "axa", "anchor", "total health", "bastion", "avon", "metro", "redcare"].find((h) => pLower.includes(h));
-
-      if (matchedDoctor) {
-        const docBookings = bookings.filter((b) => 
-          (b.doctorName || b.doctor_name || "").toLowerCase().includes(matchedDoctor.name.toLowerCase())
-        );
-        const docCompleted = docBookings.filter((b) => (b.status || "").toLowerCase() === "completed").length;
-        const docCheckedIn = docBookings.filter((b) => (b.status || "").toLowerCase() === "checked in").length;
-        
-        reportText = `🏥 ISALU HOSPITALS - SPECIALIST AUDIT REPORT: ${matchedDoctor.name.toUpperCase()}
-================================================================================
-Generated On: ${nowStr} | Universal Query: "${p}"
-Analytical Scope: Doctor Performance, Patient Volume & Duty Roster
-
-1. SPECIALIST OVERVIEW & DUTY SCHEDULE:
-   • Doctor Name           : ${matchedDoctor.name} (${(matchedDoctor as any).title || "Consultant"})
-   • Specialty & Department: ${matchedDoctor.specialty}
-   • Availability Days     : ${matchedDoctor.availability ? matchedDoctor.availability.join(", ") : "Monday - Sunday"}
-   • Consultation Time     : ${matchedDoctor.timeSlots ? matchedDoctor.timeSlots.join(" | ") : "10:00 AM - 5:00 PM"}
-   • Total Clinic Patients : ${docBookings.length} registered patients
-
-2. CLINICAL STATUS BREAKDOWN FOR ${matchedDoctor.name.toUpperCase()}:
-   • Completed Consultations: ${docCompleted} completed (Red Badge)
-   • Active Lobby Waiting   : ${docCheckedIn} patients checked in
-   • Scheduled / Pending    : ${docBookings.length - docCompleted - docCheckedIn} patients awaiting turn
-
-3. AI DOCTOR AUDIT RECOMMENDATIONS:
-   ✔ Sync doctor duty roster with Health Records REST API.
-   ✔ Ensure attached referral documents (ANSWER KEYS.docx) are reviewed prior to intake.
-   ✔ Maintain target average consultation throughput of 15-20 minutes per patient.
-================================================================================`;
-      } else if (matchedDept) {
-        const deptBookings = bookings.filter((b) => {
-          const spec = (b.doctorSpecialty || b.doctor_specialty || "").toLowerCase();
-          return spec.includes(matchedDept.name.toLowerCase()) || (matchedDept.id === "gynaecology" && spec.includes("gynaec"));
-        });
-        const deptCleared = deptBookings.filter((b) => (b.paymentStatus || b.payment_status || "").toLowerCase() === "cleared" || (b.paymentStatus || "").includes("hmo")).length;
-        const deptRatio = total > 0 ? Math.round((deptBookings.length / total) * 100) : 0;
-
-        reportText = `🏥 ISALU HOSPITALS - DEPARTMENT AUDIT REPORT: ${matchedDept.name.toUpperCase()}
-================================================================================
-Generated On: ${nowStr} | Universal Query: "${p}"
-Analytical Scope: ${matchedDept.name} Clinic Traffic, Billings & Operations
-
-1. DEPARTMENT TRAFFIC & PATIENT SHARE:
-   • Department Name       : ${matchedDept.name} (${(matchedDept as any).location || "Main Clinic Wing"})
-   • Total Clinic Patients : ${deptBookings.length} registered patients
-   • Overall Hospital Share: ${deptRatio}% of total patient volume
-   • Payment Clearance Rate: ${deptBookings.length > 0 ? Math.round((deptCleared / deptBookings.length) * 100) : 0}% (${deptCleared} cleared)
-
-2. DEPARTMENT DOCTOR ROSTER & STATUS:
-   • Department Doctors    : ${DOCTORS.filter(d => (d.specialty || "").toLowerCase().includes(matchedDept.name.toLowerCase())).map(d => d.name).join(", ") || "Duty Specialists"}
-   • Operational Status    : ${(matchedDept as any).status || "Active ✓"}
-
-3. AI DEPARTMENT RECOMMENDATIONS:
-   ✔ Allocate peak morning consultation slots for ${matchedDept.name} to absorb lobby rush.
-   ✔ Audit HMO authorizations for ${matchedDept.name} patients at HMO Desk.
-   ✔ Maintain electronic medical records backup and administrative logs.
-================================================================================`;
-      } else if (matchedHmo) {
-        const hmoBookings = bookings.filter((b) => (b.hmoName || b.hmo_name || "").toLowerCase().includes(matchedHmo));
-        const hmoAuthCleared = hmoBookings.filter((b) => (b.hmoStatus || b.hmo_status || "").toLowerCase() === "approved" || b.hmoAuthCode).length;
-
-        reportText = `🏥 ISALU HOSPITALS - HMO PROVIDER AUDIT REPORT: ${matchedHmo.toUpperCase()}
-================================================================================
-Generated On: ${nowStr} | Universal Query: "${p}"
-Analytical Scope: ${matchedHmo.toUpperCase()} Insurance Claims, Pre-Auths & Enrollee Volume
-
-1. HMO PROVIDER OVERVIEW:
-   • HMO Partner Name      : ${matchedHmo.toUpperCase()} Insurance Underwriters
-   • Enrollees Processed   : ${hmoBookings.length} enrollees registered today
-   • Pre-Auth Approval Rate: ${hmoBookings.length > 0 ? Math.round((hmoAuthCleared / hmoBookings.length) * 100) : 0}% (${hmoAuthCleared} pre-auth codes confirmed)
-   • Pending Pre-Auth Code : ${hmoBookings.length - hmoAuthCleared} enrollees awaiting authorization
-
-2. REVENUE RISK & CLAIMS AUDIT:
-   • HMO Tariff Clearance : Synced with Isalu HMO Portal
-   • Claims Turnaround Time: Average 2.4 Hours for Code Issuance
-   • Attached Referrals    : Verified against enrollee policy code
-
-3. AI HMO MANAGEMENT ACTIONS:
-   ✔ Follow up with ${matchedHmo.toUpperCase()} HMO Desk Officer for ${hmoBookings.length - hmoAuthCleared} pending pre-auth codes.
-   ✔ Ensure enrollee ID numbers are verified at Helpdesk prior to billing clearing.
-================================================================================`;
-      } else if (pLower.includes("hmo") || pLower.includes("financial") || pLower.includes("risk") || pLower.includes("billing") || pLower.includes("revenue") || pLower.includes("payment")) {
-        reportText = `🏥 ISALU HOSPITALS - FINANCIAL CLEARANCE & HMO RISK AUDIT REPORT
-================================================================================
-Generated On: ${nowStr} | Neural Engine Audit Model v3.2
-Analytical Focus: HMO Authorizations, Cashdesk Billings & Financial Risk
-
-1. EXECUTIVE FINANCIAL METRICS OVERVIEW:
-   • Total Patient Tickets Processed: ${total}
-   • Overall Revenue Clearance Rate : ${clearanceRate}% (${cleared} of ${total} cleared)
-   • Private Self-Pay Breakdown     : ${selfPayRatio}% (${privateSelfPayCount} patients)
-   • HMO Insurance Breakdown        : ${hmoRatio}% (${hmoEnrolleeCount} enrollees)
-
-2. DESK BOTTLENECK & FINANCIAL EXPOSURE AUDIT:
-   • HMO Pre-Authorization Desk : ${pendingHmo} tickets pending pre-auth code (${hmoApproved} approved)
-   • Cashdesk Billing Clearance: ${pendingCash} self-pay patients pending billing confirmation
-   • Attached Referral Letters : ${referralCount} verified referral document attachments
-   • Revenue Risk Exposure      : ${pendingCash > 2 ? "MODERATE - Follow up on Cashdesk pending receipts" : "LOW - Healthy billing flow"}
-
-3. DEPARTMENT REVENUE CONTRIBUTIONS:
-${DEPARTMENTS.map((d) => {
-  const cnt = bookings.filter((b) => (b.doctorSpecialty || b.doctor_specialty || "").toLowerCase().includes(d.name.toLowerCase())).length;
-  return `   • ${d.name.padEnd(25)}: ${cnt} patients (${cnt > 0 ? Math.round((cnt / (total || 1)) * 100) : 0}% total share)`;
-}).join("\n")}
-
-4. AI EXECUTIVE STRATEGIC ACTIONS:
-   ✔ Expedite ${pendingHmo} pending HMO authorizations with Hygeia, AXA Mansard & Reliance HMO officers.
-   ✔ Ensure POS terminals at Cashdesk are active to clear ${pendingCash} pending billing tickets.
-   ✔ Maintain target revenue clearance rate above 92% across all hospital desks.
-================================================================================`;
-      } else if (pLower.includes("workload") || pLower.includes("bottleneck") || pLower.includes("queue") || pLower.includes("traffic") || pLower.includes("waiting")) {
-        reportText = `🏥 ISALU HOSPITALS - DEPARTMENT QUEUE & BOTTLENECK ANALYSIS
-================================================================================
-Generated On: ${nowStr} | Neural Engine Queue Audit Model v3.2
-Analytical Focus: Waiting Lobby Flow, Department Traffic & Triage Times
-
-1. CLINICAL FLOOR TRAFFIC SNAPSHOT:
-   • Active Lobby Queue (Checked In): ${checkedIn} patients waiting in consultation lobby
-   • Concluded Consultations        : ${completed} consultations completed (Red Badge)
-   • Busiest Clinical Specialty    : ${topDeptName} (${topDeptCount} registered patients)
-   • Waiting Room Congestion Level  : ${checkedIn > 4 ? "HIGH CONGESTION - Triage intervention recommended" : "NORMAL - Smooth lobby movement"}
-
-2. CLINICAL DEPARTMENT QUEUE BREAKDOWN:
-${DEPARTMENTS.map((d) => {
-  const cnt = bookings.filter((b) => (b.doctorSpecialty || b.doctor_specialty || "").toLowerCase().includes(d.name.toLowerCase())).length;
-  return `   • ${d.name.padEnd(25)}: ${cnt} patients registered | Load Ratio: ${cnt > 0 ? Math.round((cnt / (total || 1)) * 100) : 0}%`;
-}).join("\n")}
-
-3. AI STAFFING & LOBBY OPTIMIZATION ACTIONS:
-   ✔ Deploy additional duty officer to ${topDeptName} Clinic to absorb high morning rush.
-   ✔ ${checkedIn > 3 ? "ALERT: Floor queue active. Request duty doctors to streamline intake." : "Floor queue optimal. Patient turnover is well-balanced."}
-   ✔ Verify referral letters at Helpdesk before routing patients to specialty clinics.
-================================================================================`;
-      } else if (pLower.includes("staff") || pLower.includes("roster") || pLower.includes("shift") || pLower.includes("doctor") || pLower.includes("user")) {
-        reportText = `🏥 ISALU HOSPITALS - SPECIALIST STAFF ROSTER & SHIFT EFFICIENCY AUDIT
-================================================================================
-Generated On: ${nowStr} | Neural Engine Workforce Audit v3.2
-Analytical Focus: Medical Staff Deployment, Shift Coverage & Roster Balance
-
-1. MEDICAL WORKFORCE AUDIT METRICS:
-   • Total Active Medical Personnel: ${activeStaff} registered personnel
-   • Active Specialist Duty Shifts : ${activeShifts} duty shifts scheduled
-   • Patient-to-Staff Coverage     : ${activeStaff > 0 ? (total / activeStaff).toFixed(1) : "0"} patients per staff member
-   • Shift Utilization Efficiency  : 94.2% Optimal Duty Coverage
-
-2. SPECIALTY SHIFT COVERAGE BREAKDOWN:
-   • Obstetrics & Gynaecology : Active Duty (Dr. Funke Akindele / Dr. Yinka Olumide)
-   • Pediatrics & Child Health: Active Duty (Dr. Amaka Okafor)
-   • Internal Medicine        : Active Duty (Dr. Babatunde Lawal)
-   • General Surgery          : Active Duty (Dr. Chidi Nnamdi)
-
-3. AI WORKFORCE & ROSTER RECOMMENDATIONS:
-   ✔ Maintain current ${activeShifts} specialist duty shifts for full 24/7 clinic coverage.
-   ✔ Ensure seamless shift handover between morning and evening consultant rosters.
-   ✔ Sync staff shift schedules with electronic health record registry.
-================================================================================`;
-      } else if (pLower.includes("referral") || pLower.includes("doc") || pLower.includes("health") || pLower.includes("file") || pLower.includes("answer")) {
-        reportText = `🏥 ISALU HOSPITALS - PATIENT HEALTH REFERRAL & DOCUMENT AUDIT
-================================================================================
-Generated On: ${nowStr} | Neural Engine Document Audit v3.2
-Analytical Focus: Referral Attachments, Clinical Notes & Record Verification
-
-1. CLINICAL ATTACHMENT METRICS:
-   • Verified Referral Attachments: ${referralCount} documents on file
-   • Document Verification Rate   : ${total > 0 ? Math.round((referralCount / total) * 100) : 0}% of patient bookings
-   • Document Types Uploaded       : PDF, DOCX, TXT Clinical Referral Letters & Answer Keys
-
-2. REFERRAL FILE AUDIT & HEALTH RECORDS:
-   • Helpdesk File Verification  : 100% Verified by Administrative Staff
-   • Electronic Health Records   : Synced with Hospital REST API Database
-   • Patient Compliance Score    : 96.8% Documentation Accuracy
-
-3. AI DOCUMENT MANAGEMENT ACTIONS:
-   ✔ Preview attached referral documents (ANSWER KEYS.docx) directly in administrator app modal.
-   ✔ Verify patient referral letters prior to specialist consultation entry.
-   ✔ Ensure electronic records backup is maintained daily.
-================================================================================`;
-      } else if (pLower.includes("forecast") || pLower.includes("growth") || pLower.includes("capacity") || pLower.includes("predict")) {
-        reportText = `🏥 ISALU HOSPITALS - CAPACITY & GROWTH FORECAST REPORT
-================================================================================
-Generated On: ${nowStr} | Neural Engine Predictive Analytics v3.2
-Analytical Focus: Patient Growth Forecast, Capacity Utilization & Strategic Expansion
-
-1. CAPACITY FORECAST METRICS:
-   • Daily Patient Intake Volume : ${total} patients processed today
-   • Projected Weekly Intake     : ${total * 7} estimated registrations
-   • Facility Capacity Load      : ${Math.min(95, Math.max(35, Math.round((total / 25) * 100)))}% capacity utilization
-   • Hospital Health Index Score : 9.4/10 EXCELLENT OPERATIONAL HEALTH
-
-2. GROWTH & TRAFFIC PREDICTIONS:
-   • High Demand Peak Hours      : 09:00 AM – 01:00 PM (Morning Outpatient Rush)
-   • Top Specialty Demand        : ${topDeptName} (${topDeptCount} bookings)
-   • Revenue Growth Projection   : +14.5% month-over-month increase
-
-3. AI STRATEGIC GROWTH RECOMMENDATIONS:
-   ✔ Expand outpatient consultation slots for ${topDeptName} to meet high demand.
-   ✔ Upgrade digital booking portals & automated SMS reminders to maintain 95%+ attendance.
-   ✔ Strengthen HMO corporate partnerships with top-tier insurance underwriters.
-================================================================================`;
-      } else {
-        const matchingBookings = bookings.filter((b) => {
-          const str = JSON.stringify(b).toLowerCase();
-          return str.includes(pLower);
-        });
-
-        reportText = `🏥 ISALU HOSPITALS - SEARCH SYNTHESIS REPORT: "${p.toUpperCase()}"
-================================================================================
-Generated On: ${nowStr} | Universal Intelligence Search Model v3.2
-Analytical Focus: Deep Search & Data Synthesis for Keyword: "${p}"
-
-1. SEARCH QUERY MATCH METRICS:
-   • Search Query Keyword    : "${p}"
-   • Direct Database Matches : ${matchingBookings.length} records found in active registry
-   • Match Relevance Share   : ${total > 0 ? Math.round((matchingBookings.length / total) * 100) : 0}% of overall hospital volume
-   • Database Search Target  : Patient Bookings, Doctor Roster, HMO Records, EHR Files
-
-2. MATCHED DATA RECORDS BREAKDOWN:
-${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) => 
-  `   ${idx + 1}. Ticket #${b.refCode || b.ref_code || "ISALU"} | Patient: ${b.patientName || b.patient_name || "Patient"} | Doctor: ${b.doctorName || b.doctor_name || "Specialist"} | Status: ${b.status || "Scheduled"}`
-).join("\n") : "   • No exact patient records matching query text; analyzed macro clinical dataset."}
-
-3. AI EXECUTIVE SEARCH RECOMMENDATIONS:
-   ✔ Search query "${p}" analyzed across Hospital Database and Local Storage registry.
-   ✔ Filter records on the Hospital Management Dashboard using the search toolbar above.
-   ✔ Export matching data logs into PDF or Excel spreadsheet for clinical board review.
-================================================================================`;
-      }
-
-      setGeneratedAiReport(reportText);
-      setAiProcessingProgress(100);
-      setIsGeneratingAiReport(false);
-
-      const newHistoryItem = {
-        prompt: p,
-        date: nowStr,
-        report: reportText,
-      };
-
-      setAiReportHistory((prev) => {
-        const updated = [newHistoryItem, ...prev.slice(0, 9)];
-        localStorage.setItem("isalu_ai_reports", JSON.stringify(updated));
-        return updated;
-      });
-    }, 1400);
+    setIsGeneratingAiReport(true); setCopiedAiReport(false); setAiProcessingProgress(20); setAiProcessingStep("Querying hospital database...");
+    try { const result = await generateAiReportAPI(p); if (!result || result.error) throw new Error(typeof result?.error === "string" ? result.error : "Server report generation failed"); setGeneratedAiReport(result.report || ""); setAiProcessingProgress(100); setAiProcessingStep("Report generated from server data."); setAiReportHistory(prev => [{ prompt: p, date: result.generatedAt || new Date().toISOString(), report: result.report || "" }, ...prev].slice(0, 10)); } catch (err: any) { setGeneratedAiReport(null); setToastAlert({ title: "AI Report Failed", description: err?.message || "Could not generate report from backend.", type: "warning" }); } finally { setIsGeneratingAiReport(false); }
   };
 
   const downloadAiReportAsPdf = (reportText: string, promptTitle: string) => {
@@ -3817,7 +3302,7 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
     doc.text("COMPLETED", 188, y + 4.8, { align: "center" });
     y += 7;
 
-    DEPARTMENTS.forEach((dept, idx) => {
+    clinics.forEach((dept, idx) => {
       const deptBookings = bookings.filter((b) => {
         if (!b.doctorSpecialty && !b.doctor_specialty) return false;
         const spec = (b.doctorSpecialty || b.doctor_specialty || "").toLowerCase();
@@ -3998,7 +3483,7 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
     <th>Status</th>
   </tr>`;
 
-    DEPARTMENTS.forEach((dept) => {
+    clinics.forEach((dept) => {
       const deptBookings = bookings.filter((b) => {
         if (!b.doctorSpecialty && !b.doctor_specialty) return false;
         const spec = (b.doctorSpecialty || b.doctor_specialty || "").toLowerCase();
@@ -4573,79 +4058,19 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
 
   const [isRefreshingData, setIsRefreshingData] = useState(false);
 
-  // Load bookings from localStorage
-  const loadBookings = () => {
-    const raw = localStorage.getItem("isalu_bookings") || localStorage.getItem("medicare_bookings") || "[]";
-    let parsed: any[] = [];
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
-      parsed = [];
-    }
-    setBookings(parsed || []);
+  // Booking registry is always loaded from the backend.
+  const loadBookings = async () => {
+    const remote = await getBookingsAPI();
+    setBookings(Array.isArray(remote) ? remote : []);
   };
 
   const handleManualRefresh = async () => {
     setIsRefreshingData(true);
-    loadBookings();
-    try {
-      const remoteBookings = await getBookingsAPI();
-      if (Array.isArray(remoteBookings)) {
-        const localStr = localStorage.getItem("isalu_bookings") || localStorage.getItem("medicare_bookings");
-        let localBookings: any[] = [];
-        if (localStr) {
-          try { localBookings = JSON.parse(localStr); } catch {}
-        }
-        const syncedBookings = remoteBookings.map((remoteB: any) => {
-          const code = remoteB.refCode || remoteB.ref_code;
-          const localB = localBookings.find((lb: any) => (lb.refCode || lb.ref_code) === code);
-          const merged = { ...(localB || {}), ...remoteB };
-          merged.refCode = remoteB.refCode || remoteB.ref_code || localB?.refCode;
-          merged.patientName = remoteB.patientName || remoteB.patient_name || localB?.patientName;
-          merged.status = remoteB.status || localB?.status || "Booked";
-          merged.hmoStatus = remoteB.hmoStatus || remoteB.hmo_status || localB?.hmoStatus;
-          merged.hmo_status = remoteB.hmo_status || remoteB.hmoStatus || localB?.hmo_status;
-          merged.paymentStatus = remoteB.paymentStatus || remoteB.payment_status || localB?.paymentStatus;
-          merged.payment_status = remoteB.payment_status || remoteB.paymentStatus || localB?.payment_status;
-          merged.paymentType = remoteB.paymentType || remoteB.payment_type || localB?.paymentType;
-          return merged;
-        });
-        setBookings(syncedBookings);
-        localStorage.setItem("isalu_bookings", JSON.stringify(syncedBookings));
-      }
-    } catch (err) {
-      console.warn("Manual refresh error:", err);
-    } finally {
-      setTimeout(() => {
-        setIsRefreshingData(false);
-        setToastAlert({
-          title: "Dashboard Synchronized ✓",
-          description: "Latest hospital queue, patient tickets, and server records refreshed successfully.",
-          type: "success",
-        });
-      }, 300);
-    }
+    try { await loadBookings(); await loadClinics(); await loadUsers(); await loadRoles(); } finally { setIsRefreshingData(false); setToastAlert({ title: "Dashboard Synchronized ✓", description: "Latest hospital records refreshed from the server.", type: "success" }); }
   };
 
   const handleClearAllBookings = () => {
-    setConfirmModalConfig({
-      isOpen: true,
-      title: "Clear All Patient Tickets",
-      message: "Are you sure you want to clear all patient booking records? This will erase all active appointment tickets.",
-      confirmText: "Yes, Clear All Tickets",
-      cancelText: "Cancel",
-      variant: "danger",
-      onConfirm: () => {
-        localStorage.removeItem("isalu_bookings");
-        localStorage.removeItem("medicare_bookings");
-        setBookings([]);
-        setToastAlert({
-          title: "All Bookings Cleared",
-          description: "All patient booking records have been cleared.",
-          type: "info",
-        });
-      },
-    });
+    setConfirmModalConfig({ isOpen: true, title: "Clear All Patient Tickets", message: "Disable all active appointment tickets on the hospital server?", confirmText: "Yes, Clear All Tickets", cancelText: "Cancel", variant: "danger", onConfirm: async () => { const result = await clearAllBookingsAPI(); if (result && !result.error) { await loadBookings(); setToastAlert({ title: "All Bookings Cleared", description: `${result.count || 0} booking records disabled on the server.`, type: "info" }); } else { setToastAlert({ title: "Server Update Failed", description: "No booking records were changed.", type: "warning" }); } } });
   };
 
   // --- SUPERADMIN EDIT & DELETE BOOKING REAL-TIME HANDLERS ---
@@ -4743,7 +4168,6 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
       );
 
       setBookings(updatedList);
-      localStorage.setItem("isalu_bookings", JSON.stringify(updatedList));
 
       try {
         const channel = new BroadcastChannel("isalu_hospital_channel");
@@ -4812,7 +4236,6 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
 
       const updated = bookings.filter((b) => (b.refCode || b.ref_code) !== refCode);
       setBookings(updated);
-      localStorage.setItem("isalu_bookings", JSON.stringify(updated));
 
       try {
         const channel = new BroadcastChannel("isalu_hospital_channel");
@@ -4886,7 +4309,6 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
 
       const updatedActive = [...bookings.filter((b) => (b.refCode || b.ref_code) !== refCode), restoredItem];
       setBookings(updatedActive);
-      localStorage.setItem("isalu_bookings", JSON.stringify(updatedActive));
 
       try {
         const channel = new BroadcastChannel("isalu_hospital_channel");
@@ -4964,7 +4386,7 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
       });
 
       setBookings(updatedBookings);
-      localStorage.setItem("isalu_bookings", JSON.stringify(updatedBookings));
+
       loadBookings();
 
       try {
@@ -4998,69 +4420,26 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
       try {
         fetchDisabledBookings();
         const remoteBookings = await getBookingsAPI();
-        const localStr = localStorage.getItem("isalu_bookings") || localStorage.getItem("medicare_bookings");
-        let localBookings: any[] = [];
-        if (localStr) {
-          try { localBookings = JSON.parse(localStr); } catch {}
-        }
-
-        if (Array.isArray(remoteBookings)) {
-          const syncedBookings = remoteBookings.map((remoteB: any) => {
-            const code = remoteB.refCode || remoteB.ref_code;
-            const localB = localBookings.find((lb: any) => (lb.refCode || lb.ref_code) === code);
-            const merged = { ...(localB || {}), ...remoteB };
-            merged.refCode = remoteB.refCode || remoteB.ref_code || localB?.refCode;
-            merged.patientName = remoteB.patientName || remoteB.patient_name || localB?.patientName;
-            merged.status = remoteB.status || localB?.status || "Booked";
-            merged.hmoStatus = remoteB.hmoStatus || remoteB.hmo_status || localB?.hmoStatus;
-            merged.hmo_status = remoteB.hmo_status || remoteB.hmoStatus || localB?.hmo_status;
-            merged.paymentStatus = remoteB.paymentStatus || remoteB.payment_status || localB?.paymentStatus;
-            merged.payment_status = remoteB.payment_status || remoteB.paymentStatus || localB?.payment_status;
-            merged.paymentType = remoteB.paymentType || remoteB.payment_type || localB?.paymentType;
-            return merged;
-          });
-          setBookings(syncedBookings);
-          localStorage.setItem("isalu_bookings", JSON.stringify(syncedBookings));
-        } else if (localBookings.length > 0) {
-          setBookings(localBookings);
-        }
+        if (Array.isArray(remoteBookings)) { setBookings(remoteBookings); }
 
         await loadClinics();
 
         const remoteDoctors = await getDoctorsAPI();
         if (remoteDoctors && Array.isArray(remoteDoctors)) {
           setDoctorsList(remoteDoctors);
-          localStorage.setItem("isalu_hospital_doctors", JSON.stringify(remoteDoctors));
+
         }
 
         const remoteSchedules = await getSchedulesAPI();
         if (remoteSchedules && Array.isArray(remoteSchedules)) {
           setSpecialistSchedules(remoteSchedules);
-          localStorage.setItem("isalu_specialist_schedules", JSON.stringify(remoteSchedules));
+
         }
         const remoteHmos = await getHmoCompaniesAPI();
-        const isCleared = localStorage.getItem("isalu_hmo_cleared");
-
-        if (isCleared === "true" && (!remoteHmos || remoteHmos.length === 0)) {
-          setHmoCompanies([]);
-        } else if (remoteHmos && Array.isArray(remoteHmos) && remoteHmos.length > 0) {
-          setHmoCompanies(remoteHmos);
-          localStorage.setItem("isalu_hmo_companies", JSON.stringify(remoteHmos));
-          localStorage.removeItem("isalu_hmo_cleared");
-        } else if (!isCleared) {
-          const localHmoStr = localStorage.getItem("isalu_hmo_companies");
-          let localHmoParsed: any[] = [];
-          if (localHmoStr) {
-            try { localHmoParsed = JSON.parse(localHmoStr); } catch {}
-          }
-          if (localHmoParsed.length > 0) {
-            setHmoCompanies(localHmoParsed);
-          }
-        }
+        if (Array.isArray(remoteHmos)) setHmoCompanies(remoteHmos);
         const remoteUsers = await getSystemUsersAPI();
         if (remoteUsers && Array.isArray(remoteUsers)) {
           setSystemUsers(remoteUsers);
-          localStorage.setItem("isalu_system_users", JSON.stringify(remoteUsers));
 
           // Sync active session user profile if role was updated on another system
           const savedProfile = sessionStorage.getItem("isalu_staff_user_profile");
@@ -5156,7 +4535,7 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
 
   const saveBookings = (updatedList: any[]) => {
     setBookings(updatedList);
-    localStorage.setItem("isalu_bookings", JSON.stringify(updatedList));
+
     window.dispatchEvent(new Event("storage"));
     window.dispatchEvent(new CustomEvent("isalu_booking_updated"));
     try {
@@ -7450,12 +6829,12 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                   <p className="text-xs font-bold text-slate-500">Real-time volume and queue load per medical specialty</p>
                 </div>
                 <span className="text-xs font-black px-3 py-1 bg-sky-50 dark:bg-slate-800 text-[#008ac9] rounded-full border border-[#008ac9]/30">
-                  {DEPARTMENTS.length} Active Departments
+                  {clinics.length} Active Departments
                 </span>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {DEPARTMENTS.map((dept) => {
+                {clinics.map((dept) => {
                   const deptBookings = bookings.filter((b) => {
                     if (!b.doctorSpecialty && !b.doctor_specialty) return false;
                     const spec = (b.doctorSpecialty || b.doctor_specialty || "").toLowerCase();
@@ -7731,7 +7110,7 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                     const isEligibleForCheckIn = isHmoApproved || isPayCleared;
 
                     const docDisplay = getDoctorRealName(b);
-                    const matchedDoc = DOCTORS.find((d) => d.fullName === docDisplay || d.name === docDisplay || d.acronym === (b.doctorName || b.doctor_name));
+                    const matchedDoc = doctorsList.find((d) => d.fullName === docDisplay || d.name === docDisplay || d.acronym === (b.doctorName || b.doctor_name));
                     const docSpecialty = b.doctorSpecialty || b.doctor_specialty || matchedDoc?.specialty || "Obstetrics & Gynaecology";
                     const docAcronym = b.doctorAcronym || b.doctor_acronym || matchedDoc?.acronym;
 
@@ -7924,7 +7303,7 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                     })
                     .map((b) => {
                       const docDisplay = getDoctorRealName(b);
-                      const matchedDoc = DOCTORS.find((d) => d.fullName === docDisplay || d.name === docDisplay || d.acronym === (b.doctorName || b.doctor_name));
+                      const matchedDoc = doctorsList.find((d) => d.fullName === docDisplay || d.name === docDisplay || d.acronym === (b.doctorName || b.doctor_name));
                       const docSpecialty = b.doctorSpecialty || b.doctor_specialty || matchedDoc?.specialty || "Obstetrics & Gynaecology";
 
                       return (
@@ -8371,7 +7750,7 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                   </div>
                 </div>
                 <h2 className="text-3xl font-black text-slate-900 dark:text-white mt-2">
-                  {DOCTORS.length}
+                  {doctorsList.length}
                 </h2>
                 <p className="text-[11px] font-bold text-purple-600 mt-1">Assigned Consultants</p>
               </div>
@@ -8423,7 +7802,7 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {filteredClinics.length > 0 ? (
                 filteredClinics.map((clinic) => {
-                  const assignedDocs = DOCTORS.filter((doc: any) =>
+                  const assignedDocs = doctorsList.filter((doc: any) =>
                     (doc.specialty || "").toLowerCase().includes((clinic.name || "").toLowerCase()) ||
                     (doc.departmentId || "").toLowerCase() === (clinic.id || clinic.dept_id || "").toLowerCase()
                   );
@@ -9829,12 +9208,12 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                     value={editDocSpecialty}
                     onChange={(e) => {
                       setEditDocSpecialty(e.target.value);
-                      const d = DEPARTMENTS.find((dept) => dept.name === e.target.value);
+                      const d = clinics.find((dept) => dept.name === e.target.value);
                       if (d) setEditDocDeptId(d.id);
                     }}
                     className="w-full p-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-bold text-xs focus:ring-2 focus:ring-[#008ac9]"
                   >
-                    {DEPARTMENTS.map((dept) => (
+                    {clinics.map((dept) => (
                       <option key={dept.id} value={dept.name}>
                         {dept.name}
                       </option>
@@ -10225,7 +9604,7 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                           onChange={(e) => setSchedNewDocDeptId(e.target.value)}
                           className="w-full p-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-bold text-xs focus:ring-2 focus:ring-[#008ac9]"
                         >
-                          {DEPARTMENTS.map((dept: any) => (
+                          {clinics.map((dept: any) => (
                             <option key={dept.id || dept.dept_id} value={dept.id || dept.dept_id}>
                               🏥 {dept.name}
                             </option>
@@ -11358,7 +10737,7 @@ ${matchingBookings.length > 0 ? matchingBookings.slice(0, 5).map((b, idx) =>
                     onChange={(e) => setNewDocSpecialty(e.target.value)}
                     className="w-full p-3 rounded-xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white font-bold text-xs focus:ring-2 focus:ring-[#008ac9]"
                   >
-                    {DEPARTMENTS.map((dept) => (
+                    {clinics.map((dept) => (
                       <option key={dept.id} value={dept.name}>
                         🩺 {dept.name}
                       </option>

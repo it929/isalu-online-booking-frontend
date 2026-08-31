@@ -25,8 +25,8 @@ import {
   AlertTriangle,
   Share2,
 } from "lucide-react";
-import { getBookingsAPI, updateBookingAPI, getDoctorsAPI, getSchedulesAPI } from "../api/client";
-import { DOCTORS, getDoctorDisplayAcronym } from "../data/doctors";
+import { updateBookingAPI, getDoctorsAPI, getSchedulesAPI, lookupBookingAPI, getBookingAvailabilityAPI } from "../api/client";
+const getDoctorDisplayAcronym = (booking: any) => booking?.doctorName || booking?.doctor_name || booking?.acronym || "Specialist";
 
 export function CheckAppointmentsPage() {
   const [searchParams] = useSearchParams();
@@ -832,71 +832,23 @@ export function CheckAppointmentsPage() {
 
   useEffect(() => {
     async function loadAllData() {
-      const [remoteBookings, remoteDoctors, remoteSchedules] = await Promise.all([
-        getBookingsAPI(),
-        getDoctorsAPI(),
-        getSchedulesAPI(),
-      ]);
+      const [remoteDoctors, remoteSchedules] = await Promise.all([getDoctorsAPI(), getSchedulesAPI()]);
+      setDoctorsList(Array.isArray(remoteDoctors) ? remoteDoctors : []);
+      setSchedulesList(Array.isArray(remoteSchedules) ? remoteSchedules : []);
 
-      const localBookingsStr = localStorage.getItem("isalu_bookings") || localStorage.getItem("medicare_bookings");
-      let localBookings: any[] = [];
-      if (localBookingsStr) {
-        try { localBookings = JSON.parse(localBookingsStr); } catch {}
-      }
-      let allBookings: any[] = [];
-      if (Array.isArray(remoteBookings)) {
-        allBookings = remoteBookings
-          .filter((remoteB: any) => remoteB.status !== "Disabled" && remoteB.is_active !== false && remoteB.isActive !== false)
-          .map((remoteB: any) => {
-            const code = remoteB.refCode || remoteB.ref_code;
-            const localB = localBookings.find((lb: any) => (lb.refCode || lb.ref_code) === code);
-            return { ...(localB || {}), ...remoteB };
-          });
-        localStorage.setItem("isalu_bookings", JSON.stringify(allBookings));
-      } else {
-        allBookings = localBookings.filter((b: any) => b.status !== "Disabled" && b.is_active !== false && b.isActive !== false);
-      }
-      setBookings(allBookings);
-
-      const localDocsStr = localStorage.getItem("isalu_doctors");
-      let localDocs: any[] = [];
-      if (localDocsStr) {
-        try { localDocs = JSON.parse(localDocsStr); } catch {}
-      }
-      const allDocs = Array.isArray(remoteDoctors) ? remoteDoctors : localDocs;
-      setDoctorsList(allDocs);
-      if (Array.isArray(remoteDoctors)) {
-        localStorage.setItem("isalu_doctors", JSON.stringify(remoteDoctors));
-      }
-
-      const localSchedsStr = localStorage.getItem("isalu_specialist_schedules");
-      let localScheds: any[] = [];
-      if (localSchedsStr) {
-        try { localScheds = JSON.parse(localSchedsStr); } catch {}
-      }
-      const allScheds = Array.isArray(remoteSchedules) ? remoteSchedules : localScheds;
-      setSchedulesList(allScheds);
-      if (Array.isArray(remoteSchedules)) {
-        localStorage.setItem("isalu_specialist_schedules", JSON.stringify(remoteSchedules));
-      }
-
-      // Check URL search params e.g. ?ref=ISALU-XXXXX
       const urlRef = searchParams.get("ref") || searchParams.get("code");
       if (urlRef) {
+        const found = await lookupBookingAPI(urlRef);
+        const matches = found && !found.error ? [found] : [];
+        setBookings(matches);
         setSearchQuery(urlRef);
-        const q = urlRef.toLowerCase().trim();
-        const matches = allBookings.filter(
-          (b) =>
-            (b.refCode || b.ref_code || "")?.toLowerCase().includes(q) ||
-            (b.patientPhone || b.patient_phone || "")?.includes(q)
-        );
         setHasSearched(true);
         setFilteredBookings(matches);
-        if (matches.length > 0) {
-          setSelectedBooking(matches[0]);
-          setIsSlipModalOpen(true);
-        }
+        if (matches.length > 0) { setSelectedBooking(matches[0]); setIsSlipModalOpen(true); }
+      } else {
+        setBookings([]);
       }
+
     }
     loadAllData();
 
@@ -927,23 +879,16 @@ export function CheckAppointmentsPage() {
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!searchQuery.trim()) {
-      setHasSearched(false);
-      setFilteredBookings([]);
-      return;
-    }
+    const q = searchQuery.trim();
+    if (!q) { setHasSearched(false); setFilteredBookings([]); return; }
     setIsSearching(true);
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    const q = searchQuery.toLowerCase().trim();
-    const results = bookings.filter(
-      (b) =>
-        (b.refCode || b.ref_code || "")?.toLowerCase().includes(q) ||
-        (b.patientPhone || b.patient_phone || "")?.includes(q) ||
-        (b.patientName || b.patient_name || "")?.toLowerCase().includes(q)
-    );
-    setHasSearched(true);
-    setFilteredBookings(results);
-    setIsSearching(false);
+    try {
+      const result = await lookupBookingAPI(q);
+      const results = result && !result.error ? [result] : [];
+      setHasSearched(true);
+      setFilteredBookings(results);
+      if (results.length) { setSelectedBooking(results[0]); }
+    } finally { setIsSearching(false); }
   };
 
   const isActionDisabled = (booking: any): { disabled: boolean; reason: string; badgeLabel: string; type: "checkedin" | "completed" | "cleared" | "hmo" | "cancelled" | "none" } => {
@@ -1051,10 +996,13 @@ export function CheckAppointmentsPage() {
     e.preventDefault();
     if (!selectedBooking || !rescheduleDate) return;
 
-    const slotStats = getDoctorSlotStatsForDate(selectedBooking, rescheduleDate);
-    if (slotStats.isLocked) {
-      showToast(`Selected date is fully booked. Please choose an unlocked date.`, "error");
-      return;
+    const doctorId = selectedBooking.doctorId || selectedBooking.doctor_id;
+    if (doctorId) {
+      const availability = await getBookingAvailabilityAPI({ doctor_id: String(doctorId), date: rescheduleDate });
+      if (!availability || availability.error || availability.available === false) {
+        showToast(availability?.error || "Selected date is fully booked. Please choose another date.", "error");
+        return;
+      }
     }
 
     const refCode = selectedBooking.refCode || selectedBooking.ref_code;
@@ -1071,8 +1019,9 @@ export function CheckAppointmentsPage() {
     };
 
     try {
-      // 1. Send API update to Django backend
-      await updateBookingAPI(refCode, updatedFields);
+      // Send the mutation to Django; the server is authoritative.
+      const updatedFromServer: any = await updateBookingAPI(refCode, updatedFields);
+      if (!updatedFromServer || updatedFromServer.error) throw new Error(typeof updatedFromServer?.error === "string" ? updatedFromServer.error : "Server rejected the reschedule request.");
 
       // 2. Update local state objects
       const updatedBooking = {
@@ -1094,8 +1043,6 @@ export function CheckAppointmentsPage() {
       setSelectedBooking(updatedBooking);
 
       // 3. Sync LocalStorage for offline persistence
-      localStorage.setItem("isalu_bookings", JSON.stringify(newAllBookings));
-      localStorage.setItem("medicare_bookings", JSON.stringify(newAllBookings));
 
       // 4. Return to updated ticket slip view
       setIsRescheduleOpen(false);
@@ -1105,29 +1052,9 @@ export function CheckAppointmentsPage() {
       );
     } catch (error) {
       console.error("Reschedule Error:", error);
-      showToast("Failed to connect to backend server. Rescheduled locally.", "error");
+      showToast("Could not update the appointment on the hospital server. Please try again.", "error");
+      return;
 
-      // Local fallback update
-      const updatedBooking = {
-        ...selectedBooking,
-        ...updatedFields,
-        date: formattedDate,
-        time: cleanTime,
-        status: "Rescheduled",
-      };
-
-      const updateList = (prev: any[]) =>
-        prev.map((b) => ((b.refCode || b.ref_code) === refCode ? updatedBooking : b));
-
-      const newAllBookings = updateList(bookings);
-      setBookings(newAllBookings);
-      setFilteredBookings(updateList(filteredBookings));
-      setSelectedBooking(updatedBooking);
-
-      localStorage.setItem("isalu_bookings", JSON.stringify(newAllBookings));
-      localStorage.setItem("medicare_bookings", JSON.stringify(newAllBookings));
-
-      setIsRescheduleOpen(false);
     } finally {
       setIsSubmittingReschedule(false);
     }

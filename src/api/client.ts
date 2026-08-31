@@ -1,68 +1,27 @@
 /**
  * REST API Client for Isalu Hospitals Django Backend
  * Connects React Frontend with Django REST API (http://127.0.0.1:8000/api/)
- * Includes graceful LocalStorage fallbacks for zero-downtime offline operation.
+ * Business data is backend-authoritative. The frontend is a UI/API client only.
  */
 
 const API_HOSTNAME = typeof window !== "undefined" && window.location.hostname ? window.location.hostname : "127.0.0.1";
-const API_BASE_URL = `http://${API_HOSTNAME}:8000/api`;
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || `http://${API_HOSTNAME}:8000/api`).replace(/\/$/, "");
 
 /**
- * Helper to retrieve active JWT token from sessionStorage or localStorage
+ * Helper to retrieve the active JWT token from sessionStorage
  */
 export function getStoredAuthToken(): string | null {
   if (typeof window === "undefined") return null;
-
-  const isValidJwt = (t: any): boolean => {
-    if (!t || typeof t !== "string") return false;
-    const trimmed = t.trim();
-    if (
-      !trimmed ||
-      trimmed.startsWith("{") ||
-      trimmed.startsWith("token-") ||
-      trimmed.startsWith("refresh-")
-    ) {
-      return false;
-    }
-    return true;
-  };
-
-  // 1. Check direct string token stored in sessionStorage / localStorage
-  const directJwt =
-    sessionStorage.getItem("isalu_staff_jwt") ||
-    localStorage.getItem("isalu_staff_jwt") ||
-    localStorage.getItem("isalu_access_token");
-
-  if (isValidJwt(directJwt)) {
-    return directJwt!.trim();
+  const direct = sessionStorage.getItem("isalu_staff_jwt");
+  if (direct && direct.trim()) return direct.trim();
+  const raw = sessionStorage.getItem("isalu_auth_tokens");
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed?.access || parsed?.tokens?.access || null;
+  } catch {
+    return null;
   }
-
-  // 2. Check JSON objects in localStorage / sessionStorage
-  const tokenSources = [
-    localStorage.getItem("isalu_auth_tokens"),
-    sessionStorage.getItem("isalu_auth_tokens"),
-    localStorage.getItem("isalu_staff_session"),
-    sessionStorage.getItem("isalu_staff_session"),
-    sessionStorage.getItem("isalu_staff_user_profile"),
-  ];
-
-  for (const src of tokenSources) {
-    if (src) {
-      try {
-        const parsed = JSON.parse(src);
-        const token =
-          parsed.tokens?.access ||
-          parsed.access ||
-          parsed.token ||
-          parsed.access_token;
-        if (isValidJwt(token)) {
-          return token.trim();
-        }
-      } catch {}
-    }
-  }
-
-  return null;
 }
 
 /**
@@ -70,32 +29,26 @@ export function getStoredAuthToken(): string | null {
  */
 export async function refreshTokenAPI(): Promise<string | null> {
   if (typeof window === "undefined") return null;
-  const rawAuth = localStorage.getItem("isalu_auth_tokens");
+  const rawAuth = sessionStorage.getItem("isalu_auth_tokens");
   if (!rawAuth) return null;
   try {
     const parsed = JSON.parse(rawAuth);
     const refreshToken = parsed.refresh || parsed.refresh_token;
     if (!refreshToken) return null;
-
     const res = await fetch(`${API_BASE_URL}/auth/token-refresh/`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Accept": "application/json" },
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify({ refresh: refreshToken }),
     });
-
-    if (res.ok) {
-      const data = await res.json();
-      if (data.access) {
-        parsed.access = data.access;
-        localStorage.setItem("isalu_auth_tokens", JSON.stringify(parsed));
-        localStorage.setItem("isalu_staff_jwt", data.access);
-        sessionStorage.setItem("isalu_staff_jwt", data.access);
-        return data.access;
-      }
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data.access) {
+      parsed.access = data.access;
+      sessionStorage.setItem("isalu_auth_tokens", JSON.stringify(parsed));
+      sessionStorage.setItem("isalu_staff_jwt", data.access);
+      return data.access;
     }
-  } catch (e) {
-    console.warn("Silent Token Refresh failed:", e);
-  }
+  } catch {}
   return null;
 }
 
@@ -155,8 +108,7 @@ async function apiRequest<T>(endpoint: string, options: RequestInit = {}, isRetr
           if (typeof window !== "undefined") {
             sessionStorage.removeItem("isalu_staff_jwt");
             sessionStorage.removeItem("isalu_staff_authenticated");
-            localStorage.removeItem("isalu_auth_tokens");
-            localStorage.removeItem("isalu_access_token");
+            sessionStorage.removeItem("isalu_auth_tokens");
 
             // Dispatch event to surface 401 to UI
             window.dispatchEvent(
@@ -188,6 +140,7 @@ async function apiRequest<T>(endpoint: string, options: RequestInit = {}, isRetr
       return null;
     }
 
+    if (response.status === 204) return {} as T;
     return (await response.json()) as T;
   } catch (error) {
     // API Server offline or unreachable -> fallback handled by caller
@@ -419,7 +372,8 @@ export async function loginStaffAPI(username: string, password: string): Promise
     body: JSON.stringify({ username, password }),
   });
   if (res && res.tokens) {
-    localStorage.setItem("isalu_auth_tokens", JSON.stringify(res.tokens));
+    sessionStorage.setItem("isalu_auth_tokens", JSON.stringify(res.tokens));
+    sessionStorage.setItem("isalu_staff_jwt", res.tokens.access);
   }
   return res;
 }
@@ -477,3 +431,36 @@ export async function deleteRoleAPI(roleId: string): Promise<boolean> {
   return res !== null;
 }
 
+
+export async function clearAllBookingsAPI(reason = "Cleared by authorized administrator"): Promise<any | null> {
+  return apiRequest<any>("/bookings/clear-all/", { method: "POST", body: JSON.stringify({ reason }) });
+}
+
+export async function getBookingAvailabilityAPI(params: { doctor_id: string; date: string }): Promise<any | null> {
+  const q = new URLSearchParams(params).toString();
+  return apiRequest<any>(`/bookings/availability/?${q}`);
+}
+
+export async function lookupBookingAPI(value: string, phone?: string): Promise<any | null> {
+  const clean = value.trim();
+  const isReference = /^ISALU-/i.test(clean);
+  const params = isReference ? { ref_code: clean, ...(phone ? { phone } : {}) } : { phone: clean };
+  const q = new URLSearchParams(params).toString();
+  return apiRequest<any>(`/bookings/public-lookup/?${q}`);
+}
+
+export async function generateAiReportAPI(prompt: string): Promise<any | null> {
+  return apiRequest<any>("/analytics/ai-report/", { method: "POST", body: JSON.stringify({ prompt }) });
+}
+
+export async function getAppSettingAPI(key: string): Promise<any | null> {
+  return apiRequest<any>(`/settings/${encodeURIComponent(key)}/`);
+}
+
+export async function saveAppSettingAPI(key: string, value: any): Promise<any | null> {
+  const existing = await apiRequest<any>(`/settings/${encodeURIComponent(key)}/`, { method: "GET" });
+  if (existing && !existing.error) {
+    return apiRequest<any>(`/settings/${encodeURIComponent(key)}/`, { method: "PATCH", body: JSON.stringify({ value }) });
+  }
+  return apiRequest<any>("/settings/", { method: "POST", body: JSON.stringify({ key, value }) });
+}

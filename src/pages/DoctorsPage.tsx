@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
-import { DOCTORS, DEPARTMENTS } from "../data/doctors";
+
 import { Search, Star, Clock, MapPin, ArrowRight, Calendar, Flame } from "lucide-react";
 import { SpecialistAvatar } from "../components/SpecialistAvatar";
 import { getDoctorsAPI, getDepartmentsAPI, getSchedulesAPI } from "../api/client";
@@ -47,19 +47,16 @@ export function DoctorsPage() {
   }, []);
 
   const getDoctorSlotStats = (doctorId: string, timeSlotsCount: number) => {
-    let existingBookings: any[] = [];
-    try {
-      existingBookings = JSON.parse(localStorage.getItem("isalu_bookings") || localStorage.getItem("medicare_bookings") || "[]") || [];
-    } catch {}
-    const bookedForDoc = existingBookings.filter((b) => b.doctorId === doctorId && b.status !== "Cancelled").length;
-    const totalCapacity = Math.max(8, timeSlotsCount * 2);
-    const remaining = Math.max(1, totalCapacity - bookedForDoc);
+    const doctor = allDoctors.find((d: any) => (d.id || d.doc_id) === doctorId);
+    const totalCapacity = Math.max(1, Number(doctor?.totalWeeklyCapacity || doctor?.capacity || timeSlotsCount * 2));
+    const bookedForDoc = Number(doctor?.activeBookingCount || doctor?.active_booking_count || 0);
+    const remaining = Math.max(0, totalCapacity - bookedForDoc);
     return { bookedCount: bookedForDoc, totalCapacity, remaining };
   };
 
   const filteredDoctors = allDoctors.filter((doc: any) => {
     const isNotDisabled = doc.status !== false && (typeof doc.status !== "string" || !doc.status.includes("Disabled"));
-    const deptObj = DEPARTMENTS.find((d) => d.id === selectedDept);
+    const deptObj = departmentsList.find((d: any) => d.id === selectedDept);
     const deptNameLower = deptObj ? deptObj.name.toLowerCase() : selectedDept.toLowerCase();
     const docSpecialtyLower = (doc.specialty || "").toLowerCase();
 
@@ -143,11 +140,7 @@ export function DoctorsPage() {
           {filteredDoctors.map((doc: any) => {
             const safeTimeSlots = Array.isArray(doc.timeSlots) ? doc.timeSlots : ["08:00 AM – 12:00 PM", "01:00 PM – 05:00 PM"];
             let savedSchedules: any[] = schedulesList && schedulesList.length > 0 ? schedulesList : [];
-            if (!savedSchedules || savedSchedules.length === 0) {
-              try {
-                savedSchedules = JSON.parse(localStorage.getItem("isalu_specialist_schedules") || "[]") || [];
-              } catch {}
-            }
+
             const docSched = savedSchedules.find((s: any) => {
               const sDocId = String(s.doctorId || s.doctor_id || "").toLowerCase().trim();
               const dId = String(doc.id || "").toLowerCase().trim();

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { DEPARTMENTS, DOCTORS } from "../data/doctors";
+
 import { getDepartmentsAPI, getDoctorsAPI, getHmoCompaniesAPI, getSchedulesAPI } from "../api/client";
 import {
   Stethoscope,
@@ -372,36 +372,9 @@ export function HomePage() {
       }, 150);
     }
   }, [location.hash]);
-  const [departmentsList, setDepartmentsList] = useState<any[]>(() => {
-    const saved = localStorage.getItem("isalu_hospitals_departments");
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      } catch {}
-    }
-    return DEPARTMENTS;
-  });
-  const [allDoctors, setAllDoctors] = useState<any[]>(() => {
-    const saved = localStorage.getItem("isalu_hospital_doctors");
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      } catch {}
-    }
-    return DOCTORS;
-  });
-  const [schedulesList, setSchedulesList] = useState<any[]>(() => {
-    const saved = localStorage.getItem("isalu_specialist_schedules");
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return parsed;
-      } catch {}
-    }
-    return [];
-  });
+  const [departmentsList, setDepartmentsList] = useState<any[]>([]);
+  const [allDoctors, setAllDoctors] = useState<any[]>([]);
+  const [schedulesList, setSchedulesList] = useState<any[]>([]);
 
   const cleanShiftTimeStr = (rawShift: string): string => {
     if (!rawShift) return "08:00 AM – 02:00 PM";
@@ -455,7 +428,7 @@ export function HomePage() {
           }
           const sDocId = String(s.doctorId || s.doctor_id || s.doctor?.doc_id || s.doctor?.id || s.doctor || "").toLowerCase().trim();
           const sDocName = String(s.doctorName || s.doctor_name || s.doctor?.full_name || s.doctor?.name || "").toLowerCase().trim();
-          
+
           const dId = String(doc.id || doc.doc_id || "").toLowerCase().trim();
           const dName = String(doc.fullName || doc.name || "").toLowerCase().trim();
           const dAcro = String(doc.acronym || "").toLowerCase().trim();
@@ -490,7 +463,7 @@ export function HomePage() {
           if (!shiftTime && (docSched.shiftTime || docSched.shift_time)) {
             const raw = docSched.shiftTime || docSched.shift_time;
             const parts = String(raw).split("|").map((p: string) => p.trim());
-            const dayPart = parts.find((p: string) => 
+            const dayPart = parts.find((p: string) =>
               p.toLowerCase().includes(dayShort.toLowerCase()) || p.toLowerCase().includes(dayNameLong.toLowerCase())
             );
             if (dayPart) {
@@ -586,9 +559,6 @@ export function HomePage() {
             }));
 
           setDepartmentsList(mapped);
-          localStorage.setItem("isalu_hospitals_departments", JSON.stringify(mapped));
-        } else if (!departmentsList || departmentsList.length === 0) {
-          setDepartmentsList(DEPARTMENTS);
         }
       });
 
@@ -597,7 +567,6 @@ export function HomePage() {
         if (remoteDoctors && Array.isArray(remoteDoctors) && remoteDoctors.length > 0) {
           const activeDocs = remoteDoctors.filter((d: any) => d.status !== false && (typeof d.status !== "string" || !d.status.includes("Disabled")));
           setAllDoctors(activeDocs.length > 0 ? activeDocs : remoteDoctors);
-          localStorage.setItem("isalu_hospital_doctors", JSON.stringify(remoteDoctors));
         }
       });
 
@@ -605,7 +574,6 @@ export function HomePage() {
       getSchedulesAPI().then((remoteScheds) => {
         if (remoteScheds && Array.isArray(remoteScheds)) {
           setSchedulesList(remoteScheds);
-          localStorage.setItem("isalu_specialist_schedules", JSON.stringify(remoteScheds));
         }
       });
     }
@@ -652,7 +620,7 @@ export function HomePage() {
           updateFromSource(event.data.clinics);
         }
       };
-    } catch {}
+    } catch { }
 
     const handleCustomEvent = (e: any) => {
       if (e.detail && Array.isArray(e.detail)) {
@@ -667,58 +635,21 @@ export function HomePage() {
     };
 
     window.addEventListener("focus", handleStorageEvent);
-    window.addEventListener("storage", handleStorageEvent);
     window.addEventListener("isalu_clinic_updated", handleCustomEvent);
 
     return () => {
       if (channel) channel.close();
       window.removeEventListener("focus", handleStorageEvent);
-      window.removeEventListener("storage", handleStorageEvent);
       window.removeEventListener("isalu_clinic_updated", handleCustomEvent);
     };
   }, []);
 
-  const [hmoPartnersList, setHmoPartnersList] = useState<any[]>(() => {
-    const saved = localStorage.getItem("isalu_hmo_companies");
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (parsed && Array.isArray(parsed) && parsed.length > 0) return parsed;
-      } catch {}
-    }
-    return [
-      { name: "Hygeia HMO", code: "HMO-HYG-001" },
-      { name: "Reliance HMO", code: "HMO-RLN-002" },
-      { name: "AXA Mansard Health", code: "HMO-AXA-003" },
-      { name: "Avon HMO", code: "HMO-AVN-004" },
-      { name: "Leadway Health", code: "HMO-LWD-005" },
-      { name: "Clearline HMO", code: "HMO-CLR-006" },
-      { name: "Total Health Trust", code: "HMO-THT-007" },
-      { name: "Redcare HMO", code: "HMO-RDC-008" },
-    ];
-  });
+  const [hmoPartnersList, setHmoPartnersList] = useState<any[]>([]);
 
   useEffect(() => {
     async function loadHmoData() {
-      const isCleared = localStorage.getItem("isalu_hmo_cleared");
-      if (isCleared === "true") {
-        setHmoPartnersList([]);
-        return;
-      }
-
       const remoteHmos = await getHmoCompaniesAPI();
-      if (remoteHmos && Array.isArray(remoteHmos) && remoteHmos.length > 0) {
-        setHmoPartnersList(remoteHmos);
-        localStorage.setItem("isalu_hmo_companies", JSON.stringify(remoteHmos));
-      } else {
-        const localStr = localStorage.getItem("isalu_hmo_companies");
-        if (localStr) {
-          try {
-            const parsed = JSON.parse(localStr);
-            if (Array.isArray(parsed)) setHmoPartnersList(parsed);
-          } catch {}
-        }
-      }
+      if (Array.isArray(remoteHmos)) setHmoPartnersList(remoteHmos);
     }
     loadHmoData();
 
@@ -730,7 +661,7 @@ export function HomePage() {
           setHmoPartnersList(event.data.hmoCompanies);
         }
       };
-    } catch {}
+    } catch { }
 
     const handleHmoCustomEvent = (e: any) => {
       if (e.detail && Array.isArray(e.detail)) {
@@ -806,10 +737,7 @@ export function HomePage() {
 
     if (deptDocs.length === 0) return false;
 
-    let savedSchedules: any[] = [];
-    try {
-      savedSchedules = JSON.parse(localStorage.getItem("isalu_specialist_schedules") || "[]") || [];
-    } catch {}
+    const savedSchedules: any[] = schedulesList || [];
 
     // Calculate Tomorrow's Date (Midnight today + 1 day)
     const today = new Date();
@@ -909,10 +837,7 @@ export function HomePage() {
 
     if (deptDocs.length === 0) return "No upcoming schedule";
 
-    let savedSchedules: any[] = [];
-    try {
-      savedSchedules = JSON.parse(localStorage.getItem("isalu_specialist_schedules") || "[]") || [];
-    } catch {}
+    const savedSchedules: any[] = schedulesList || [];
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -1164,7 +1089,7 @@ export function HomePage() {
 
         <div className="container mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 relative z-10">
           <div className="grid lg:grid-cols-12 gap-12 items-center">
-            
+
             {/* Left Hero Column */}
             <div className="lg:col-span-7 space-y-6 text-center lg:text-left">
               <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-1.5 text-xs font-black text-sky-300 border-2 border-white/20">

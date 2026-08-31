@@ -102,7 +102,7 @@ export function GynaecologyPopup() {
               Obstetrics & Gynaecology Consultations Are <span className="bg-gradient-to-r from-rose-600 via-pink-600 to-purple-600 bg-clip-text text-transparent underline decoration-rose-400/50">Always Available Everyday!</span>
             </h2>
             <p className="text-[11px] sm:text-xs font-semibold text-slate-600 dark:text-slate-300 mt-1 max-w-sm mx-auto leading-relaxed break-words">
-              At Isalu Hospitals, our Obstetrics & Gynaecology specialists are on duty <strong>6 days a week (excluding Thursdays)</strong> for comprehensive women's healthcare, prenatal consultations, and fertility evaluations.
+              At Isalu Hospitals, our Obstetrics & Gynaecology specialists are on duty <strong>7 days a week (including Thursdays)</strong> for comprehensive women's healthcare, prenatal consultations, and fertility evaluations.
             </p>
           </div>
 
@@ -137,7 +137,7 @@ export function GynaecologyPopup() {
               {/* Day Schedule Clean Rows */}
               <div className="space-y-1.5 text-[11px] font-bold">
                 <div className="p-2 rounded-xl bg-white/90 dark:bg-slate-900/90 border border-sky-200/80 dark:border-sky-900/80 flex items-center justify-between gap-2 shadow-2xs">
-                  <span className="text-[10px] uppercase tracking-wider text-sky-600 dark:text-sky-400 font-black">Mon, Tue, Fri, Sat</span>
+                  <span className="text-[10px] uppercase tracking-wider text-sky-600 dark:text-sky-400 font-black">Mon, Tue, Thu, Fri, Sat</span>
                   <span className="text-slate-900 dark:text-slate-100 font-extrabold text-xs">10:00 AM – 5:00 PM</span>
                 </div>
 
