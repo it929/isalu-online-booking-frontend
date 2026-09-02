@@ -1342,9 +1342,6 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
     }
   };
 
-  useEffect(() => {
-    loadClinics();
-  }, []);
 
   // Create Clinic Modal State
   const [showCreateClinicModal, setShowCreateClinicModal] = useState(false);
@@ -4070,7 +4067,31 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
 
   const handleManualRefresh = async () => {
     setIsRefreshingData(true);
-    try { await loadBookings(); await loadClinics(); await loadUsers(); await loadRoles(); } finally { setIsRefreshingData(false); setToastAlert({ title: "Dashboard Synchronized ✓", description: "Latest hospital records refreshed from the server.", type: "success" }); }
+    try {
+      await Promise.allSettled([
+        loadBookings(),
+        fetchDisabledBookings(),
+        loadClinics(),
+        getDoctorsAPI().then((remote) => {
+          if (Array.isArray(remote)) setDoctorsList(remote);
+        }),
+        getSchedulesAPI().then((remote) => {
+          if (Array.isArray(remote)) setSpecialistSchedules(remote);
+        }),
+        getHmoCompaniesAPI().then((remote) => {
+          if (Array.isArray(remote)) setHmoCompanies(remote);
+        }),
+        loadUsers(),
+        loadRoles(),
+      ]);
+      setToastAlert({
+        title: "Dashboard Synchronized ✓",
+        description: "Latest hospital records refreshed from the server.",
+        type: "success",
+      });
+    } finally {
+      setIsRefreshingData(false);
+    }
   };
 
   const handleClearAllBookings = () => {
@@ -4416,124 +4437,319 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
     }
   };
 
+  // =========================================================================
+  // REAL-TIME SYNCHRONIZATION
+  // =========================================================================
+  // IMPORTANT:
+  // - PostgreSQL/Django REST remains the source of truth.
+  // - Redis is used by Django Channels as the realtime message layer.
+  // - The browser never polls the API on an interval.
+  // - A realtime event refreshes ONLY the resource that changed.
+  // - Manual refresh remains available for an explicit full refresh.
   useEffect(() => {
-    loadBookings();
-    fetchDisabledBookings();
+    let disposed = false;
+    let socket: WebSocket | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let reconnectAttempt = 0;
 
-    async function syncBackendData() {
+    const safeLoad = async (loader: () => Promise<unknown>, label: string) => {
       try {
-        fetchDisabledBookings();
-        const remoteBookings = await getBookingsAPI();
-        if (Array.isArray(remoteBookings)) { setBookings(remoteBookings); }
-
-        await loadClinics();
-
-        const remoteDoctors = await getDoctorsAPI();
-        if (remoteDoctors && Array.isArray(remoteDoctors)) {
-          setDoctorsList(remoteDoctors);
-
+        await loader();
+      } catch (error) {
+        if (!disposed) {
+          console.warn(`[Realtime] Failed to refresh ${label}:`, error);
         }
-
-        const remoteSchedules = await getSchedulesAPI();
-        if (remoteSchedules && Array.isArray(remoteSchedules)) {
-          setSpecialistSchedules(remoteSchedules);
-
-        }
-        const remoteHmos = await getHmoCompaniesAPI();
-        if (Array.isArray(remoteHmos)) setHmoCompanies(remoteHmos);
-        const remoteUsers = await getSystemUsersAPI();
-        if (remoteUsers && Array.isArray(remoteUsers)) {
-          setSystemUsers(remoteUsers);
-
-          // Sync active session user profile if role was updated on another system
-          const savedProfile = sessionStorage.getItem("isalu_staff_user_profile");
-          if (savedProfile) {
-            try {
-              const parsedCur = JSON.parse(savedProfile);
-              const curEmail = (parsedCur?.email || "").toLowerCase().trim();
-              const curName = (parsedCur?.name || "").toLowerCase().trim();
-              const matched = remoteUsers.find(
-                (u: any) =>
-                  (u.email && u.email.toLowerCase().trim() === curEmail) ||
-                  (u.name && u.name.toLowerCase().trim() === curName)
-              );
-              if (matched && matched.role && (matched.role !== parsedCur.role || matched.desk !== parsedCur.desk)) {
-                const updatedProf = {
-                  ...parsedCur,
-                  role: matched.role,
-                  desk: matched.desk || getPrimaryDeskForRole(matched.role),
-                };
-                sessionStorage.setItem("isalu_staff_user_profile", JSON.stringify(updatedProf));
-                setCurrentUser(updatedProf);
-              }
-            } catch { }
-          }
-        }
-        await loadRoles();
-      } catch (err) {
-        console.warn("syncBackendData error:", err);
       }
-    }
-
-    syncBackendData();
-
-    // Cross-tab and window sync listeners
-    const handleSync = () => {
-      loadBookings();
-      syncBackendData();
     };
 
-    let channel: BroadcastChannel | null = null;
+    const loadDoctors = async () => {
+      const remote = await getDoctorsAPI();
+      if (!disposed && Array.isArray(remote)) {
+        setDoctorsList(remote);
+      }
+    };
+
+    const loadSchedules = async () => {
+      const remote = await getSchedulesAPI();
+      if (!disposed && Array.isArray(remote)) {
+        setSpecialistSchedules(remote);
+      }
+    };
+
+    const loadHmos = async () => {
+      const remote = await getHmoCompaniesAPI();
+      if (!disposed && Array.isArray(remote)) {
+        setHmoCompanies(remote);
+      }
+    };
+
+    const loadDashboardData = async () => {
+      // Initial page load only. These requests run concurrently rather than
+      // serially, so the dashboard becomes usable much faster.
+      await Promise.allSettled([
+        safeLoad(loadBookings, "bookings"),
+        safeLoad(fetchDisabledBookings, "disabled bookings"),
+        safeLoad(loadClinics, "departments"),
+        safeLoad(loadDoctors, "doctors"),
+        safeLoad(loadSchedules, "schedules"),
+        safeLoad(loadHmos, "HMO companies"),
+        safeLoad(loadUsers, "users"),
+        safeLoad(loadRoles, "roles"),
+      ]);
+    };
+
+    const refreshBookingData = () => {
+      void safeLoad(loadBookings, "bookings");
+      // Disabled-booking counts/statuses are maintained separately in this
+      // dashboard, so refresh them only for booking events.
+      void safeLoad(fetchDisabledBookings, "disabled bookings");
+    };
+
+    const refreshUsers = () => void safeLoad(loadUsers, "users");
+    const refreshRoles = () => void safeLoad(loadRoles, "roles");
+    const refreshHmos = () => void safeLoad(loadHmos, "HMO companies");
+    const refreshClinics = () => void safeLoad(loadClinics, "departments");
+    const refreshDoctors = () => void safeLoad(loadDoctors, "doctors");
+    const refreshSchedules = () => void safeLoad(loadSchedules, "schedules");
+
+    const normalizeEventType = (value: unknown): string =>
+      String(value ?? "")
+        .trim()
+        .toUpperCase()
+        .replace(/[\s-]+/g, "_");
+
+    const handleRealtimeEvent = (payload: any) => {
+      if (!payload || disposed) return;
+
+      const type = normalizeEventType(
+        payload.type ?? payload.event_type ?? payload.event ?? payload.action
+      );
+
+      // Some Channels implementations send e.g. BOOKING_CREATED while others
+      // send BOOKING_UPDATE. Handle both styles without triggering a full sync.
+      if (
+        type.includes("BOOKING") ||
+        type.includes("APPOINTMENT") ||
+        type === "TICKET_UPDATED"
+      ) {
+        refreshBookingData();
+        return;
+      }
+
+      if (type.includes("DOCTOR") || type.includes("SPECIALIST")) {
+        refreshDoctors();
+        return;
+      }
+
+      if (type.includes("SCHEDULE") || type.includes("SLOT")) {
+        refreshSchedules();
+        return;
+      }
+
+      if (type.includes("HMO")) {
+        refreshHmos();
+        return;
+      }
+
+      if (type.includes("DEPARTMENT") || type.includes("CLINIC")) {
+        refreshClinics();
+        return;
+      }
+
+      if (type.includes("USER")) {
+        refreshUsers();
+        return;
+      }
+
+      if (type.includes("ROLE")) {
+        refreshRoles();
+        return;
+      }
+
+      // Do NOT call a full dashboard synchronization for unknown events.
+      // Redis/Channels may deliver unrelated notifications to the same socket.
+      console.debug("[Realtime] Ignored unrecognized event:", payload);
+    };
+
+    // -----------------------------------------------------------------------
+    // Initial load
+    // -----------------------------------------------------------------------
+    void loadDashboardData();
+
+    // -----------------------------------------------------------------------
+    // Cross-tab synchronization
+    // -----------------------------------------------------------------------
+    let hospitalChannel: BroadcastChannel | null = null;
+    let userChannel: BroadcastChannel | null = null;
+    let roleChannel: BroadcastChannel | null = null;
+    let hmoChannel: BroadcastChannel | null = null;
+    let clinicChannel: BroadcastChannel | null = null;
+
     try {
-      channel = new BroadcastChannel("isalu_hospital_channel");
-      channel.onmessage = (event) => {
-        if (event.data?.type === "BOOKINGS_UPDATED") {
-          handleSync();
-        }
+      hospitalChannel = new BroadcastChannel("isalu_hospital_channel");
+      hospitalChannel.onmessage = (event) => {
+        if (event.data) handleRealtimeEvent(event.data);
       };
-    } catch { }
+    } catch (error) {
+      console.warn("[BroadcastChannel] Hospital channel unavailable:", error);
+    }
 
-    let userChan: BroadcastChannel | null = null;
     try {
-      userChan = new BroadcastChannel("isalu_user_channel");
-      userChan.onmessage = (event) => {
-        if (event.data?.type === "USERS_UPDATED") {
-          loadUsers();
-        }
+      userChannel = new BroadcastChannel("isalu_user_channel");
+      userChannel.onmessage = (event) => {
+        if (event.data) handleRealtimeEvent(event.data);
       };
-    } catch { }
+    } catch (error) {
+      console.warn("[BroadcastChannel] User channel unavailable:", error);
+    }
 
-    let roleChan: BroadcastChannel | null = null;
     try {
-      roleChan = new BroadcastChannel("isalu_role_channel");
-      roleChan.onmessage = (event) => {
-        if (event.data?.type === "ROLES_UPDATED") {
-          loadRoles();
-        }
+      roleChannel = new BroadcastChannel("isalu_role_channel");
+      roleChannel.onmessage = (event) => {
+        if (event.data) handleRealtimeEvent(event.data);
       };
-    } catch { }
+    } catch (error) {
+      console.warn("[BroadcastChannel] Role channel unavailable:", error);
+    }
 
-    window.addEventListener("storage", handleSync);
-    window.addEventListener("isalu_booking_created", handleSync);
-    window.addEventListener("isalu_booking_updated", handleSync);
-    window.addEventListener("isalu_users_updated", loadUsers);
-    window.addEventListener("isalu_roles_updated", loadRoles);
-    window.addEventListener("focus", handleSync);
+    try {
+      hmoChannel = new BroadcastChannel("isalu_hmo_channel");
+      hmoChannel.onmessage = (event) => {
+        if (event.data) handleRealtimeEvent(event.data);
+      };
+    } catch (error) {
+      console.warn("[BroadcastChannel] HMO channel unavailable:", error);
+    }
 
-    // Auto-polling interval every 2s for instant real-time live updates across different accounts and windows
-    const pollInterval = setInterval(() => {
-      syncBackendData();
-    }, 2000);
+    try {
+      clinicChannel = new BroadcastChannel("isalu_clinic_channel");
+      clinicChannel.onmessage = (event) => {
+        if (event.data) handleRealtimeEvent(event.data);
+      };
+    } catch (error) {
+      console.warn("[BroadcastChannel] Clinic channel unavailable:", error);
+    }
+
+    // Custom events are used by existing dashboard CRUD handlers.
+    const onBookingCreated = () => refreshBookingData();
+    const onBookingUpdated = () => refreshBookingData();
+    const onUsersUpdated = () => refreshUsers();
+    const onRolesUpdated = () => refreshRoles();
+    const onHmoUpdated = () => refreshHmos();
+    const onClinicUpdated = () => refreshClinics();
+
+    window.addEventListener("isalu_booking_created", onBookingCreated);
+    window.addEventListener("isalu_booking_updated", onBookingUpdated);
+    window.addEventListener("isalu_users_updated", onUsersUpdated);
+    window.addEventListener("isalu_roles_updated", onRolesUpdated);
+    window.addEventListener("isalu_hmo_updated", onHmoUpdated);
+    window.addEventListener("isalu_clinic_updated", onClinicUpdated);
+
+    // Intentionally NO `focus` listener and NO generic `storage` listener.
+    // Both can turn harmless browser activity into a full API synchronization.
+
+    // -----------------------------------------------------------------------
+    // Daphne / Django Channels WebSocket
+    // -----------------------------------------------------------------------
+    const token =
+      sessionStorage.getItem("isalu_staff_jwt") ||
+      localStorage.getItem("access") ||
+      localStorage.getItem("token") ||
+      "";
+
+    const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const wsHost =
+      window.location.hostname === "localhost"
+        ? "127.0.0.1:8000"
+        : window.location.host;
+
+    // Encode the JWT because it can contain URL-sensitive characters.
+    const wsUrl = `${wsProtocol}//${wsHost}/ws/notifications/${token ? `?token=${encodeURIComponent(token)}` : ""}`;
+
+    const scheduleReconnect = () => {
+      if (disposed || reconnectTimer) return;
+
+      // Exponential backoff: 1s -> 2s -> 4s -> ... -> 30s.
+      const delay = Math.min(30000, 1000 * 2 ** reconnectAttempt);
+      reconnectAttempt = Math.min(reconnectAttempt + 1, 5);
+
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        connectWebSocket();
+      }, delay);
+    };
+
+    const connectWebSocket = () => {
+      if (disposed) return;
+
+      try {
+        socket = new WebSocket(wsUrl);
+
+        socket.onopen = () => {
+          reconnectAttempt = 0;
+          console.log("[WebSocket] Connected to live hospital feed.");
+        };
+
+        socket.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            handleRealtimeEvent(data);
+          } catch (error) {
+            console.warn("[WebSocket] Ignoring non-JSON message:", error);
+          }
+        };
+
+        socket.onclose = () => {
+          socket = null;
+          scheduleReconnect();
+        };
+
+        socket.onerror = () => {
+          // onclose will schedule the reconnect. Closing here prevents a
+          // broken socket from remaining open and repeatedly firing errors.
+          try {
+            socket?.close();
+          } catch { }
+        };
+      } catch (error) {
+        console.warn("[WebSocket] Connection attempt failed:", error);
+        scheduleReconnect();
+      }
+    };
+
+    connectWebSocket();
 
     return () => {
-      window.removeEventListener("storage", handleSync);
-      window.removeEventListener("isalu_booking_created", handleSync);
-      window.removeEventListener("isalu_booking_updated", handleSync);
-      window.removeEventListener("isalu_users_updated", loadUsers);
-      window.removeEventListener("focus", handleSync);
-      if (channel) channel.close();
-      if (userChan) userChan.close();
-      clearInterval(pollInterval);
+      disposed = true;
+
+      window.removeEventListener("isalu_booking_created", onBookingCreated);
+      window.removeEventListener("isalu_booking_updated", onBookingUpdated);
+      window.removeEventListener("isalu_users_updated", onUsersUpdated);
+      window.removeEventListener("isalu_roles_updated", onRolesUpdated);
+      window.removeEventListener("isalu_hmo_updated", onHmoUpdated);
+      window.removeEventListener("isalu_clinic_updated", onClinicUpdated);
+
+      hospitalChannel?.close();
+      userChannel?.close();
+      roleChannel?.close();
+      hmoChannel?.close();
+      clinicChannel?.close();
+
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+
+      if (socket) {
+        socket.onopen = null;
+        socket.onmessage = null;
+        socket.onclose = null;
+        socket.onerror = null;
+        try {
+          socket.close();
+        } catch { }
+        socket = null;
+      }
     };
   }, []);
 
