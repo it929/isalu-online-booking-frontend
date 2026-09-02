@@ -546,6 +546,35 @@ export function BookAppointmentPage() {
 
     const dayOfMonth = candidateDate.getDate();
     const nthWeek = Math.ceil(dayOfMonth / 7);
+    // ----------------------------------------------------------
+    // STRUCTURED ALTERNATING-WEEK RECURRENCE
+    //
+    // The API returns dayConfigs like {"Sat": {"weeks": [1, 3]}} for a
+    // doctor who works only the 1st and 3rd Saturday of each month.
+    // This mirrors the backend check in BookingSerializer.validate(),
+    // so the calendar and the booking validator use one rule.
+    //
+    // An absent or empty `weeks` means every occurrence of that weekday,
+    // which preserves the behaviour of every other schedule.
+    // ----------------------------------------------------------
+    const dayKeyShort = candidateDate.toLocaleDateString("en-US", { weekday: "short" });
+    const dayKeyLong = candidateDate.toLocaleDateString("en-US", { weekday: "long" });
+    const docIdCandidates = [
+      String(doctor.id || "").toLowerCase().trim(),
+      String((doctor as any).doc_id || "").toLowerCase().trim(),
+    ].filter(Boolean);
+    const matchedSchedules = (specialistSchedulesList || []).filter((s: any) => {
+      const sDocId = String(s.doctorId || s.doctor_id || s.doctor || "").toLowerCase().trim();
+      return sDocId !== "" && docIdCandidates.includes(sDocId);
+    });
+    for (const sched of matchedSchedules) {
+      const cfgs = (sched as any).dayConfigs || (sched as any).day_configs || {};
+      const cfg = cfgs[dayKeyShort] || cfgs[dayKeyLong] || {};
+      const weeks: number[] = Array.isArray(cfg.weeks) ? cfg.weeks : [];
+      if (weeks.length > 0 && !weeks.includes(nthWeek)) {
+        return false;
+      }
+    }
 
     const tokens: string[] = [];
     dutyDays.forEach((item: any) => {
