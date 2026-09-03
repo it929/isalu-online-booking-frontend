@@ -497,10 +497,16 @@ ADMINISTRATIVE VERIFICATION:
   };
 
   const handleExportWaitingQueuePDF = () => {
-    const waitingPatients = filteredBookings.filter((b) => {
-      const st = (b.status || "").toLowerCase().trim();
-      return st !== "completed" && st !== "cancelled" && st !== "done" && st !== "discharged";
-    });
+    const waitingPatients = filteredBookings
+      .filter((b) => {
+        const st = (b.status || "").toLowerCase().trim();
+        return st !== "completed" && st !== "cancelled" && st !== "done" && st !== "discharged";
+      })
+      .sort((a, b) => {
+        const tA = new Date(a.createdAt || a.created_at || a.created_date || a.date || 0).getTime();
+        const tB = new Date(b.createdAt || b.created_at || b.created_date || b.date || 0).getTime();
+        return tA - tB;
+      });
 
     const doc = new jsPDF();
     const nowStr = new Date().toLocaleString();
@@ -7609,6 +7615,11 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
                     .filter((b) => {
                       const st = (b.status || "").toLowerCase().trim();
                       return st !== "completed" && st !== "cancelled" && st !== "done" && st !== "discharged";
+                    })
+                    .sort((a, b) => {
+                      const tA = new Date(a.createdAt || a.created_at || a.created_date || a.date || 0).getTime();
+                      const tB = new Date(b.createdAt || b.created_at || b.created_date || b.date || 0).getTime();
+                      return tA - tB;
                     })
                     .map((b, bIdx) => {
                       const refCode = b.refCode || b.ref_code || `ISALU-REF-${bIdx + 1}`;
