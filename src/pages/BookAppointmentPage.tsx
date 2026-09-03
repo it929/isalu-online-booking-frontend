@@ -175,8 +175,18 @@ export function BookAppointmentPage() {
   const [bookingConfirmed, setBookingConfirmed] = useState<any>(null);
   const [isSubmittingBooking, setIsSubmittingBooking] = useState<boolean>(false);
 
+  const formTopRef = useRef<HTMLDivElement>(null);
   const specialistsSectionRef = useRef<HTMLDivElement>(null);
   const slotsSectionRef = useRef<HTMLDivElement>(null);
+
+  // Keep form container in viewport on mobile step transitions to prevent jumping down to footer
+  useEffect(() => {
+    if (formTopRef.current) {
+      formTopRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    } else {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }, [step]);
 
   const [departmentsList, setDepartmentsList] = useState<any[]>([]);
   const [hmoCompanies, setHmoCompanies] = useState<any[]>([]);
@@ -1412,7 +1422,8 @@ export function BookAppointmentPage() {
   };
 
   return (
-    <div className="flex-1 bg-slate-100 dark:bg-slate-950 py-10 md:py-16">
+    <div className="flex-1 bg-slate-100 dark:bg-slate-950 py-8 sm:py-10 md:py-16 min-h-[calc(100vh-140px)]">
+      <div ref={formTopRef} className="scroll-mt-24" />
       {/* GLOBAL API ERROR MODAL */}
       <ApiErrorModal error={apiError} onClose={() => setApiError(null)} />
 
