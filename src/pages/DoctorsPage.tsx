@@ -5,6 +5,27 @@ import { Search, Star, Clock, MapPin, ArrowRight, Calendar, Flame, Users, XCircl
 import { SpecialistAvatar } from "../components/SpecialistAvatar";
 import { getDoctorsAPI, getDepartmentsAPI, getSchedulesAPI, getBookingsAPI } from "../api/client";
 
+const getDoctorDisplayAcronym = (doctor: any): string => {
+  if (!doctor) return "Specialist";
+  if (typeof doctor === "string") {
+    const trimmed = doctor.trim();
+    if (trimmed.toLowerCase().startsWith("specialist")) return trimmed;
+    return "Specialist";
+  }
+  const acronym = doctor.acronym || doctor.doctorAcronym || doctor.doctor_acronym || doctor.acronymName;
+  if (typeof acronym === "string" && acronym.trim()) return acronym.trim();
+
+  const nameStr = String(doctor.name || doctor.doctorName || doctor.doctor_name || "").trim();
+  if (nameStr.toLowerCase().startsWith("specialist")) return nameStr;
+
+  const docId = String(doctor.id || doctor.doc_id || doctor.pk || "").replace(/\D/g, "");
+  if (docId) {
+    const idx = (parseInt(docId, 10) - 1) % 26;
+    return `Specialist ${String.fromCharCode(65 + Math.max(0, idx))}`;
+  }
+  return "Specialist";
+};
+
 export function DoctorsPage() {
   const [departmentsList, setDepartmentsList] = useState<any[]>([]);
   const [selectedDept, setSelectedDept] = useState("all");
@@ -279,9 +300,9 @@ export function DoctorsPage() {
 
                 <div className="p-6 space-y-4">
                   <div className="flex gap-4 items-start pt-2">
-                    <SpecialistAvatar name={doc.acronym || doc.name} imageUrl={doc.image} size="md" />
+                    <SpecialistAvatar name={getDoctorDisplayAcronym(doc)} imageUrl={doc.image} size="md" />
                     <div className="flex-1 pr-16">
-                      <h3 className="font-black text-xl text-slate-900 dark:text-white">{doc.acronym || doc.name}</h3>
+                      <h3 className="font-black text-xl text-slate-900 dark:text-white">{getDoctorDisplayAcronym(doc)}</h3>
                       <p className="text-xs font-extrabold text-[#008ac9] dark:text-sky-400 uppercase tracking-wide">{doc.specialty}</p>
                       <p className="text-xs font-bold text-slate-600 dark:text-slate-400 mt-1">{doc.qualification || doc.qualifications}</p>
                     </div>

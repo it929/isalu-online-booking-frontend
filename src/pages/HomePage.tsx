@@ -512,8 +512,8 @@ export function HomePage() {
           return {
             dateLabel,
             timeLabel: shiftTime,
-            doctorName: doc.fullName || doc.name,
-            doctorAcronym: doc.acronym || doc.name,
+            doctorName: doc.acronym || doc.name || "Specialist",
+            doctorAcronym: doc.acronym || doc.name || "Specialist",
           };
         }
       }
