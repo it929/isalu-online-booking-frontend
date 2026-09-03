@@ -67,8 +67,8 @@ export function ApiErrorModal({ error, onClose, onRetry }: { error: string | nul
 
   if (lowerErr.includes("capacity") || lowerErr.includes("full") || lowerErr.includes("maximum")) {
     userFriendlyMessage = "The selected date has reached its maximum appointment capacity for this specialist. Please select another available date or time.";
-  } else if (lowerErr.includes("same-day") || lowerErr.includes("cutoff") || lowerErr.includes("30 minutes")) {
-    userFriendlyMessage = "Online booking for today's session is closed because it is less than 30 minutes before clinic hours. Please select a future date or contact our front desk.";
+  } else if (lowerErr.includes("same-day") || lowerErr.includes("cutoff") || lowerErr.includes("10 minutes") || lowerErr.includes("30 minutes")) {
+    userFriendlyMessage = "Online booking for today's session is closed because it is less than 10 minutes before clinic hours. Please select a future date or contact our front desk.";
   } else if (lowerErr.includes("network") || lowerErr.includes("connection") || lowerErr.includes("failed to fetch")) {
     userFriendlyMessage = "Unable to connect to the secure hospital server. Please check your internet connection and try again.";
   } else if (lowerErr.includes("required") || lowerErr.includes("mandatory") || lowerErr.includes("invalid")) {
@@ -938,7 +938,7 @@ export function BookAppointmentPage() {
     const clinicStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), parsedTime.hour, parsedTime.minute, 0, 0);
     const timeDiffMinutes = (clinicStart.getTime() - now.getTime()) / (1000 * 60);
 
-    return timeDiffMinutes < 30;
+    return timeDiffMinutes < 10;
   };
 
   const getOrdinalSuffix = (day: number): string => {
@@ -2078,10 +2078,10 @@ export function BookAppointmentPage() {
                                   <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
                                   <div className="text-xs space-y-1">
                                     <span className="font-black text-amber-950 dark:text-amber-100 block">
-                                      ⚠️ Same-Day Booking Cutoff Reached (&lt;30 Mins)
+                                      ⚠️ Same-Day Booking Cutoff Reached (&lt;10 Mins)
                                     </span>
                                     <span className="font-semibold text-amber-800 dark:text-amber-300 block leading-relaxed">
-                                      Online bookings for today's clinic session must be placed at least 30 minutes prior to the clinic start time. Online booking for this time slot today is closed. Please select a future date.
+                                      Online bookings for today's clinic session must be placed at least 10 minutes prior to the clinic start time. Online booking for this time slot today is closed. Please select a future date.
                                     </span>
                                   </div>
                                 </div>
