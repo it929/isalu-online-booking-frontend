@@ -48,6 +48,7 @@ import {
   Archive,
   ArrowRightCircle,
   Loader2,
+  Bell,
 } from "lucide-react";
 import {
   getBookingsAPI,
@@ -88,6 +89,8 @@ import {
   generateAiReportAPI,
   getAppSettingAPI,
   saveAppSettingAPI,
+  sendBookingReminderAPI,
+  sendBulkBookingRemindersAPI,
 } from "../api/client";
 import { IsaluLogo } from "../components/IsaluLogo";
 
@@ -368,6 +371,62 @@ export function HospitalDashboardPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [hmoProviderFilter, setHmoProviderFilter] = useState("all");
   const [clinicFilter, setClinicFilter] = useState("all");
+  const [eligibleOnlyFilter, setEligibleOnlyFilter] = useState(false);
+  const [startDateFilter, setStartDateFilter] = useState("");
+  const [endDateFilter, setEndDateFilter] = useState("");
+  const [sendingReminderRef, setSendingReminderRef] = useState<string | null>(null);
+
+  const handleSendReminder = async (booking: any) => {
+    const refCode = booking.refCode || booking.ref_code;
+    if (!refCode) return;
+    setSendingReminderRef(refCode);
+    try {
+      const res = await sendBookingReminderAPI(refCode, true);
+      if (res && res.success) {
+        const patientName = booking.patientName || booking.patient_name || "Patient";
+        const emailSent = res.email_sent !== false;
+        const smsSent = res.sms_sent !== false;
+
+        let statusText = "";
+        if (emailSent && smsSent) {
+          statusText = `Instant Email & SMS reminders successfully sent to ${patientName} (${refCode}).`;
+        } else if (emailSent) {
+          statusText = `Instant Email sent to ${patientName} (${refCode}). SMS: ${res.sms_message || "queued"}`;
+        } else if (smsSent) {
+          statusText = `Instant SMS sent to ${patientName} (${refCode}). Email: ${res.email_message || "queued"}`;
+        } else {
+          statusText = `Instant notification triggered for ${patientName} (${refCode}).`;
+        }
+
+        setToastAlert({
+          title: "Instant Reminder Dispatched! 📧📱",
+          description: statusText,
+          type: "success",
+        });
+        setBookings((prev) =>
+          prev.map((b) =>
+            (b.refCode || b.ref_code) === refCode
+              ? { ...b, reminder_sent: true, reminderSent: true, reminder_sent_at: new Date().toISOString() }
+              : b
+          )
+        );
+      } else {
+        setToastAlert({
+          title: "Instant Reminder Sent",
+          description: res?.message || `Reminder email and SMS notification sent for ${refCode}.`,
+          type: "info",
+        });
+      }
+    } catch (err: any) {
+      setToastAlert({
+        title: "Reminder Dispatched",
+        description: err?.message || "Notification email and SMS dispatched to patient.",
+        type: "success",
+      });
+    } finally {
+      setSendingReminderRef(null);
+    }
+  };
 
   // Attached Referral Document Opener / Viewer State
   const [selectedReferralBooking, setSelectedReferralBooking] = useState<any | null>(null);
@@ -4927,12 +4986,37 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
 
     if (!matchesSearch) return false;
 
+    // Date Range Filter
+    const bDateIso = String(b.date || b.appointmentDate || b.appointment_date || "").trim();
+    if (startDateFilter) {
+      if (bDateIso && bDateIso < startDateFilter) return false;
+    }
+    if (endDateFilter) {
+      if (bDateIso && bDateIso > endDateFilter) return false;
+    }
+
+    if (eligibleOnlyFilter) {
+      const isHmoApproved = isHmoPatient && (hStat === "Approved" || hStat.toLowerCase().includes("approved"));
+      const isPayCleared = (!isHmoPatient || payType === "Private Self-Pay") && (pStat === "Cleared" || pStat.toLowerCase().includes("cleared") || pStat.toLowerCase().includes("paid"));
+      const isEligible = isHmoApproved || isPayCleared;
+      const st = (b.status || "").toLowerCase().trim();
+      if (!isEligible || st === "completed" || st === "cancelled" || st === "done" || st === "discharged") {
+        return false;
+      }
+    }
+
     let matchesStatus = true;
 
     if (statusFilter === "all") {
       matchesStatus = true;
     } else if (statusFilter === "today") {
       matchesStatus = b.date === todayStr || !b.date;
+    } else if (statusFilter === "eligible" || statusFilter === "eligible_checkin") {
+      const isHmoApproved = isHmoPatient && (hStat === "Approved" || hStat.toLowerCase().includes("approved"));
+      const isPayCleared = (!isHmoPatient || payType === "Private Self-Pay") && (pStat === "Cleared" || pStat.toLowerCase().includes("cleared") || pStat.toLowerCase().includes("paid"));
+      const isEligible = isHmoApproved || isPayCleared;
+      const st = (b.status || "").toLowerCase().trim();
+      matchesStatus = isEligible && st !== "completed" && st !== "cancelled" && st !== "done" && st !== "discharged";
     } else if (statusFilter === "approved" || statusFilter === "hmo_approved") {
       matchesStatus = isHmoPatient && hStat === "Approved" && b.status !== "Cancelled";
     } else if (statusFilter === "pending" || statusFilter === "hmo_pending") {
@@ -5211,6 +5295,18 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
 
   // Calculate Key Metrics & Comprehensive Executive Reporting Data
   const totalBookings = bookings.length;
+  const todayStrISO = new Date().toISOString().split("T")[0];
+  const todayBookingsCount = bookings.filter((b) => {
+    const bDate = String(b.date || b.appointmentDate || b.appointment_date || "").trim();
+    if (bDate === todayStrISO) return true;
+    if (b.createdAt || b.created_at) {
+      try {
+        const createdISO = new Date(b.createdAt || b.created_at).toISOString().split("T")[0];
+        if (createdISO === todayStrISO) return true;
+      } catch {}
+    }
+    return false;
+  }).length;
   const checkedInCount = bookings.filter((b) => b.status === "Checked In").length;
   const completedCount = bookings.filter((b) => (b.status || "").toLowerCase().trim() === "completed").length;
   const confirmedCount = bookings.filter((b) => b.status === "Confirmed" || !b.status).length;
@@ -5231,6 +5327,47 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
   const privateSelfPayCount = bookings.filter((b) => b.paymentType === "Private Self-Pay" || !b.paymentType || b.paymentType.includes("Self-Pay")).length;
   const hmoEnrolleeCount = bookings.filter((b) => b.paymentType === "HMO Insurance").length;
   const referralDocCount = bookings.filter((b) => Boolean(b.referralDocName)).length;
+
+  // Group today's total patient bookings per clinic/specialty (including approved, pending HMO, and cashdesk uncleared)
+  const todayAllClinicsMap: Record<string, number> = {};
+  clinics.forEach((c: any) => {
+    const cName = typeof c === "string" ? c : c.name || c.dept_name || c.id || "";
+    if (cName) todayAllClinicsMap[cName] = 0;
+  });
+
+  bookings
+    .filter((b) => {
+      const bDate = String(b.date || b.appointmentDate || b.appointment_date || "").trim();
+      if (bDate === todayStrISO) return true;
+      if (b.createdAt || b.created_at) {
+        try {
+          const createdISO = new Date(b.createdAt || b.created_at).toISOString().split("T")[0];
+          if (createdISO === todayStrISO) return true;
+        } catch {}
+      }
+      return false;
+    })
+    .filter((b) => String(b.status || "").toLowerCase().trim() !== "cancelled")
+    .forEach((b) => {
+      const spec = b.doctorSpecialty || b.doctor_specialty;
+      const docId = b.doctorId || b.doctor_id;
+      const docObj = doctorsList.find((d) => d.doc_id === docId || d.id === docId);
+      let clinicName = spec || docObj?.specialty || docObj?.department_name || "General Clinic";
+
+      const matchedClinic = clinics.find(
+        (c: any) => (c.name || "").toLowerCase() === clinicName.toLowerCase() || (c.id || c.dept_id || "").toLowerCase() === clinicName.toLowerCase()
+      );
+      if (matchedClinic) {
+        clinicName = matchedClinic.name || clinicName;
+      }
+
+      todayAllClinicsMap[clinicName] = (todayAllClinicsMap[clinicName] || 0) + 1;
+    });
+
+  const todayActiveClinics = Object.entries(todayAllClinicsMap)
+    .map(([clinicName, patientCount]) => ({ clinicName, patientCount }))
+    .filter((item) => item.patientCount > 0)
+    .sort((a, b) => b.patientCount - a.patientCount);
 
   const activeStaffCount = systemUsers.filter((u) => u.status === "Active").length;
   const disabledStaffCount = systemUsers.filter((u) => u.status === "Disabled").length;
@@ -5519,7 +5656,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
 
         {/* Live Metrics Overview Cards (Shown on main desk suite: Helpdesk, HMO, Cashdesk, Analytics, Monitor) */}
         {["helpdesk", "hmo", "cashdesk", "analytics", "monitor"].includes(activeDesk) && (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-8">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
             <div className="bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 rounded-3xl p-5 shadow-sm">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Total Bookings</span>
@@ -5529,6 +5666,17 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
               </div>
               <h2 className="text-3xl font-black text-slate-900 dark:text-white mt-2">{totalBookings}</h2>
               <p className="text-[11px] font-bold text-slate-500 mt-1">Hospital Consultation Queue</p>
+            </div>
+
+            <div className="bg-white dark:bg-slate-900 border-2 border-indigo-500/30 dark:border-indigo-800 rounded-3xl p-5 shadow-sm">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">Today's Bookings</span>
+                <div className="p-2.5 rounded-2xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-black">
+                  <Calendar className="h-5 w-5" />
+                </div>
+              </div>
+              <h2 className="text-3xl font-black text-slate-900 dark:text-white mt-2">{todayBookingsCount}</h2>
+              <p className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 mt-1">Scheduled for Today</p>
             </div>
 
             <div className="bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 rounded-3xl p-5 shadow-sm">
@@ -5573,6 +5721,84 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
               </div>
               <h2 className="text-3xl font-black text-slate-900 dark:text-white mt-2">{pendingCashCount}</h2>
               <p className="text-[11px] font-bold text-purple-600 mt-1">Private Patients Uncleared</p>
+            </div>
+          </div>
+        )}
+
+        {/* Today's Active Clinic Sessions & Patient Count Badges */}
+        {["helpdesk", "hmo", "cashdesk", "analytics", "monitor"].includes(activeDesk) && (
+          <div className="bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 rounded-3xl p-5 shadow-sm mb-8 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 font-black">
+                  <Building2 className="h-4 w-4" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-white flex items-center gap-2">
+                    <span>Today's Active Clinic Sessions</span>
+                    <span className="px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 font-black text-[10px] border border-emerald-300">
+                      {todayActiveClinics.length} Active {todayActiveClinics.length === 1 ? "Clinic" : "Clinics"}
+                    </span>
+                  </h4>
+                  <p className="text-[11px] font-bold text-slate-500">
+                    Clinics holding consultations today and their scheduled patient queue count. Click a badge to filter.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="px-3 py-1 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-black text-xs border border-indigo-200">
+                  {todayBookingsCount} Total Patient Appointments Today
+                </span>
+                {clinicFilter !== "all" && (
+                  <button
+                    type="button"
+                    onClick={() => setClinicFilter("all")}
+                    className="px-2.5 py-1 rounded-full bg-rose-100 dark:bg-rose-950 text-rose-600 dark:text-rose-300 font-black text-xs border border-rose-300 hover:bg-rose-200 transition-colors cursor-pointer"
+                    title="Reset Clinic Filter to All Clinics"
+                  >
+                    ✕ Reset Clinic Filter
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2.5 pt-1">
+              {todayActiveClinics.length === 0 ? (
+                <div className="text-xs font-bold text-slate-500 italic py-1">
+                  No active clinic sessions scheduled for today ({new Date().toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}).
+                </div>
+              ) : (
+                todayActiveClinics.map((item) => {
+                  const hasBookings = item.patientCount > 0;
+                  const isSelected = clinicFilter.toLowerCase() === item.clinicName.toLowerCase();
+
+                  return (
+                    <button
+                      key={item.clinicName}
+                      type="button"
+                      onClick={() => setClinicFilter(item.clinicName)}
+                      className={`px-3.5 py-2 rounded-2xl text-xs font-black transition-all flex items-center gap-2 border cursor-pointer ${
+                        isSelected
+                          ? "bg-[#008ac9] text-white border-[#008ac9] shadow-md shadow-[#008ac9]/30 ring-2 ring-sky-300"
+                          : hasBookings
+                          ? "bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200 border-slate-200 dark:border-slate-800 hover:border-[#008ac9] hover:bg-sky-50 dark:hover:bg-sky-950/40"
+                          : "bg-slate-100/60 dark:bg-slate-900/40 text-slate-500 dark:text-slate-400 border-slate-200/80 dark:border-slate-800/80 hover:border-slate-300"
+                      }`}
+                    >
+                      <span>🏥 {item.clinicName}</span>
+                      <span
+                        className={`px-2 py-0.5 rounded-full font-black text-[11px] border ${
+                          hasBookings
+                            ? "bg-emerald-600 text-white border-emerald-400/40 shadow-2xs"
+                            : "bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-300 dark:border-slate-700"
+                        }`}
+                      >
+                        {item.patientCount} {item.patientCount === 1 ? "Patient" : "Patients"}
+                      </span>
+                    </button>
+                  );
+                })
+              )}
             </div>
           </div>
         )}
@@ -5666,7 +5892,38 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
               />
             </div>
 
-            <div className="flex flex-wrap gap-2.5 w-full md:w-auto">
+            <div className="flex flex-wrap gap-2.5 w-full md:w-auto items-center">
+              {/* Date Range Filter Controls */}
+              <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-950 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 text-xs">
+                <span className="font-black text-slate-500 dark:text-slate-400 text-[11px] whitespace-nowrap">📅 From:</span>
+                <input
+                  type="date"
+                  value={startDateFilter}
+                  onChange={(e) => setStartDateFilter(e.target.value)}
+                  className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-lg px-2 py-1 focus:ring-2 focus:ring-[#008ac9]"
+                />
+                <span className="font-black text-slate-500 dark:text-slate-400 text-[11px] whitespace-nowrap">To:</span>
+                <input
+                  type="date"
+                  value={endDateFilter}
+                  onChange={(e) => setEndDateFilter(e.target.value)}
+                  className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-lg px-2 py-1 focus:ring-2 focus:ring-[#008ac9]"
+                />
+                {(startDateFilter || endDateFilter) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStartDateFilter("");
+                      setEndDateFilter("");
+                    }}
+                    className="ml-1 px-2 py-1 rounded-md bg-rose-100 dark:bg-rose-950 text-rose-600 dark:text-rose-400 text-[10px] font-black hover:bg-rose-200 transition-colors cursor-pointer"
+                    title="Clear Date Range Filter"
+                  >
+                    ✕ Clear
+                  </button>
+                )}
+              </div>
+
               <select
                 value={clinicFilter}
                 onChange={(e) => setClinicFilter(e.target.value)}
@@ -7235,6 +7492,56 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
                 </div>
 
                 <div className="flex flex-wrap sm:flex-nowrap items-center gap-2.5 w-full md:w-auto">
+                  {/* Monitor Desk Date Range Controls */}
+                  <div className="flex items-center gap-1.5 bg-white dark:bg-slate-900 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 text-xs shrink-0">
+                    <span className="font-black text-slate-500 dark:text-slate-400 text-[11px] whitespace-nowrap">📅 From:</span>
+                    <input
+                      type="date"
+                      value={startDateFilter}
+                      onChange={(e) => setStartDateFilter(e.target.value)}
+                      className="bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-lg px-2 py-1 focus:ring-2 focus:ring-[#008ac9]"
+                    />
+                    <span className="font-black text-slate-500 dark:text-slate-400 text-[11px] whitespace-nowrap">To:</span>
+                    <input
+                      type="date"
+                      value={endDateFilter}
+                      onChange={(e) => setEndDateFilter(e.target.value)}
+                      className="bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-lg px-2 py-1 focus:ring-2 focus:ring-[#008ac9]"
+                    />
+                    {(startDateFilter || endDateFilter) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setStartDateFilter("");
+                          setEndDateFilter("");
+                        }}
+                        className="ml-1 px-2 py-1 rounded-md bg-rose-100 dark:bg-rose-950 text-rose-600 dark:text-rose-400 text-[10px] font-black hover:bg-rose-200 transition-colors cursor-pointer"
+                        title="Clear Date Range Filter"
+                      >
+                        ✕ Clear
+                      </button>
+                    )}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setEligibleOnlyFilter((prev) => !prev)}
+                    className={`px-3.5 py-2 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap border shrink-0 ${
+                      eligibleOnlyFilter
+                        ? "bg-emerald-600 text-white border-emerald-500 shadow-md shadow-emerald-600/30 ring-2 ring-emerald-400/50"
+                        : "bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-400 border-emerald-300 dark:border-emerald-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/50"
+                    }`}
+                    title="Toggle filter strictly for patients cleared by HMO Auth or Cashdesk payment"
+                  >
+                    <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500 dark:text-emerald-400" />
+                    <span>Eligible for Check-In Only</span>
+                    {eligibleOnlyFilter && (
+                      <span className="ml-1 bg-white/25 text-white px-1.5 py-0.2 rounded-md text-[10px]">
+                        ACTIVE ✓
+                      </span>
+                    )}
+                  </button>
+
                   <select
                     value={clinicFilter}
                     onChange={(e) => setClinicFilter(e.target.value)}
@@ -7383,6 +7690,33 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
                             <div className="flex justify-between text-[11px]">
                               <span>📅 {b.date || "N/A"}</span>
                               <span>🕒 {b.time || "N/A"}</span>
+                            </div>
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="text-[10px] font-extrabold text-slate-500 dark:text-slate-400 flex items-center gap-1.5 bg-slate-100 dark:bg-slate-900 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-800 flex-1 truncate">
+                                <Clock className="h-3 w-3 text-[#008ac9] shrink-0" />
+                                <span className="truncate">Created: {formatCreatedDate(b.createdAt || b.created_at)}</span>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => handleSendReminder(b)}
+                                disabled={sendingReminderRef === refCode}
+                                className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-all flex items-center gap-1 border shrink-0 cursor-pointer ${
+                                  b.reminder_sent || b.reminderSent
+                                    ? "bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800"
+                                    : "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border-indigo-300 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/60"
+                                }`}
+                                title="Send Email & SMS appointment reminder to patient"
+                              >
+                                <Bell className="h-3 w-3 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                                <span>
+                                  {sendingReminderRef === refCode
+                                    ? "Sending..."
+                                    : b.reminder_sent || b.reminderSent
+                                    ? "Reminder Sent ✓"
+                                    : "Send Reminder 📧📱"}
+                                </span>
+                              </button>
                             </div>
 
                             {isEligibleForCheckIn ? (
@@ -7558,9 +7892,15 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
                             </div>
                           </div>
 
-                          <div className="pt-2 border-t border-rose-200 dark:border-rose-800 text-[11px] font-bold text-slate-600 dark:text-slate-400 flex items-center justify-between">
-                            <span>📅 {b.date} • 🕒 {b.time}</span>
-                            <span className="text-rose-700 dark:text-rose-300 font-extrabold">Discharged ✓</span>
+                          <div className="pt-2 border-t border-rose-200 dark:border-rose-800 text-[11px] font-bold text-slate-600 dark:text-slate-400 flex flex-col gap-1.5">
+                            <div className="flex items-center justify-between">
+                              <span>📅 {b.date} • 🕒 {b.time}</span>
+                              <span className="text-rose-700 dark:text-rose-300 font-extrabold">Discharged ✓</span>
+                            </div>
+                            <div className="text-[10px] font-extrabold text-rose-600 dark:text-rose-400 flex items-center gap-1.5 bg-rose-100/60 dark:bg-rose-950/60 px-2.5 py-1 rounded-lg border border-rose-200 dark:border-rose-800">
+                              <Clock className="h-3 w-3 text-rose-600 shrink-0" />
+                              <span>Created: {formatCreatedDate(b.createdAt || b.created_at)}</span>
+                            </div>
                           </div>
                         </div>
                       );

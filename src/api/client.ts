@@ -967,6 +967,33 @@ export async function getDoctorAvailableDatesAPI(
   );
 }
 
+export async function sendBookingReminderAPI(
+  refCode: string,
+  force: boolean = false
+): Promise<any | null> {
+  return apiRequest<any>(
+    `/bookings/${encodeURIComponent(refCode)}/send-reminder/`,
+    {
+      method: "POST",
+      body: JSON.stringify({ force }),
+    }
+  );
+}
+
+export async function sendBulkBookingRemindersAPI(
+  daysAhead: number = 1,
+  targetDate: string = "",
+  force: boolean = false
+): Promise<any | null> {
+  return apiRequest<any>(
+    `/bookings/send-bulk-reminders/`,
+    {
+      method: "POST",
+      body: JSON.stringify({ days_ahead: daysAhead, target_date: targetDate, force }),
+    }
+  );
+}
+
 /* =========================================================
    SCHEDULES
 ========================================================= */
