@@ -2,7 +2,10 @@ import React, { useState, useEffect, useRef } from "react";
 import { useSearchParams, Link } from "react-router-dom";
 import { jsPDF } from "jspdf";
 type Doctor = any;
-const getDoctorDisplayAcronym = (doctor: any) => doctor?.acronym || doctor?.name || "Specialist";
+const getDoctorDisplayAcronym = (doctor: any): string => {
+  const acronym = doctor?.acronym ?? doctor?.doctorAcronym ?? doctor?.doctor_acronym;
+  return typeof acronym === "string" && acronym.trim() ? acronym.trim() : "Specialist";
+};
 import {
   Calendar,
   Clock,
@@ -45,12 +48,79 @@ import {
   Share2,
   RefreshCw,
   AlertTriangle,
+  X,
+  AlertCircle,
+  Users,
 } from "lucide-react";
 import { SpecialistAvatar } from "../components/SpecialistAvatar";
 import { IsaluLogo } from "../components/IsaluLogo";
-import { getDoctorsAPI, getDepartmentsAPI, createBookingAPI, getSchedulesAPI } from "../api/client";
+import { getDoctorsAPI, getDepartmentsAPI, createBookingAPI, getSchedulesAPI, getBookingsAPI, getDoctorAvailableDatesAPI } from "../api/client";
+
+/**
+ * Modern High-UX & User-Friendly API Error Modal Component
+ */
+export function ApiErrorModal({ error, onClose, onRetry }: { error: string | null; onClose: () => void; onRetry?: () => void }) {
+  if (!error) return null;
+
+  let userFriendlyMessage = "We encountered a temporary issue processing your appointment request. Please review your details and try again.";
+  const lowerErr = error.toLowerCase();
+
+  if (lowerErr.includes("capacity") || lowerErr.includes("full") || lowerErr.includes("maximum")) {
+    userFriendlyMessage = "The selected date has reached its maximum appointment capacity for this specialist. Please select another available date or time.";
+  } else if (lowerErr.includes("same-day") || lowerErr.includes("cutoff") || lowerErr.includes("30 minutes")) {
+    userFriendlyMessage = "Online booking for today's session is closed because it is less than 30 minutes before clinic hours. Please select a future date or contact our front desk.";
+  } else if (lowerErr.includes("network") || lowerErr.includes("connection") || lowerErr.includes("failed to fetch")) {
+    userFriendlyMessage = "Unable to connect to the secure hospital server. Please check your internet connection and try again.";
+  } else if (lowerErr.includes("required") || lowerErr.includes("mandatory") || lowerErr.includes("invalid")) {
+    userFriendlyMessage = "Please ensure all required form fields and patient details are filled out correctly.";
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-fadeIn">
+      <div className="relative w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-2xl space-y-5 text-center">
+        <div className="absolute top-4 right-4">
+          <button
+            onClick={onClose}
+            className="p-2 rounded-full text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="w-14 h-14 rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400 mx-auto flex items-center justify-center border border-amber-500/20 shadow-inner">
+          <AlertCircle className="h-7 w-7" />
+        </div>
+
+        <div className="space-y-1.5">
+          <h3 className="text-base font-bold text-slate-900 dark:text-white tracking-tight">Notice regarding your booking</h3>
+          <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed px-2">
+            {userFriendlyMessage}
+          </p>
+        </div>
+
+        <div className="pt-2 flex items-center justify-center gap-3">
+          {onRetry && (
+            <button
+              onClick={onRetry}
+              className="flex-1 py-3 px-4 bg-[#008ac9] hover:bg-[#0072b1] text-white font-semibold rounded-xl text-xs transition-all shadow-md flex items-center justify-center gap-2"
+            >
+              <RefreshCw className="h-3.5 w-3.5 animate-spin" /> Try Again
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            className="flex-1 py-3 px-4 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-semibold rounded-xl text-xs transition-colors"
+          >
+            Okay, Got It
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export function BookAppointmentPage() {
+  const [apiError, setApiError] = useState<string | null>(null);
   const departmentIcons: Record<string, any> = {
     HeartPulse,
     Baby,
@@ -74,36 +144,6 @@ export function BookAppointmentPage() {
     Heart,
   };
 
-  const resolveIconForDept = (dept: any) => {
-    const iconName = dept.iconName || dept.icon_name;
-    if (iconName && departmentIcons[iconName]) {
-      return departmentIcons[iconName];
-    }
-
-    const dId = String(dept.id || dept.dept_id || "").toLowerCase().trim();
-    const dName = String(dept.name || "").toLowerCase().trim();
-
-    if (dId.includes("cardio") || dName.includes("cardio") || dName.includes("heart")) return HeartPulse;
-    if (dId.includes("pediatric") || dId.includes("paediatric") || dName.includes("child") || dName.includes("baby")) return Baby;
-    if (dId.includes("neuro") || dName.includes("neuro") || dName.includes("brain")) return Brain;
-    if (dId.includes("ortho") || dId.includes("rheumat") || dName.includes("bone") || dName.includes("joint")) return Bone;
-    if (dId.includes("pulmon") || dName.includes("chest") || dName.includes("lung")) return Wind;
-    if (dId.includes("ent") || dName.includes("ear") || dName.includes("throat") || dName.includes("nose")) return Ear;
-    if (dId.includes("haemat") || dName.includes("blood")) return Droplets;
-    if (dId.includes("nephro") || dName.includes("kidney") || dName.includes("renal")) return Droplet;
-    if (dId.includes("diet") || dName.includes("diet") || dName.includes("nutrition")) return Apple;
-    if (dId.includes("physio") || dName.includes("rehab") || dName.includes("therapy")) return Dumbbell;
-    if (dId.includes("psych") || dName.includes("mental") || dName.includes("counseling")) return Smile;
-    if (dId.includes("derma") || dName.includes("skin")) return Sparkles;
-    if (dId.includes("gynae") || dId.includes("obgyn") || dName.includes("gynaecol") || dName.includes("women")) return Heart;
-    if (dId.includes("surg") || dName.includes("surg")) return Scissors;
-    if (dId.includes("oncol") || dName.includes("cancer")) return Ribbon;
-    if (dId.includes("endocrin") || dName.includes("diabetes") || dName.includes("hormon")) return Syringe;
-    if (dId.includes("urol") || dName.includes("prostate")) return ShieldCheck;
-
-    return Stethoscope;
-  };
-
   const [searchParams] = useSearchParams();
   const initialDept = searchParams.get("department") || "orthopedics";
   const initialDoctor = searchParams.get("doctor") || "";
@@ -113,7 +153,8 @@ export function BookAppointmentPage() {
   const [selectedTime, setSelectedTime] = useState<string>("");
 
   const [specialistSchedulesList, setSpecialistSchedulesList] = useState<any[]>([]);
-
+  const [activeBookingsList, setActiveBookingsList] = useState<any[]>([]);
+  const [doctorAvailabilityMap, setDoctorAvailabilityMap] = useState<Record<string, any>>({});
 
   const [patientName, setPatientName] = useState<string>("");
   const [patientPhone, setPatientPhone] = useState<string>("");
@@ -135,17 +176,7 @@ export function BookAppointmentPage() {
   const [isSubmittingBooking, setIsSubmittingBooking] = useState<boolean>(false);
 
   const specialistsSectionRef = useRef<HTMLDivElement>(null);
-
-  const handleDeptSelect = (deptId: string) => {
-    setSelectedDept(deptId);
-    setSelectedDoctorId("");
-    setTimeout(() => {
-      specialistsSectionRef.current?.scrollIntoView({
-        behavior: "smooth",
-        block: "start",
-      });
-    }, 80);
-  };
+  const slotsSectionRef = useRef<HTMLDivElement>(null);
 
   const [departmentsList, setDepartmentsList] = useState<any[]>([]);
   const [hmoCompanies, setHmoCompanies] = useState<any[]>([]);
@@ -166,7 +197,7 @@ export function BookAppointmentPage() {
     if (!rawDeptId && doc.department_id) rawDeptId = String(doc.department_id);
 
     const deptObj = departmentsList.find(d => d.id === rawDeptId || d.name?.toLowerCase() === rawDeptId.toLowerCase()) ||
-                    departmentsList.find(d => rawDeptName && d.name?.toLowerCase() === rawDeptName.toLowerCase());
+      departmentsList.find(d => rawDeptName && d.name?.toLowerCase() === rawDeptName.toLowerCase());
 
     const finalDeptId = deptObj ? deptObj.id : rawDeptId;
     const finalDeptName = deptObj ? deptObj.name : (rawDeptName || doc.specialty || "General Medicine");
@@ -185,52 +216,116 @@ export function BookAppointmentPage() {
 
   useEffect(() => {
     async function syncData() {
-      const remoteDepts = await getDepartmentsAPI();
-      if (remoteDepts && remoteDepts.length > 0) {
-        const mapped = remoteDepts
-          .filter((d: any) => d.status !== false && d.status !== 'Disabled' && d.status !== 'Inactive')
-          .map((d: any) => ({
-            id: d.dept_id || d.id,
-            dept_id: d.dept_id || d.id,
-            name: d.name,
-            description: d.description || "",
-            iconName: d.icon_name || d.iconName || "Stethoscope",
-            doctorCount: d.doctor_count || d.doctorCount || 0,
-            status: d.status !== undefined ? d.status : true,
-          }));
-        setDepartmentsList(mapped);
-      }
-      const remoteDoctors = await getDoctorsAPI();
-      if (remoteDoctors && Array.isArray(remoteDoctors) && remoteDoctors.length > 0) {
-        const sanitized = remoteDoctors.map(sanitizeDoctor);
-        setAllDoctors(sanitized);
+      try {
+        const remoteDepts = await getDepartmentsAPI();
+        if (remoteDepts && remoteDepts.length > 0) {
+          const mapped = remoteDepts
+            .filter((d: any) => d.status !== false && d.status !== 'Disabled' && d.status !== 'Inactive')
+            .map((d: any) => ({
+              id: d.dept_id || d.id,
+              dept_id: d.dept_id || d.id,
+              name: d.name,
+              description: d.description || "",
+              iconName: d.icon_name || d.iconName || "Stethoscope",
+              doctorCount: d.doctor_count || d.doctorCount || 0,
+              status: d.status !== undefined ? d.status : true,
+            }));
+          setDepartmentsList(mapped);
+        }
+      } catch (err: any) {
+        setApiError("Failed to fetch medical departments. Please check your network connection.");
       }
 
-      const remoteSchedules = await getSchedulesAPI();
-      if (remoteSchedules && Array.isArray(remoteSchedules)) {
-        setSpecialistSchedulesList(remoteSchedules);
+      try {
+        const remoteDoctors = await getDoctorsAPI();
+        if (remoteDoctors && Array.isArray(remoteDoctors) && remoteDoctors.length > 0) {
+          const sanitized = remoteDoctors.map(sanitizeDoctor);
+          setAllDoctors(sanitized);
+        }
+      } catch (err: any) {
+        setApiError("Failed to fetch doctor rosters.");
       }
-      const remoteHmos = await (await import("../api/client")).getHmoCompaniesAPI();
-      if (Array.isArray(remoteHmos)) setHmoCompanies(remoteHmos);
+
+      try {
+        const remoteSchedules = await getSchedulesAPI();
+        if (remoteSchedules && Array.isArray(remoteSchedules)) {
+          setSpecialistSchedulesList(remoteSchedules);
+        }
+      } catch (err: any) { }
+
+      try {
+        if (getBookingsAPI) {
+          const existing = await getBookingsAPI();
+          if (Array.isArray(existing)) setActiveBookingsList(existing);
+        }
+        const stored = localStorage.getItem("isalu_offline_bookings");
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed)) {
+            setActiveBookingsList((prev) => {
+              const combined = [...prev, ...parsed];
+              return Array.from(new Map(combined.map(item => [item.refCode || item.ref_code || item.id, item])).values());
+            });
+          }
+        }
+      } catch (err: any) { }
+
+      try {
+        const remoteHmos = await (await import("../api/client")).getHmoCompaniesAPI();
+        if (Array.isArray(remoteHmos)) setHmoCompanies(remoteHmos);
+      } catch (err: any) { }
     }
     syncData();
   }, [selectedDept]);
 
+  // Fetch real-time availability map from backend when selectedDoctorId changes
+  useEffect(() => {
+    async function fetchAvailability() {
+      if (!selectedDoctorId) return;
+      const targetDoc = allDoctors.find(
+        (d) => String(d.id) === String(selectedDoctorId) || String(d.doc_id) === String(selectedDoctorId)
+      );
+      const docKey = String(targetDoc?.doc_id || targetDoc?.id || selectedDoctorId);
+
+      try {
+        const data = await getDoctorAvailableDatesAPI(docKey, 90);
+        if (data && Array.isArray(data.availability)) {
+          const map: Record<string, any> = {};
+          data.availability.forEach((item: any) => {
+            map[item.date] = item;
+          });
+          setDoctorAvailabilityMap(map);
+        }
+      } catch (err) {
+        console.warn("Could not fetch remote doctor availability map:", err);
+      }
+    }
+    fetchAvailability();
+  }, [selectedDoctorId, allDoctors]);
+
   useEffect(() => {
     if (initialDoctor) {
-      const doc = allDoctors.find((d) => d.id === initialDoctor);
+      const doc = allDoctors.find((d) => d.id === initialDoctor || d.doc_id === initialDoctor);
       if (doc) {
-        setSelectedDept(doc.departmentId);
+        setSelectedDept(doc.departmentId || doc.department);
         setStep(2);
       }
     }
   }, [initialDoctor, allDoctors]);
 
-  // Reset selected date and time when doctor changes (patient must manually select the next available date)
   useEffect(() => {
-    setSelectedDate("");
-    setSelectedTime("");
-  }, [selectedDoctorId]);
+    if (selectedDoctor) {
+      const upcoming = getUpcomingDates(undefined, selectedDoctor);
+      const nextAvail = upcoming.find((d) => d.isNextAvailable);
+      if (nextAvail && (!selectedDate || isDateFullyBooked(selectedDoctor, selectedDate))) {
+        setSelectedDate(nextAvail.dateStr);
+        setSelectedTime(getDutyTimeWindow(selectedDoctor, nextAvail.dateStr));
+      }
+    } else {
+      setSelectedDate("");
+      setSelectedTime("");
+    }
+  }, [selectedDoctorId, doctorAvailabilityMap, allDoctors]);
 
   const matchesDept = (doc: any, deptId: string) => {
     if (!deptId || deptId === "all") return true;
@@ -253,7 +348,6 @@ export function BookAppointmentPage() {
     const cleanTargetDeptKey = targetDeptKey.replace(/[^a-z0-9]/g, "");
     const cleanTargetDeptName = targetDeptName.replace(/[^a-z0-9]/g, "");
 
-    // 1. Extract Foreign Key Department ID / Record from Doctor model
     let rawDocDeptId = "";
     let rawDocDeptName = "";
 
@@ -299,19 +393,53 @@ export function BookAppointmentPage() {
     (d) => d.id === selectedDept || d.name.toLowerCase() === selectedDept.toLowerCase()
   );
 
-  const selectedDoctor = allDoctors.find((doc) => doc.id === selectedDoctorId);
+  const selectedDoctor = allDoctors.find(
+    (doc) => String(doc.id) === String(selectedDoctorId) || String(doc.doc_id) === String(selectedDoctorId)
+  );
 
-  // Helper to calculate live slots countdown per doctor for a specific date
+  /**
+   * Cross-references backend availability map & active bookings against schedule capacity
+   */
   const getDoctorSlotStatsForDate = (doctorId: string, dateStr: string) => {
-    let existingBookings: any[] = [];
-    try {
-    } catch {}
-    const bookedOnDate = existingBookings.filter(
-      (b) => b.doctorId === doctorId && b.date === dateStr && b.status !== "Cancelled"
-    ).length;
+    const docObj = allDoctors.find(
+      (d) => String(d.id) === String(doctorId) || String(d.doc_id) === String(doctorId)
+    );
 
+    const docCodes = [
+      String(docObj?.doc_id || "").toLowerCase().trim(),
+      String(docObj?.id || "").toLowerCase().trim(),
+      String(doctorId || "").toLowerCase().trim(),
+    ].filter(Boolean);
+
+    const docNames = [
+      String(docObj?.name || "").toLowerCase().trim(),
+      String(docObj?.fullName || docObj?.full_name || "").toLowerCase().trim(),
+      String(docObj?.acronym || "").toLowerCase().trim(),
+    ].filter(Boolean);
+
+    // 1. Calculate active bookings on client side matching doctor ID or Name
+    const clientBookedCount = activeBookingsList.filter((b) => {
+      const bDate = String(b.date || "").trim();
+      if (bDate !== dateStr || b.status === "Cancelled" || b.is_active === false || b.status === "Disabled") return false;
+
+      const bDocId = String(b.doctorId || b.doctor_id || b.doctor || "").toLowerCase().trim();
+      const bDocName = String(b.doctorName || b.doctor_name || b.doctorAcronym || "").toLowerCase().trim();
+
+      const idMatch = bDocId !== "" && docCodes.includes(bDocId);
+      const nameMatch = bDocName !== "" && docNames.some((dn) => dn !== "" && (bDocName.includes(dn) || dn.includes(bDocName)));
+
+      return idMatch || nameMatch;
+    }).length;
+
+    // 2. Extract schedule max capacity from specialist schedule
     const savedSchedules: any[] = specialistSchedulesList || [];
-    const matchedSched = savedSchedules.find((s) => s.doctorId === doctorId || s.doctorId === selectedDoctor?.doc_id);
+    const matchedSched = savedSchedules.find((s) => {
+      const sDocId = String(s.doctorId || s.doctor_id || s.doctor || "").toLowerCase().trim();
+      const sName = String(s.doctorName || s.doctor_name || "").toLowerCase().trim();
+      const idMatch = sDocId !== "" && docCodes.includes(sDocId);
+      const nameMatch = sName !== "" && docNames.some((dn) => dn !== "" && (sName.includes(dn) || dn.includes(sName)));
+      return idMatch || nameMatch;
+    });
 
     let maxCapacity = 15;
     if (matchedSched) {
@@ -319,30 +447,52 @@ export function BookAppointmentPage() {
         const dateObj = new Date(dateStr + "T00:00:00");
         const dayShort = dateObj.toLocaleDateString("en-US", { weekday: "short" });
         const dayName = dateObj.toLocaleDateString("en-US", { weekday: "long" });
+
         if (matchedSched.dayConfigs) {
           const cfg = matchedSched.dayConfigs[dayShort] || matchedSched.dayConfigs[dayName];
-          if (cfg && cfg.capacity) {
-            maxCapacity = cfg.capacity;
+          if (cfg && (cfg.capacity || cfg.maxDailyAppointments || cfg.max_daily_appointments)) {
+            maxCapacity = Number(cfg.capacity || cfg.maxDailyAppointments || cfg.max_daily_appointments);
           }
-        } else if (matchedSched.capacity) {
-          maxCapacity = matchedSched.capacity;
+        }
+      }
+
+      if (maxCapacity === 15 || !maxCapacity) {
+        const tableMax = matchedSched.maxDailyAppointments || matchedSched.max_daily_appointments || matchedSched.capacity;
+        if (tableMax !== undefined && tableMax !== null && !isNaN(Number(tableMax))) {
+          maxCapacity = Number(tableMax);
         }
       }
     }
 
+    let remoteBooked = 0;
+    if (doctorAvailabilityMap && doctorAvailabilityMap[dateStr]) {
+      const info = doctorAvailabilityMap[dateStr];
+      remoteBooked = Number(info.booked || 0);
+      if (info.capacity !== undefined && info.capacity !== null && !isNaN(Number(info.capacity))) {
+        maxCapacity = Number(info.capacity);
+      }
+    }
+
+    const bookedOnDate = Math.max(remoteBooked, clientBookedCount);
     const remaining = Math.max(0, maxCapacity - bookedOnDate);
     return { bookedOnDate, maxCapacity, remaining };
   };
 
-  // Helper to calculate live slots countdown per doctor
-  const getDoctorSlotStats = (doctorId: string, timeSlotsCount: number) => {
-    let existingBookings: any[] = [];
-    try {
-    } catch {}
-    const bookedForDoc = existingBookings.filter((b) => b.doctorId === doctorId && b.status !== "Cancelled").length;
-    const totalCapacity = Math.max(8, timeSlotsCount * 2);
-    const remaining = Math.max(1, totalCapacity - bookedForDoc);
-    return { bookedCount: bookedForDoc, totalCapacity, remaining };
+  const isDateFullyBooked = (doctor: Doctor | undefined, dateStr: string): boolean => {
+    if (!doctor || !dateStr) return false;
+
+    // Check 1: Live combined active bookings and capacity
+    const stats = getDoctorSlotStatsForDate(doctor.id || (doctor as any).doc_id, dateStr);
+    if (stats.remaining <= 0) return true;
+
+    // Check 2: Explicit backend is_full flag
+    if (doctorAvailabilityMap && doctorAvailabilityMap[dateStr]) {
+      const item = doctorAvailabilityMap[dateStr];
+      if (item.is_full !== undefined && Boolean(item.is_full)) return true;
+      if (item.isFull !== undefined && Boolean(item.isFull)) return true;
+    }
+
+    return false;
   };
 
   const getDoctorEffectiveAvailableDays = (doctor: Doctor | undefined): string[] => {
@@ -379,7 +529,6 @@ export function BookAppointmentPage() {
       return rosterDays;
     }
 
-    // 2. Check doctor.availableDays or doctor.available_days or doctor.availability
     const docDays = (doctor as any).availableDays || (doctor as any).available_days || doctor.availability;
     if (Array.isArray(docDays) && docDays.length > 0) {
       return docDays;
@@ -388,11 +537,10 @@ export function BookAppointmentPage() {
       try {
         const parsed = JSON.parse(docDays);
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      } catch {}
+      } catch { }
       return [docDays.trim()];
     }
 
-    // 3. Fallback: Standard Weekday Schedule if no custom roster configured
     return ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
   };
 
@@ -408,7 +556,6 @@ export function BookAppointmentPage() {
 
     if (isDocDisabled) return false;
 
-    // Calculate Tomorrow's Date (Midnight today + 1 day)
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -473,6 +620,10 @@ export function BookAppointmentPage() {
       const cDay = String(candidate.getDate()).padStart(2, "0");
       const candidateDateStr = `${cYear}-${cMonth}-${cDay}`;
 
+      if (isDateFullyBooked(doctor, candidateDateStr)) {
+        continue;
+      }
+
       const tokens: string[] = [];
       dutyDays.forEach((item: any) => {
         if (typeof item === "string") {
@@ -499,7 +650,6 @@ export function BookAppointmentPage() {
   };
 
   const filteredDoctors = allDoctors.filter((doc) => {
-    // 1. Doctor Status check (Must not be disabled or inactive)
     const isDocDisabled =
       doc.status === false ||
       doc.status === "Disabled" ||
@@ -510,11 +660,9 @@ export function BookAppointmentPage() {
 
     if (isDocDisabled) return false;
 
-    // 2. Department / Clinic match
     const matchesDepartment = selectedDept ? matchesDept(doc, selectedDept) : true;
     if (!matchesDepartment) return false;
 
-    // 3. Patient Category Acceptance check
     const rawTypes = (doc as any).acceptedPatientTypes || (doc as any).accepted_patient_types;
     const acceptedTypes = (rawTypes && Array.isArray(rawTypes) && rawTypes.length > 0) ? rawTypes : ["Private Self-Pay", "HMO Insurance"];
     return acceptedTypes.includes(patientType);
@@ -533,30 +681,24 @@ export function BookAppointmentPage() {
 
     if (isDocDisabled) return false;
 
+    const cYear = candidateDate.getFullYear();
+    const cMonth = String(candidateDate.getMonth() + 1).padStart(2, "0");
+    const cDay = String(candidateDate.getDate()).padStart(2, "0");
+    const candidateDateStr = `${cYear}-${cMonth}-${cDay}`;
+
+    if (doctorAvailabilityMap && doctorAvailabilityMap[candidateDateStr]) {
+      return Boolean(doctorAvailabilityMap[candidateDateStr].onDuty !== false);
+    }
+
     const dutyDays = getDoctorEffectiveAvailableDays(doctor);
     if (!dutyDays || dutyDays.length === 0) return true;
 
     const dayNameUpper = candidateDate.toLocaleDateString("en-US", { weekday: "long" }).toUpperCase();
     const dayShortUpper = candidateDate.toLocaleDateString("en-US", { weekday: "short" }).toUpperCase();
 
-    const cYear = candidateDate.getFullYear();
-    const cMonth = String(candidateDate.getMonth() + 1).padStart(2, "0");
-    const cDay = String(candidateDate.getDate()).padStart(2, "0");
-    const candidateDateStr = `${cYear}-${cMonth}-${cDay}`;
-
     const dayOfMonth = candidateDate.getDate();
     const nthWeek = Math.ceil(dayOfMonth / 7);
-    // ----------------------------------------------------------
-    // STRUCTURED ALTERNATING-WEEK RECURRENCE
-    //
-    // The API returns dayConfigs like {"Sat": {"weeks": [1, 3]}} for a
-    // doctor who works only the 1st and 3rd Saturday of each month.
-    // This mirrors the backend check in BookingSerializer.validate(),
-    // so the calendar and the booking validator use one rule.
-    //
-    // An absent or empty `weeks` means every occurrence of that weekday,
-    // which preserves the behaviour of every other schedule.
-    // ----------------------------------------------------------
+
     const dayKeyShort = candidateDate.toLocaleDateString("en-US", { weekday: "short" });
     const dayKeyLong = candidateDate.toLocaleDateString("en-US", { weekday: "long" });
     const docIdCandidates = [
@@ -610,7 +752,6 @@ export function BookAppointmentPage() {
     });
   };
 
-  // Generate calendar dates for the next 30 days, calculating doctor duty availability per date
   const getUpcomingDates = (doctorAvailability?: string[], selectedDocObj?: Doctor) => {
     const list: any[] = [];
     const today = new Date();
@@ -622,7 +763,6 @@ export function BookAppointmentPage() {
 
     let firstNextAvailableFound = false;
 
-    // Generate next 30 calendar days for booking
     for (let i = 0; i < 30; i++) {
       const d = new Date(today);
       d.setDate(today.getDate() + i);
@@ -665,8 +805,12 @@ export function BookAppointmentPage() {
         isAvailable = true;
       }
 
+      // Check if this date is fully booked
+      const isFullyBooked = selectedDocObj ? isDateFullyBooked(selectedDocObj, dateStr) : false;
+
       let isNextAvailable = false;
-      if (isAvailable && !firstNextAvailableFound) {
+      // CRITICAL FIX: Must check that isAvailable is TRUE AND isFullyBooked is FALSE
+      if (isAvailable && !isFullyBooked && !firstNextAvailableFound) {
         isNextAvailable = true;
         firstNextAvailableFound = true;
       }
@@ -679,6 +823,7 @@ export function BookAppointmentPage() {
         weekNum,
         weekOccurrenceBadge,
         isAvailable,
+        isFullyBooked,
         isPast24HoursNotice: i >= 0,
         isNextAvailable,
       });
@@ -731,7 +876,6 @@ export function BookAppointmentPage() {
       }
     }
 
-    // 2. Check doctor.timeSlots array
     if (doctor.timeSlots && Array.isArray(doctor.timeSlots) && doctor.timeSlots.length > 0) {
       const daySlot = doctor.timeSlots.find(
         (ts: string) => ts.toLowerCase().includes(dayShort.toLowerCase()) || ts.toLowerCase().includes(dayName.toLowerCase())
@@ -774,7 +918,6 @@ export function BookAppointmentPage() {
     const day = String(now.getDate()).padStart(2, "0");
     const todayStr = `${year}-${month}-${day}`;
 
-    // Only apply 30-minute cutoff check if dateStr is TODAY
     if (dateStr !== todayStr) {
       return false;
     }
@@ -785,17 +928,15 @@ export function BookAppointmentPage() {
     const clinicStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), parsedTime.hour, parsedTime.minute, 0, 0);
     const timeDiffMinutes = (clinicStart.getTime() - now.getTime()) / (1000 * 60);
 
-    // If less than 30 minutes remain before clinic start time (or already past start time), block booking!
     return timeDiffMinutes < 30;
   };
-
 
   const getOrdinalSuffix = (day: number): string => {
     if (day > 3 && day < 21) return `${day}th`;
     switch (day % 10) {
-      case 1:  return `${day}st`;
-      case 2:  return `${day}nd`;
-      case 3:  return `${day}rd`;
+      case 1: return `${day}st`;
+      case 2: return `${day}nd`;
+      case 3: return `${day}rd`;
       default: return `${day}th`;
     }
   };
@@ -830,7 +971,6 @@ export function BookAppointmentPage() {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    // Background & Outer Box
     ctx.fillStyle = "#F8FAFC";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
@@ -843,7 +983,6 @@ export function BookAppointmentPage() {
     }
     ctx.fill();
 
-    // Top Banner Header
     ctx.fillStyle = "#008AC9";
     ctx.beginPath();
     if (typeof (ctx as any).roundRect === "function") {
@@ -853,7 +992,6 @@ export function BookAppointmentPage() {
     }
     ctx.fill();
 
-    // Badge
     ctx.fillStyle = "rgba(255, 255, 255, 0.2)";
     ctx.beginPath();
     if (typeof (ctx as any).roundRect === "function") {
@@ -868,7 +1006,6 @@ export function BookAppointmentPage() {
     ctx.textAlign = "center";
     ctx.fillText("OFFICIAL APPOINTMENT TICKET", 600, 140);
 
-    // 4-Sphere Isalu Logo Emblem on Canvas
     const logoX = 390;
     const logoY = 205;
     const sR = 12;
@@ -889,7 +1026,6 @@ export function BookAppointmentPage() {
     ctx.textAlign = "center";
     ctx.fillText("Present this ticket or Reference Code at hospital reception.", 600, 255);
 
-    // Reference Code Box
     ctx.fillStyle = "#F0F9FF";
     ctx.fillRect(80, 300, 1040, 130);
     ctx.strokeStyle = "rgba(0, 138, 201, 0.3)";
@@ -904,7 +1040,6 @@ export function BookAppointmentPage() {
     ctx.font = "900 52px sans-serif";
     ctx.fillText(booking.refCode || "ISALU-000000", 600, 405);
 
-    // Grid Details
     ctx.textAlign = "left";
     let y = 500;
 
@@ -929,33 +1064,10 @@ export function BookAppointmentPage() {
       y += 110;
     };
 
-    drawRow(
-      "PATIENT NAME",
-      booking.patientName || "N/A",
-      "CONTACT PHONE",
-      booking.patientPhone || "N/A"
-    );
-
-    drawRow(
-      "SPECIALIST DOCTOR",
-      getDoctorDisplayAcronym(booking) || "Specialist",
-      "DEPARTMENT / SPECIALTY",
-      booking.doctorSpecialty || "Specialist Clinic"
-    );
-
-    drawRow(
-      "APPOINTMENT DATE",
-      formatDateToOrdinal(booking.date) || "N/A",
-      "TIME SLOT",
-      booking.time || "N/A"
-    );
-
-    drawRow(
-      "PATIENT TYPE",
-      booking.paymentType || "Private Self-Pay",
-      "HMO / ENROLLEE CODE",
-      booking.paymentType === "HMO Insurance" ? `${booking.hmoName || "HMO"} (${booking.hmoPolicyCode || "N/A"})` : "N/A (Self-Pay)"
-    );
+    drawRow("PATIENT NAME", booking.patientName || "N/A", "CONTACT PHONE", booking.patientPhone || "N/A");
+    drawRow("SPECIALIST DOCTOR", getDoctorDisplayAcronym(booking) || "Specialist", "DEPARTMENT / SPECIALTY", booking.doctorSpecialty || "Specialist Clinic");
+    drawRow("APPOINTMENT DATE", formatDateToOrdinal(booking.date) || "N/A", "TIME SLOT", booking.time || "N/A");
+    drawRow("PATIENT TYPE", booking.paymentType || "Private Self-Pay", "HMO / ENROLLEE CODE", booking.paymentType === "HMO Insurance" ? `${booking.hmoName || "HMO"} (${booking.hmoPolicyCode || "N/A"})` : "N/A (Self-Pay)");
 
     if (booking.referralDocName) {
       ctx.fillStyle = "#64748B";
@@ -966,7 +1078,6 @@ export function BookAppointmentPage() {
       ctx.fillText(`📎 ${booking.referralDocName}`, 140, y + 35);
     }
 
-    // Watermark Overlay in Center
     ctx.save();
     ctx.globalAlpha = 0.05;
     ctx.fillStyle = "#008AC9";
@@ -979,13 +1090,11 @@ export function BookAppointmentPage() {
     ctx.fillText("OFFICIAL VERIFIED TICKET", 0, 45);
     ctx.restore();
 
-    // Official Red Colored Verification Seal (Bottom Right Corner)
     ctx.save();
     const sealX = 940;
     const sealY = 1080;
     const sealR = 75;
 
-    // Outer Red Scalloped Starburst
     ctx.fillStyle = "#DC2626";
     ctx.beginPath();
     const points = 24;
@@ -1000,7 +1109,6 @@ export function BookAppointmentPage() {
     ctx.closePath();
     ctx.fill();
 
-    // Inner Ring & Gold Border
     ctx.fillStyle = "#B91C1C";
     ctx.beginPath();
     ctx.arc(sealX, sealY, sealR - 12, 0, Math.PI * 2);
@@ -1010,7 +1118,6 @@ export function BookAppointmentPage() {
     ctx.lineWidth = 3;
     ctx.stroke();
 
-    // Seal Labels & Checkmark
     ctx.fillStyle = "#FFFFFF";
     ctx.font = "bold 13px sans-serif";
     ctx.textAlign = "center";
@@ -1023,7 +1130,6 @@ export function BookAppointmentPage() {
     ctx.fillText("OFFICIAL SEAL", sealX, sealY + 24);
     ctx.restore();
 
-    // Footer
     ctx.fillStyle = "#011627";
     ctx.beginPath();
     if (typeof (ctx as any).roundRect === "function") {
@@ -1038,7 +1144,6 @@ export function BookAppointmentPage() {
     ctx.textAlign = "center";
     ctx.fillText("No. 46, Ijaiye Road (beside Tastee Fried Chicken), Ogba, Ikeja, Lagos • Hotline: +234 (0) 800-ISALU-CARE", 600, 1278);
 
-    // Download File
     const imageURI = canvas.toDataURL("image/png");
     const link = document.createElement("a");
     link.download = `Isalu_Appointment_Ticket_${booking.refCode}.png`;
@@ -1055,7 +1160,6 @@ export function BookAppointmentPage() {
       format: "a4",
     });
 
-    // Watermark Overlay in PDF
     doc.setTextColor(215, 235, 248);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(36);
@@ -1063,7 +1167,6 @@ export function BookAppointmentPage() {
     doc.setFontSize(16);
     doc.text("OFFICIAL VERIFIED TICKET", 105, 158, { align: "center", angle: 25 });
 
-    // Header Background
     doc.setFillColor(0, 138, 201);
     doc.rect(0, 0, 210, 45, "F");
 
@@ -1072,7 +1175,6 @@ export function BookAppointmentPage() {
     doc.setFontSize(10);
     doc.text("OFFICIAL APPOINTMENT TICKET", 105, 14, { align: "center" });
 
-    // 4-Sphere Isalu Logo Emblem on PDF Header
     const pdfLogoX = 62;
     const pdfLogoY = 26;
     const r = 2.5;
@@ -1090,7 +1192,6 @@ export function BookAppointmentPage() {
     doc.setFont("helvetica", "normal");
     doc.text("Present this ticket or Reference Code at hospital reception.", 105, 35, { align: "center" });
 
-    // Reference Code Box
     doc.setFillColor(240, 249, 255);
     doc.setDrawColor(0, 138, 201);
     doc.setLineWidth(0.5);
@@ -1105,7 +1206,6 @@ export function BookAppointmentPage() {
     doc.setFontSize(22);
     doc.text(booking.refCode || "ISALU-000000", 105, 72, { align: "center" });
 
-    // Details Grid
     let y = 92;
 
     const addDetailRow = (label1: string, val1: string, label2: string, val2: string) => {
@@ -1128,33 +1228,10 @@ export function BookAppointmentPage() {
       y += 20;
     };
 
-    addDetailRow(
-      "Patient Name",
-      booking.patientName || "N/A",
-      "Contact Phone",
-      booking.patientPhone || "N/A"
-    );
-
-    addDetailRow(
-      "Specialist Doctor",
-      getDoctorDisplayAcronym(booking) || "Specialist",
-      "Department / Specialty",
-      booking.doctorSpecialty || "Specialist Clinic"
-    );
-
-    addDetailRow(
-      "Appointment Date",
-      formatDateToOrdinal(booking.date) || "N/A",
-      "Time Slot",
-      booking.time || "N/A"
-    );
-
-    addDetailRow(
-      "Patient Type",
-      booking.paymentType || "Private Self-Pay",
-      "HMO / Enrollee ID",
-      booking.paymentType === "HMO Insurance" ? `${booking.hmoName || "HMO"} (${booking.hmoPolicyCode || "N/A"})` : "N/A (Self-Pay)"
-    );
+    addDetailRow("Patient Name", booking.patientName || "N/A", "Contact Phone", booking.patientPhone || "N/A");
+    addDetailRow("Specialist Doctor", getDoctorDisplayAcronym(booking) || "Specialist", "Department / Specialty", booking.doctorSpecialty || "Specialist Clinic");
+    addDetailRow("Appointment Date", formatDateToOrdinal(booking.date) || "N/A", "Time Slot", booking.time || "N/A");
+    addDetailRow("Patient Type", booking.paymentType || "Private Self-Pay", "HMO / Enrollee ID", booking.paymentType === "HMO Insurance" ? `${booking.hmoName || "HMO"} (${booking.hmoPolicyCode || "N/A"})` : "N/A (Self-Pay)");
 
     if (booking.referralDocName) {
       doc.setTextColor(100, 116, 139);
@@ -1168,15 +1245,14 @@ export function BookAppointmentPage() {
       y += 20;
     }
 
-    // Red Official Hospital Verification Seal in PDF
     const sX = 168;
     const sY = 225;
     const sR = 18;
 
-    doc.setFillColor(220, 38, 38); // Crimson Red
+    doc.setFillColor(220, 38, 38);
     doc.circle(sX, sY, sR, "F");
 
-    doc.setDrawColor(253, 224, 71); // Gold Outer Ring
+    doc.setDrawColor(253, 224, 71);
     doc.setLineWidth(0.8);
     doc.circle(sX, sY, sR - 1.5, "S");
 
@@ -1194,7 +1270,6 @@ export function BookAppointmentPage() {
     doc.setFontSize(5);
     doc.text("OFFICIAL SEAL", sX, sY + 7, { align: "center" });
 
-    // Footer Banner
     doc.setFillColor(1, 22, 39);
     doc.rect(0, 275, 210, 22, "F");
 
@@ -1230,7 +1305,6 @@ export function BookAppointmentPage() {
       }
     }
 
-    // Fallback if direct PDF sharing is unsupported on this browser
     doc.save(fileName);
     setCopiedShare(true);
     setTimeout(() => setCopiedShare(false), 4000);
@@ -1247,17 +1321,17 @@ export function BookAppointmentPage() {
   const handleBookingSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedDoctor || !selectedDate || !selectedTime || !patientName || !patientPhone) {
-      alert("Please complete all required fields.");
+      setApiError("Please complete all required fields before confirming your appointment.");
       return;
     }
 
     if (patientType === "HMO Insurance" && !hmoPolicyCode) {
-      alert("Please enter your HMO Enrollee No / Policy ID.");
+      setApiError("Please enter your HMO Enrollee No / Policy ID to verify insurance coverage.");
       return;
     }
 
     if (isSameDayBookingWithin30MinCutoff(selectedDate, selectedTime)) {
-      alert("Same-Day Booking Restriction: Online appointments for today's clinic must be booked at least 30 minutes prior to the clinic start time. Please select a future date or contact hospital reception.");
+      setApiError("Online appointments for today's clinic must be booked at least 30 minutes prior to the clinic start time. Please select a future date or contact hospital reception.");
       return;
     }
 
@@ -1269,8 +1343,8 @@ export function BookAppointmentPage() {
       doctor_id: selectedDoctor.id,
       doctorName: selectedDoctor.fullName || selectedDoctor.name,
       doctor_name: selectedDoctor.fullName || selectedDoctor.name,
-      doctorAcronym: selectedDoctor.acronym || getDoctorDisplayAcronym(selectedDoctor),
-      doctor_acronym: selectedDoctor.acronym || getDoctorDisplayAcronym(selectedDoctor),
+      doctorAcronym: getDoctorDisplayAcronym(selectedDoctor),
+      doctor_acronym: getDoctorDisplayAcronym(selectedDoctor),
       doctorSpecialty: selectedDoctor.specialty,
       doctor_specialty: selectedDoctor.specialty,
       date: selectedDate,
@@ -1303,37 +1377,34 @@ export function BookAppointmentPage() {
     let savedRecord = newBooking;
     try {
       const res: any = await createBookingAPI(newBooking);
-      if (res && res.error) {
-        let errorMsg = "Database validation failed.";
-        if (typeof res.error === "string") errorMsg = res.error;
-        else if (typeof res.error === "object") {
-          errorMsg = Object.entries(res.error)
-            .map(([k, v]) => `${k}: ${Array.isArray(v) ? (v as any[]).join(", ") : v}`)
-            .join("\n");
+      if (res && (res.error || res.capacity)) {
+        let errorMsg = res.error || "The daily capacity limit for this specialist has been reached.";
+        if (typeof errorMsg === "object") {
+          errorMsg = Object.values(errorMsg).flat().join(" ");
         }
-        alert(`Backend API Booking Error:\n${errorMsg}`);
+        setApiError(errorMsg);
         setIsSubmittingBooking(false);
         return;
       }
       if (!res || res.error || !(res.refCode || res.ref_code)) {
-        alert("The hospital server did not return a valid booking record. No local booking was created.");
+        setApiError("The hospital server did not return a valid booking record. Please try again.");
         setIsSubmittingBooking(false);
         return;
       }
       savedRecord = res;
     } catch (e: any) {
       console.warn("createBookingAPI error:", e);
-      alert(`API Error: ${e.message || "Could not save booking to backend database."}`);
+      const serverErr = e?.response?.data?.error || e?.message || "Could not save booking to backend database.";
+      let cleanMsg = typeof serverErr === "object" ? "The selected specialist schedule is currently fully booked or unavailable." : String(serverErr);
+      setApiError(cleanMsg);
       setIsSubmittingBooking(false);
       return;
     }
 
-
-    // Broadcast across windows and tabs
     try {
       window.dispatchEvent(new CustomEvent("isalu_booking_created", { detail: savedRecord }));
       window.dispatchEvent(new Event("storage"));
-    } catch {}
+    } catch { }
 
     setIsSubmittingBooking(false);
     setBookingConfirmed(savedRecord);
@@ -1342,6 +1413,9 @@ export function BookAppointmentPage() {
 
   return (
     <div className="flex-1 bg-slate-100 dark:bg-slate-950 py-10 md:py-16">
+      {/* GLOBAL API ERROR MODAL */}
+      <ApiErrorModal error={apiError} onClose={() => setApiError(null)} />
+
       <div className="container mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
         {/* Page Title */}
         <div className="text-center mb-10 space-y-3 max-w-xl mx-auto">
@@ -1366,13 +1440,12 @@ export function BookAppointmentPage() {
           ].map((s) => (
             <div key={s.num} className="flex items-center gap-2">
               <div
-                className={`h-10 w-10 rounded-2xl flex items-center justify-center text-sm font-black transition-all ${
-                  step === s.num
-                    ? "bg-[#008ac9] text-white shadow-lg ring-4 ring-[#008ac9]/30"
-                    : step > s.num
+                className={`h-10 w-10 rounded-2xl flex items-center justify-center text-sm font-black transition-all ${step === s.num
+                  ? "bg-[#008ac9] text-white shadow-lg ring-4 ring-[#008ac9]/30"
+                  : step > s.num
                     ? "bg-[#0072b1] text-white font-bold"
                     : "bg-slate-300 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold"
-                }`}
+                  }`}
               >
                 {step > s.num ? "✓" : s.num}
               </div>
@@ -1422,11 +1495,10 @@ export function BookAppointmentPage() {
                           if (!accepted.includes("Private Self-Pay")) setSelectedDoctorId("");
                         }
                       }}
-                      className={`p-4 rounded-2xl border-2 text-xs font-black transition-all flex flex-col items-center justify-center gap-1.5 ${
-                        patientType === "Private Self-Pay"
-                          ? "bg-[#008ac9] text-white border-[#008ac9] shadow-lg ring-2 ring-[#008ac9]/30 scale-[1.02]"
-                          : "bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white hover:border-[#008ac9]"
-                      }`}
+                      className={`p-4 rounded-2xl border-2 text-xs font-black transition-all flex flex-col items-center justify-center gap-1.5 ${patientType === "Private Self-Pay"
+                        ? "bg-[#008ac9] text-white border-[#008ac9] shadow-lg ring-2 ring-[#008ac9]/30 scale-[1.02]"
+                        : "bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white hover:border-[#008ac9]"
+                        }`}
                     >
                       <span className="text-lg">💳</span>
                       <span>Private Self-Pay Patient</span>
@@ -1441,11 +1513,10 @@ export function BookAppointmentPage() {
                           if (!accepted.includes("HMO Insurance")) setSelectedDoctorId("");
                         }
                       }}
-                      className={`p-4 rounded-2xl border-2 text-xs font-black transition-all flex flex-col items-center justify-center gap-1.5 ${
-                        patientType === "HMO Insurance"
-                          ? "bg-[#008ac9] text-white border-[#008ac9] shadow-lg ring-2 ring-[#008ac9]/30 scale-[1.02]"
-                          : "bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white hover:border-[#008ac9]"
-                      }`}
+                      className={`p-4 rounded-2xl border-2 text-xs font-black transition-all flex flex-col items-center justify-center gap-1.5 ${patientType === "HMO Insurance"
+                        ? "bg-[#008ac9] text-white border-[#008ac9] shadow-lg ring-2 ring-[#008ac9]/30 scale-[1.02]"
+                        : "bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white hover:border-[#008ac9]"
+                        }`}
                     >
                       <span className="text-lg">🛡️</span>
                       <span>HMO Insurance Enrollee</span>
@@ -1651,10 +1722,9 @@ export function BookAppointmentPage() {
           </div>
         )}
 
-        {/* STEP 2: Select Clinic & Specialist Doctor (FILTERED BY PATIENT TYPE) */}
+        {/* STEP 2: Select Clinic & Specialist Doctor */}
         {step === 2 && (
           <div className="space-y-6">
-            {/* Informative Patient Type Alert Banner */}
             <div className="bg-[#008ac9]/10 border-2 border-[#008ac9]/30 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-slate-900 dark:text-white">
               <div className="flex items-center gap-3">
                 <span className="text-2xl">{patientType === "HMO Insurance" ? "🛡️" : "💳"}</span>
@@ -1677,7 +1747,6 @@ export function BookAppointmentPage() {
               </button>
             </div>
 
-            {/* Available Specialists Container */}
             <div ref={specialistsSectionRef} className="space-y-4 scroll-mt-24">
               <div className="flex items-center justify-between bg-white dark:bg-slate-900 p-4 rounded-2xl border-2 border-slate-300 dark:border-slate-800 shadow-sm">
                 <div>
@@ -1694,124 +1763,118 @@ export function BookAppointmentPage() {
                 </span>
               </div>
 
-                {filteredDoctors.length === 0 ? (
-                  <div className="p-8 text-center bg-white dark:bg-slate-900 rounded-3xl border-2 border-dashed border-slate-300 dark:border-slate-800">
-                    <Stethoscope className="h-10 w-10 text-slate-400 mx-auto mb-2" />
-                    <h4 className="text-base font-black text-slate-800 dark:text-slate-200">No Doctors Available for {patientType}</h4>
-                    <p className="text-xs font-semibold text-slate-500 max-w-sm mx-auto mt-1">
-                      There are currently no active doctors registered under this category accepting {patientType} patients.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {filteredDoctors.map((doctor: any) => {
-                      const isSelected = selectedDoctorId === doctor.id;
-                      const safeSlots = Array.isArray(doctor.timeSlots) ? doctor.timeSlots : ["08:00 AM – 12:00 PM", "01:00 PM – 05:00 PM"];
-                      const safeDays = getDoctorEffectiveAvailableDays(doctor);
-                      const displayDays = safeDays.length > 0 ? safeDays : ["No Active Roster Set"];
+              {filteredDoctors.length === 0 ? (
+                <div className="p-8 text-center bg-white dark:bg-slate-900 rounded-3xl border-2 border-dashed border-slate-300 dark:border-slate-800">
+                  <Stethoscope className="h-10 w-10 text-slate-400 mx-auto mb-2" />
+                  <h4 className="text-base font-black text-slate-800 dark:text-slate-200">No Doctors Available for {patientType}</h4>
+                  <p className="text-xs font-semibold text-slate-500 max-w-sm mx-auto mt-1">
+                    There are currently no active doctors registered under this category accepting {patientType} patients.
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {filteredDoctors.map((doctor: any) => {
+                    const isSelected =
+                      String(selectedDoctorId) === String(doctor.id) ||
+                      String(selectedDoctorId) === String(doctor.doc_id);
+                    const safeDays = getDoctorEffectiveAvailableDays(doctor);
+                    const displayDays = safeDays.length > 0 ? safeDays : ["No Active Roster Set"];
+                    const docAcceptedTypes = doctor.acceptedPatientTypes || doctor.accepted_patient_types || ["Private Self-Pay", "HMO Insurance"];
 
-                      const docAcceptedTypes = doctor.acceptedPatientTypes || doctor.accepted_patient_types || ["Private Self-Pay", "HMO Insurance"];
+                    const isAvailableNext24h = isDoctorOnDutyInNext24Hours(doctor);
+                    const nextDateStr = getNextAvailableDateForDoctor(doctor);
 
-                      const isAvailableNext24h = isDoctorOnDutyInNext24Hours(doctor);
-                      const nextDateStr = getNextAvailableDateForDoctor(doctor);
-
-                      return (
-                        <div
-                          key={doctor.id}
-                          onClick={() => setSelectedDoctorId(doctor.id)}
-                          className={`transition-all rounded-3xl border-2 p-4 flex flex-col justify-between cursor-pointer ${
-                            isSelected
-                              ? "border-[#008ac9] ring-2 ring-[#008ac9]/30 bg-sky-50 dark:bg-slate-800 shadow-md scale-[1.01]"
-                              : "border-slate-300 dark:border-slate-700 hover:border-[#008ac9] hover:shadow-sm bg-white dark:bg-slate-900"
+                    return (
+                      <div
+                        key={doctor.id || doctor.doc_id}
+                        onClick={() => setSelectedDoctorId(doctor.id || doctor.doc_id)}
+                        className={`transition-all rounded-3xl border-2 p-4 flex flex-col justify-between cursor-pointer ${isSelected
+                          ? "border-[#008ac9] ring-2 ring-[#008ac9]/30 bg-sky-50 dark:bg-slate-800 shadow-md scale-[1.01]"
+                          : "border-slate-300 dark:border-slate-700 hover:border-[#008ac9] hover:shadow-sm bg-white dark:bg-slate-900"
                           }`}
-                        >
-                          <div className="flex items-start gap-3">
-                            <SpecialistAvatar name={getDoctorDisplayAcronym(doctor)} imageUrl={doctor.image} size="sm" />
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center justify-between gap-1">
-                                <div className="flex items-center gap-1.5 min-w-0">
-                                  <h3 className="font-black text-sm text-slate-900 dark:text-white truncate">
-                                    {getDoctorDisplayAcronym(doctor)}
-                                  </h3>
-                                </div>
-                                {isAvailableNext24h ? (
-                                  <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-300 shrink-0">
-                                    ⚡ Duty Tomorrow
-                                  </span>
-                                ) : (
-                                  <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-sky-100 dark:bg-sky-950 text-sky-800 dark:text-sky-300 border border-sky-300 shrink-0 flex items-center gap-0.5">
-                                    <Clock className="h-2.5 w-2.5" /> Next: {nextDateStr}
-                                  </span>
-                                )}
+                      >
+                        <div className="flex items-start gap-3">
+                          <SpecialistAvatar name={getDoctorDisplayAcronym(doctor)} imageUrl={doctor.image} size="sm" />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-1">
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <h3 className="font-black text-sm text-slate-900 dark:text-white truncate">
+                                  {getDoctorDisplayAcronym(doctor)}
+                                </h3>
                               </div>
-                              <p className="text-[11px] font-extrabold text-[#008ac9] dark:text-sky-400 uppercase tracking-wide truncate mt-0.5">{doctor.specialty}</p>
+                              {isAvailableNext24h ? (
+                                <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-300 shrink-0">
+                                  ⚡ Duty Tomorrow
+                                </span>
+                              ) : (
+                                <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-sky-100 dark:bg-sky-950 text-sky-800 dark:text-sky-300 border border-sky-300 shrink-0 flex items-center gap-0.5">
+                                  <Clock className="h-2.5 w-2.5" /> Next: {nextDateStr}
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[11px] font-extrabold text-[#008ac9] dark:text-sky-400 uppercase tracking-wide truncate mt-0.5">{doctor.specialty}</p>
 
-                              {/* Category Badges */}
-                              <div className="flex flex-wrap gap-1 mt-1.5">
-                                {docAcceptedTypes.map((t: string) => (
-                                  <span key={t} className="px-2 py-0.5 bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 rounded-md text-[9.5px] font-black border border-purple-200">
-                                    {t === "HMO Insurance" ? "🛡️ HMO" : "💳 Private"}
-                                  </span>
-                                ))}
-                              </div>
+                            <div className="flex flex-wrap gap-1 mt-1.5">
+                              {docAcceptedTypes.map((t: string) => (
+                                <span key={t} className="px-2 py-0.5 bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 rounded-md text-[9.5px] font-black border border-purple-200">
+                                  {t === "HMO Insurance" ? "🛡️ HMO" : "💳 Private"}
+                                </span>
+                              ))}
+                            </div>
 
-                              {/* Availability Days */}
-                              <div className="mt-2 text-[11px] font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1">
-                                <Calendar className="h-3.5 w-3.5 text-[#008ac9] flex-shrink-0" />
-                                <span>Roster: <strong className="text-slate-900 dark:text-white font-black">{displayDays.join(", ")}</strong></span>
-                              </div>
+                            <div className="mt-2 text-[11px] font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1">
+                              <Calendar className="h-3.5 w-3.5 text-[#008ac9] flex-shrink-0" />
+                              <span>Roster: <strong className="text-slate-900 dark:text-white font-black">{displayDays.join(", ")}</strong></span>
                             </div>
                           </div>
-
-                          <div className="mt-3 pt-2 border-t border-slate-200 dark:border-slate-800 flex items-center justify-end">
-                            <span
-                              className={`px-3 py-1.5 text-[11px] font-black rounded-xl transition-all ${
-                                isSelected
-                                  ? "bg-[#008ac9] text-white shadow-sm"
-                                  : "bg-slate-900 text-white hover:bg-[#008ac9]"
-                              }`}
-                            >
-                              {isSelected ? "Selected ✓" : "Select Specialist →"}
-                            </span>
-                          </div>
                         </div>
-                      );
-                    })}
-                  </div>
-                )}
 
-                {/* Navigation Controls */}
-                <div className="flex justify-between pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setStep(1)}
-                    className="px-5 py-2.5 rounded-xl border-2 border-slate-300 dark:border-slate-700 font-extrabold text-xs text-slate-900 dark:text-white hover:bg-slate-200 dark:hover:bg-slate-800 transition-all"
-                  >
-                    Back to Patient Info
-                  </button>
-                  <button
-                    type="button"
-                    disabled={!selectedDoctorId}
-                    onClick={() => setStep(3)}
-                    className="bg-[#008ac9] hover:bg-[#0072b1] disabled:opacity-50 text-white px-8 py-3 text-sm font-black rounded-2xl flex items-center gap-2 shadow-lg border-2 border-sky-300/40 transition-all"
-                  >
-                    Continue to Consultation Schedule <ArrowRight className="h-5 w-5" />
-                  </button>
+                        <div className="mt-3 pt-2 border-t border-slate-200 dark:border-slate-800 flex items-center justify-end">
+                          <span
+                            className={`px-3 py-1.5 text-[11px] font-black rounded-xl transition-all ${isSelected
+                              ? "bg-[#008ac9] text-white shadow-sm"
+                              : "bg-slate-900 text-white hover:bg-[#008ac9]"
+                              }`}
+                          >
+                            {isSelected ? "Selected ✓" : "Select Specialist →"}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
+              )}
+
+              <div className="flex justify-between pt-2">
+                <button
+                  type="button"
+                  onClick={() => setStep(1)}
+                  className="px-5 py-2.5 rounded-xl border-2 border-slate-300 dark:border-slate-700 font-extrabold text-xs text-slate-900 dark:text-white hover:bg-slate-200 dark:hover:bg-slate-800 transition-all"
+                >
+                  Back to Patient Info
+                </button>
+                <button
+                  type="button"
+                  disabled={!selectedDoctorId}
+                  onClick={() => setStep(3)}
+                  className="bg-[#008ac9] hover:bg-[#0072b1] disabled:opacity-50 text-white px-8 py-3 text-sm font-black rounded-2xl flex items-center gap-2 shadow-lg border-2 border-sky-300/40 transition-all"
+                >
+                  Continue to Consultation Schedule <ArrowRight className="h-5 w-5" />
+                </button>
               </div>
+            </div>
           </div>
         )}
 
-        {/* STEP 3: Choose Date & Time Slot (FILTERED BY SPECIALIST AVAILABILITY) */}
+        {/* STEP 3: Choose Date & Time Slot */}
         {step === 3 && selectedDoctor && (
           <div className="space-y-6">
             <div className="bg-white dark:bg-slate-900 border-2 border-slate-300 dark:border-slate-800 rounded-3xl p-6 md:p-8 shadow-md">
-              {/* Selected Doctor Summary Header */}
               <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-4 mb-6">
                 <div className="flex items-center gap-3">
-                  <SpecialistAvatar name={selectedDoctor.acronym || selectedDoctor.name} imageUrl={selectedDoctor.image} size="sm" />
+                  <SpecialistAvatar name={getDoctorDisplayAcronym(selectedDoctor)} imageUrl={selectedDoctor.image} size="sm" />
                   <div>
-                    <h3 className="text-base font-black text-slate-900 dark:text-white leading-tight">{selectedDoctor.acronym || selectedDoctor.name}</h3>
+                    <h3 className="text-base font-black text-slate-900 dark:text-white leading-tight">{getDoctorDisplayAcronym(selectedDoctor)}</h3>
                     <p className="text-[10px] font-black text-[#008ac9] dark:text-sky-400 uppercase tracking-wide">{selectedDoctor.specialty}</p>
                     <p className="text-[11px] font-semibold text-slate-600 dark:text-slate-400 mt-0.5">
                       Duty Days: <strong className="text-slate-900 dark:text-white font-bold">{getDoctorEffectiveAvailableDays(selectedDoctor).join(", ") || "Monday, Tuesday, Wednesday, Thursday, Friday"}</strong>
@@ -1827,7 +1890,6 @@ export function BookAppointmentPage() {
                 </button>
               </div>
 
-              {/* Date & Time Selection Forms */}
               <div className="space-y-8">
                 <div>
                   <div className="flex items-center justify-between mb-3">
@@ -1843,122 +1905,86 @@ export function BookAppointmentPage() {
                     {getUpcomingDates(undefined, selectedDoctor).map((d) => {
                       const isSelected = selectedDate === d.dateStr;
                       const isNext = d.isNextAvailable;
-                      const slotStats = getDoctorSlotStatsForDate(selectedDoctor.id, d.dateStr);
-                      const isFilled = slotStats.remaining <= 0;
-                      const isClickable = d.isAvailable && !isFilled;
+                      const isFullyBooked = d.isFullyBooked;
+                      const isClickable = d.isAvailable && !isFullyBooked;
 
                       return (
                         <button
                           type="button"
                           key={d.dateStr}
                           disabled={!isClickable}
-                          onClick={() => {
-                            if (isClickable) {
-                              setSelectedDate(d.dateStr);
-                              setSelectedTime(getDutyTimeWindow(selectedDoctor, d.dateStr));
-                            }
-                          }}
-                          className={`relative py-2 px-1 rounded-xl border text-center transition-all flex flex-col items-center justify-center select-none ${
-                            isFilled
-                              ? "opacity-60 cursor-not-allowed bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-900 text-rose-600 dark:text-rose-400"
+                          aria-disabled={!isClickable}
+                          aria-label={
+                            isFullyBooked
+                              ? `${d.dayShort} ${d.monthShort}: Fully booked`
                               : !d.isAvailable
-                              ? "opacity-30 cursor-not-allowed bg-slate-100 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-400"
+                                ? `${d.dayShort} ${d.monthShort}: Not available`
+                                : `${d.dayShort} ${d.monthShort}: Available`
+                          }
+                          onClick={() => {
+                            if (!isClickable) return;
+
+                            setSelectedDate(d.dateStr);
+                            setSelectedTime(getDutyTimeWindow(selectedDoctor, d.dateStr));
+
+                            setTimeout(() => {
+                              slotsSectionRef.current?.scrollIntoView({
+                                behavior: "smooth",
+                                block: "start",
+                              });
+                            }, 100);
+                          }}
+                          className={`relative py-2.5 px-1 rounded-xl border text-center transition-all flex flex-col items-center justify-center select-none ${isFullyBooked
+                            ? "bg-rose-600 text-white border-rose-700 shadow-md cursor-not-allowed font-black"
+                            : !d.isAvailable
+                              ? "opacity-60 bg-slate-50 dark:bg-slate-900/60 border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 font-semibold cursor-not-allowed"
                               : isSelected
-                              ? "bg-[#008ac9] text-white border-[#008ac9] shadow-md ring-2 ring-[#008ac9]/30 font-black scale-[1.03]"
-                              : isNext
-                              ? "bg-sky-50 dark:bg-sky-950/40 border-[#008ac9] ring-2 ring-[#008ac9]/40 text-slate-900 dark:text-white font-bold hover:bg-sky-100"
-                              : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white hover:border-[#008ac9] hover:bg-sky-50 dark:hover:bg-slate-800"
-                          }`}
+                                ? "bg-[#008ac9] text-white border-[#008ac9] shadow-md ring-2 ring-[#008ac9]/30 font-black scale-[1.03]"
+                                : isNext
+                                  ? "bg-sky-50 dark:bg-sky-950/40 border-[#008ac9] ring-2 ring-[#008ac9]/40 text-slate-900 dark:text-white font-bold hover:bg-sky-100"
+                                  : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white hover:border-[#008ac9] hover:bg-sky-50 dark:hover:bg-slate-800"
+                            }`}
                         >
-                          {isNext && !isFilled && (
-                            <span className={`absolute -top-2 px-1.5 py-0.5 text-[7px] font-black rounded-full uppercase tracking-tighter shadow-sm border ${
-                              isSelected
-                                ? "bg-amber-400 text-slate-900 border-amber-300"
-                                : "bg-[#008ac9] text-white border-[#008ac9]"
-                            }`}>
+                          {isFullyBooked ? (
+                            <span className="absolute -top-2 px-1.5 py-0.5 text-[7px] font-black rounded-full uppercase tracking-tighter shadow-sm border bg-white text-rose-700 border-rose-300">
+                              FULL
+                            </span>
+                          ) : isNext ? (
+                            <span className="absolute -top-2 px-1.5 py-0.5 text-[7px] font-black rounded-full uppercase tracking-tighter shadow-sm border bg-[#008ac9] text-white border-[#008ac9]">
                               Next Avail
                             </span>
-                          )}
-                          <span className={`text-[8px] font-black uppercase tracking-tight ${isSelected ? "text-sky-100" : isFilled ? "text-rose-500 dark:text-rose-400" : "text-slate-500 dark:text-slate-400"}`}>
+                          ) : null}
+
+                          <span className={`text-[8px] font-black uppercase tracking-tight ${isSelected || isFullyBooked ? "text-white" : "text-slate-600 dark:text-slate-300"}`}>
                             {d.dayShort} ({d.weekOccurrenceBadge})
                           </span>
-                          <span className="text-[11px] font-black leading-tight my-0.5">{d.monthShort}</span>
-                          <span className={`text-[7.5px] font-black px-1 rounded ${
-                            isFilled
-                              ? "bg-rose-100 dark:bg-rose-900 text-rose-700 dark:text-rose-300 border border-rose-300"
-                              : !d.isAvailable
-                              ? "text-slate-400"
+                          <span className={`text-[11px] font-black leading-tight my-0.5 ${!d.isAvailable && !isFullyBooked ? "text-slate-700 dark:text-slate-200" : ""}`}>{d.monthShort}</span>
+                          <span className={`text-[7.5px] font-black px-1.5 py-0.5 rounded-md ${isFullyBooked
+                            ? "bg-white text-rose-600 shadow-sm uppercase tracking-wider font-black"
+                            : !d.isAvailable
+                              ? "bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold"
                               : isSelected
-                              ? "bg-white/20 text-white"
-                              : "text-[#008ac9]"
-                          }`}>
-                            {isFilled ? "Completed" : d.isAvailable ? (isNext ? "★ Next Avail" : "✓ Available") : (!d.isPast24HoursNotice ? "<24h Notice" : "Off")}
+                                ? "bg-white/20 text-white"
+                                : "text-[#008ac9]"
+                            }`}>
+                            {isFullyBooked ? "FULL" : d.isAvailable ? (isNext ? "★ Next Avail" : "✓ Available") : "Off Duty"}
                           </span>
                         </button>
                       );
                     })}
                   </div>
-
-                  {selectedDate && (() => {
-                    const slotStats = getDoctorSlotStatsForDate(selectedDoctor.id, selectedDate);
-                    const formattedDateName = new Date(selectedDate + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
-                    const isFilled = slotStats.remaining <= 0;
-
-                    if (isFilled) {
-                      return (
-                        <div className="mt-4 bg-rose-50 dark:bg-rose-950/60 border border-rose-300 dark:border-rose-900 p-4 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-rose-900 dark:text-rose-300 animate-fadeIn shadow-sm">
-                          <div className="flex items-center gap-3">
-                            <div className="p-2 bg-rose-100 dark:bg-rose-900/80 rounded-xl shrink-0">
-                              <XCircle className="h-5 w-5 text-rose-600 fill-rose-100" />
-                            </div>
-                            <div>
-                              <span className="text-xs font-black block">
-                                Completed for {formattedDateName}
-                              </span>
-                              <span className="text-[11px] font-semibold text-rose-800 dark:text-rose-400 block mt-0.5">
-                                All consultation slots for this doctor on this date have been filled. Please choose another date.
-                              </span>
-                            </div>
-                          </div>
-                          <span className="text-[11px] font-black text-rose-800 dark:text-rose-400 bg-rose-100 dark:bg-rose-900/80 px-3 py-1 rounded-xl border border-rose-300/80 shrink-0">
-                            Completed
-                          </span>
-                        </div>
-                      );
-                    }
-
-                    return (
-                      <div className="mt-4 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-900 p-4 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-emerald-900 dark:text-emerald-300 animate-fadeIn shadow-sm">
-                        <div className="flex items-center gap-3">
-                          <div className="p-2 bg-emerald-100 dark:bg-emerald-900/80 rounded-xl shrink-0">
-                            <CheckCircle2 className="h-5 w-5 text-emerald-600 fill-emerald-100 animate-pulse" />
-                          </div>
-                          <div>
-                            <span className="text-xs font-black block">
-                              Consultation Slots Available for {formattedDateName}
-                            </span>
-                            <span className="text-[11px] font-semibold text-emerald-800 dark:text-emerald-400 block mt-0.5">
-                              Consultation booking is active and available for this doctor on this date.
-                            </span>
-                          </div>
-                        </div>
-                        <span className="text-[11px] font-black text-emerald-800 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/80 px-3 py-1 rounded-xl border border-emerald-300/80 shrink-0">
-                          Available
-                        </span>
-                      </div>
-                    );
-                  })()}
                 </div>
 
-                <div className="space-y-4 pt-2">
+                {/* Consultation Slots & Capacity Status Section */}
+                <div ref={slotsSectionRef} className="scroll-mt-24 space-y-4 pt-2">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 dark:border-slate-800 pb-3">
                     <div>
                       <label className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-2">
-                        <Clock className="h-4 w-4 text-[#008ac9]" /> 2. Select Consultation Time Slot <span className="text-red-500 font-black ml-0.5">*</span>
+                        <Clock className="h-4 w-4 text-[#008ac9]" /> 2. Consultation Slots & Roster Status <span className="text-red-500 font-black ml-0.5">*</span>
                       </label>
                       {selectedDate ? (
                         <p className="text-xs font-bold text-slate-600 dark:text-slate-400 mt-0.5">
-                          Doctor's Duty Hours for {new Date(selectedDate + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}:
+                          Live capacity countdown for {new Date(selectedDate + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric", year: "numeric" })}:
                         </p>
                       ) : (
                         <p className="text-xs font-bold text-amber-600 dark:text-amber-400 mt-0.5">
@@ -1972,94 +1998,144 @@ export function BookAppointmentPage() {
                     <div className="text-center py-8 bg-slate-50 dark:bg-slate-900/50 border-2 border-dashed border-slate-300 dark:border-slate-800 rounded-2xl p-6">
                       <Clock className="h-8 w-8 text-[#008ac9]/60 mx-auto mb-2" />
                       <p className="text-xs font-extrabold text-slate-600 dark:text-slate-400">
-                        Please select an available consultation date on the calendar above to reveal the duty time window.
+                        Please select an available consultation date on the calendar above to view live slot availability.
                       </p>
                     </div>
                   ) : (
-                    <div className="max-w-md animate-fadeIn">
+                    <div className="space-y-4 animate-fadeIn">
                       {(() => {
-                        const dutyTime = getDutyTimeWindow(selectedDoctor, selectedDate);
-                        const isCutoff = isSameDayBookingWithin30MinCutoff(selectedDate, dutyTime);
-                        const isSelected = selectedTime === dutyTime && !isCutoff;
+                        const slotStats = getDoctorSlotStatsForDate(selectedDoctor.id, selectedDate);
+                        const formattedDateName = new Date(selectedDate + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+                        const isFilled = slotStats.remaining <= 0;
 
-                        if (isCutoff) {
+                        if (isFilled) {
                           return (
-                            <div className="space-y-3">
-                              <div className="p-3.5 bg-amber-50 dark:bg-amber-950/60 border-2 border-amber-300 dark:border-amber-900 rounded-2xl flex items-start gap-3 text-amber-900 dark:text-amber-200 shadow-sm">
-                                <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-                                <div className="text-xs space-y-1">
-                                  <span className="font-black text-amber-950 dark:text-amber-100 block">
-                                    ⚠️ Same-Day Booking Cutoff Reached (&lt;30 Mins)
+                            <div className="bg-rose-50 dark:bg-rose-950/60 border-2 border-rose-300 dark:border-rose-900 p-4 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-rose-900 dark:text-rose-300 shadow-sm">
+                              <div className="flex items-center gap-3">
+                                <div className="p-2 bg-rose-100 dark:bg-rose-900/80 rounded-xl shrink-0">
+                                  <XCircle className="h-5 w-5 text-rose-600 fill-rose-100" />
+                                </div>
+                                <div>
+                                  <span className="text-xs font-black block">
+                                    ⚠️ Schedule Full for {formattedDateName}
                                   </span>
-                                  <span className="font-semibold text-amber-800 dark:text-amber-300 block leading-relaxed">
-                                    Online bookings for today's clinic session must be placed at least 30 minutes prior to the clinic start time. Online booking for this time slot today is closed. Please select a future date.
+                                  <span className="text-[11px] font-semibold text-rose-800 dark:text-rose-400 block mt-0.5">
+                                    This specialist has reached the maximum daily patient capacity of {slotStats.maxCapacity} bookings for this date. Please choose another date.
                                   </span>
                                 </div>
                               </div>
-                              <button
-                                type="button"
-                                disabled
-                                className="w-full p-3 rounded-xl border-2 transition-all flex items-center justify-between opacity-60 bg-slate-100 dark:bg-slate-900 border-slate-300 dark:border-slate-800 text-slate-500 cursor-not-allowed"
-                              >
-                                <div className="flex items-center gap-2.5">
-                                  <div className="h-8 w-8 rounded-lg flex items-center justify-center font-black bg-slate-200 dark:bg-slate-800 text-slate-500">
-                                    <Clock className="h-4 w-4" />
-                                  </div>
-                                  <div className="text-left">
-                                    <span className="text-[8px] font-black uppercase tracking-tight block text-slate-500">
-                                      Duty Hours (Booking Closed Today)
-                                    </span>
-                                    <span className="text-xs font-black tracking-tight block my-0.5 line-through">
-                                      {dutyTime}
-                                    </span>
-                                  </div>
-                                </div>
-                                <span className="px-2.5 py-1 text-[10px] font-black rounded-lg bg-amber-200 dark:bg-amber-900 text-amber-900 dark:text-amber-200 border border-amber-300/60">
-                                  Cutoff Reached
-                                </span>
-                              </button>
+                              <span className="text-[11px] font-black text-rose-800 dark:text-rose-400 bg-rose-100 dark:bg-rose-900/80 px-3 py-1 rounded-xl border border-rose-300/80 shrink-0">
+                                Fully Booked ({slotStats.bookedOnDate}/{slotStats.maxCapacity})
+                              </span>
                             </div>
                           );
                         }
 
                         return (
-                          <button
-                            type="button"
-                            onClick={() => setSelectedTime(dutyTime)}
-                            className={`w-full p-2.5 rounded-xl border transition-all flex items-center justify-between group shadow-sm ${
-                              isSelected
-                                ? "bg-[#008ac9] text-white border-[#008ac9] shadow-md ring-2 ring-[#008ac9]/30 scale-[1.01]"
-                                : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white hover:border-[#008ac9] hover:bg-sky-50 dark:hover:bg-slate-800"
-                            }`}
-                          >
-                            <div className="flex items-center gap-2.5">
-                              <div className={`h-8 w-8 rounded-lg flex items-center justify-center font-black transition-all ${
-                                isSelected ? "bg-white text-[#008ac9]" : "bg-sky-100 dark:bg-slate-800 text-[#008ac9]"
-                              }`}>
-                                <Clock className="h-4 w-4" />
+                          <div className="bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-900 p-4 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-emerald-900 dark:text-emerald-300 shadow-sm">
+                            <div className="flex items-center gap-3">
+                              <div className="p-2 bg-emerald-100 dark:bg-emerald-900/80 rounded-xl shrink-0">
+                                <Users className="h-5 w-5 text-emerald-600 animate-pulse" />
                               </div>
-                              <div className="text-left">
-                                <span className={`text-[8px] font-black uppercase tracking-tight block ${isSelected ? "text-sky-100" : "text-[#008ac9]"}`}>
-                                  Duty Hours (Start – End)
+                              <div>
+                                <span className="text-xs font-black block">
+                                  Consultation Slots for {formattedDateName}
                                 </span>
-                                <span className="text-xs font-black tracking-tight block my-0.5">
-                                  {dutyTime}
+                                <span className="text-[11px] font-semibold text-emerald-800 dark:text-emerald-400 block mt-0.5">
+                                  <strong className="font-black text-emerald-950 dark:text-emerald-200">{slotStats.bookedOnDate}</strong> patients booked • <strong className="font-black text-emerald-950 dark:text-emerald-200">{slotStats.remaining}</strong> slots remaining out of {slotStats.maxCapacity} daily appointment capacity.
                                 </span>
                               </div>
                             </div>
-
-                            <div>
-                              <span className={`px-2.5 py-1 text-[10px] font-black rounded-lg inline-flex items-center gap-1 shadow-sm transition-all ${
-                                isSelected
-                                  ? "bg-white text-[#008ac9]"
-                                  : "bg-slate-900 text-white group-hover:bg-[#008ac9]"
-                              }`}>
-                                {isSelected ? "✓ Selected" : "Select"}
-                              </span>
-                            </div>
-                          </button>
+                            <span className="text-[11px] font-black text-emerald-800 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/80 px-3 py-1 rounded-xl border border-emerald-300/80 shrink-0">
+                              {slotStats.remaining} Slots Left
+                            </span>
+                          </div>
                         );
                       })()}
+
+                      {/* Duty Time Window Selection Button */}
+                      <div className="max-w-md pt-2">
+                        {(() => {
+                          const dutyTime = getDutyTimeWindow(selectedDoctor, selectedDate);
+                          const isCutoff = isSameDayBookingWithin30MinCutoff(selectedDate, dutyTime);
+                          const isSelected = selectedTime === dutyTime && !isCutoff;
+
+                          if (isCutoff) {
+                            return (
+                              <div className="space-y-3">
+                                <div className="p-3.5 bg-amber-50 dark:bg-amber-950/60 border-2 border-amber-300 dark:border-amber-900 rounded-2xl flex items-start gap-3 text-amber-900 dark:text-amber-200 shadow-sm">
+                                  <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                                  <div className="text-xs space-y-1">
+                                    <span className="font-black text-amber-950 dark:text-amber-100 block">
+                                      ⚠️ Same-Day Booking Cutoff Reached (&lt;30 Mins)
+                                    </span>
+                                    <span className="font-semibold text-amber-800 dark:text-amber-300 block leading-relaxed">
+                                      Online bookings for today's clinic session must be placed at least 30 minutes prior to the clinic start time. Online booking for this time slot today is closed. Please select a future date.
+                                    </span>
+                                  </div>
+                                </div>
+                                <button
+                                  type="button"
+                                  disabled
+                                  className="w-full p-3 rounded-xl border-2 transition-all flex items-center justify-between opacity-60 bg-slate-100 dark:bg-slate-900 border-slate-300 dark:border-slate-800 text-slate-500 cursor-not-allowed"
+                                >
+                                  <div className="flex items-center gap-2.5">
+                                    <div className="h-8 w-8 rounded-lg flex items-center justify-center font-black bg-slate-200 dark:bg-slate-800 text-slate-500">
+                                      <Clock className="h-4 w-4" />
+                                    </div>
+                                    <div className="text-left">
+                                      <span className="text-[8px] font-black uppercase tracking-tight block text-slate-500">
+                                        Duty Hours (Booking Closed Today)
+                                      </span>
+                                      <span className="text-xs font-black tracking-tight block my-0.5 line-through">
+                                        {dutyTime}
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <span className="px-2.5 py-1 text-[10px] font-black rounded-lg bg-amber-200 dark:bg-amber-900 text-amber-900 dark:text-amber-200 border border-amber-300/60">
+                                    Cutoff Reached
+                                  </span>
+                                </button>
+                              </div>
+                            );
+                          }
+
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => setSelectedTime(dutyTime)}
+                              className={`w-full p-2.5 rounded-xl border transition-all flex items-center justify-between group shadow-sm ${isSelected
+                                ? "bg-[#008ac9] text-white border-[#008ac9] shadow-md ring-2 ring-[#008ac9]/30 scale-[1.01]"
+                                : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white hover:border-[#008ac9] hover:bg-sky-50 dark:hover:bg-slate-800"
+                                }`}
+                            >
+                              <div className="flex items-center gap-2.5">
+                                <div className={`h-8 w-8 rounded-lg flex items-center justify-center font-black transition-all ${isSelected ? "bg-white text-[#008ac9]" : "bg-sky-100 dark:bg-slate-800 text-[#008ac9]"
+                                  }`}>
+                                  <Clock className="h-4 w-4" />
+                                </div>
+                                <div className="text-left">
+                                  <span className={`text-[8px] font-black uppercase tracking-tight block ${isSelected ? "text-sky-100" : "text-[#008ac9]"}`}>
+                                    Duty Hours (Start – End)
+                                  </span>
+                                  <span className="text-xs font-black tracking-tight block my-0.5">
+                                    {dutyTime}
+                                  </span>
+                                </div>
+                              </div>
+
+                              <div>
+                                <span className={`px-2.5 py-1 text-[10px] font-black rounded-lg inline-flex items-center gap-1 shadow-sm transition-all ${isSelected
+                                  ? "bg-white text-[#008ac9]"
+                                  : "bg-slate-900 text-white group-hover:bg-[#008ac9]"
+                                  }`}>
+                                  {isSelected ? "✓ Selected" : "Select"}
+                                </span>
+                              </div>
+                            </button>
+                          );
+                        })()}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -2082,21 +2158,30 @@ export function BookAppointmentPage() {
               >
                 Back
               </button>
-              <button
-                type="button"
-                disabled={!selectedDate || !selectedTime || isSubmittingBooking || isSameDayBookingWithin30MinCutoff(selectedDate, selectedTime)}
-                onClick={handleBookingSubmit}
-                className="bg-[#008ac9] hover:bg-[#0072b1] disabled:opacity-50 disabled:cursor-not-allowed text-white px-8 py-3.5 text-sm font-black rounded-2xl flex items-center gap-2 shadow-lg border-2 border-sky-300/40 transition-all"
-              >
-                {isSubmittingBooking ? (
-                  <>
-                    <RefreshCw className="h-4 w-4 animate-spin text-white" />
-                    <span>Submitting Request... Please Wait</span>
-                  </>
-                ) : (
-                  <>Confirm & Issue Official Ticket ✓</>
-                )}
-              </button>
+              {(() => {
+                const slotStats = selectedDate ? getDoctorSlotStatsForDate(selectedDoctor.id, selectedDate) : { remaining: 1 };
+                const isFull = slotStats.remaining <= 0;
+
+                return (
+                  <button
+                    type="button"
+                    disabled={!selectedDate || !selectedTime || isSubmittingBooking || isFull || isSameDayBookingWithin30MinCutoff(selectedDate, selectedTime)}
+                    onClick={handleBookingSubmit}
+                    className="bg-[#008ac9] hover:bg-[#0072b1] disabled:opacity-50 disabled:cursor-not-allowed text-white px-8 py-3.5 text-sm font-black rounded-2xl flex items-center gap-2 shadow-lg border-2 border-sky-300/40 transition-all"
+                  >
+                    {isSubmittingBooking ? (
+                      <>
+                        <RefreshCw className="h-4 w-4 animate-spin text-white" />
+                        <span>Submitting Request... Please Wait</span>
+                      </>
+                    ) : isFull ? (
+                      <>Schedule Full (Capacity Reached)</>
+                    ) : (
+                      <>Confirm & Issue Official Ticket ✓</>
+                    )}
+                  </button>
+                );
+              })()}
             </div>
           </div>
         )}
@@ -2105,7 +2190,6 @@ export function BookAppointmentPage() {
         {step === 4 && bookingConfirmed && (
           <div className="max-w-xl mx-auto space-y-6">
             <div className="bg-white dark:bg-slate-900 border-2 border-[#008ac9] rounded-3xl overflow-hidden shadow-2xl">
-              {/* Ticket Top Banner */}
               <div className="bg-[#008ac9] text-white p-7 text-center relative overflow-hidden">
                 <div className="inline-flex items-center gap-2 bg-white/20 px-4 py-1 rounded-full text-xs font-black mb-3 border border-white/30">
                   <CheckCircle className="h-4 w-4 text-sky-200" /> OFFICIAL APPOINTMENT TICKET
@@ -2119,7 +2203,6 @@ export function BookAppointmentPage() {
                 <p className="text-xs font-bold text-sky-100 mt-1">Present this ticket or Reference Code at hospital reception.</p>
               </div>
 
-              {/* Reference Code Display */}
               <div className="bg-sky-50 dark:bg-slate-800 border-y-2 border-[#008ac9]/30 p-5 text-center">
                 <span className="text-xs text-slate-700 dark:text-slate-300 block font-black uppercase tracking-widest mb-1">
                   Ticket Reference Code
@@ -2129,7 +2212,6 @@ export function BookAppointmentPage() {
                 </span>
               </div>
 
-              {/* Ticket Receipt Body */}
               <div className="p-7 space-y-4 text-sm font-bold">
                 <div className="grid grid-cols-2 gap-4 border-b-2 border-slate-100 dark:border-slate-800 pb-4">
                   <div>
@@ -2181,7 +2263,6 @@ export function BookAppointmentPage() {
                 </div>
               </div>
 
-              {/* Ticket Footer */}
               <div className="bg-slate-100 dark:bg-slate-950 p-4 text-center text-xs font-bold text-slate-700 dark:text-slate-300 border-t-2 border-slate-200 dark:border-slate-800">
                 No. 46, Ijaiye Road (beside Tastee Fried Chicken and opposite Ogba Shopping Arcade / Caterpillar Bus Stop), Ogba, Ikeja, Lagos, Nigeria • Hotline: +234 (0) 800-ISALU-CARE
               </div>

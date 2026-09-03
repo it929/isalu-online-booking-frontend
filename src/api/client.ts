@@ -958,6 +958,15 @@ export async function deleteDoctorAPI(
   );
 }
 
+export async function getDoctorAvailableDatesAPI(
+  docId: string | number,
+  days: number = 90
+): Promise<any | null> {
+  return apiRequest<any>(
+    `/doctors/${encodeURIComponent(String(docId))}/available-dates/?days=${days}`
+  );
+}
+
 /* =========================================================
    SCHEDULES
 ========================================================= */
