@@ -950,7 +950,7 @@ export function HomePage() {
                     to={`/book?department=${dept.id}`}
                     className="relative z-10 w-full py-3 px-4 rounded-xl bg-gradient-to-r from-[#008ac9] via-sky-600 to-cyan-600 hover:from-[#0072b1] hover:to-cyan-700 text-white font-semibold text-xs transition-all duration-300 flex items-center justify-center gap-1.5 shadow-md shadow-[#008ac9]/20 hover:shadow-lg hover:shadow-[#008ac9]/40 border border-white/20 group-hover:scale-[1.02]"
                   >
-                    <span>Book Specialist Consultation</span>
+                    <span>Book Appointment Now</span>
                     <ArrowRight className="h-3.5 w-3.5 transform group-hover:translate-x-1.5 transition-transform" />
                   </Link>
                 </div>
