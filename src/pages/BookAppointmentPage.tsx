@@ -451,8 +451,13 @@ export function BookAppointmentPage() {
       return idMatch || nameMatch;
     });
 
-    let maxCapacity = 15;
+    let maxCapacity = Number((docObj as any)?.capacity || (docObj as any)?.daily_capacity || (docObj as any)?.dailyCapacity || (docObj as any)?.maxDailyAppointments || 15);
     if (matchedSched) {
+      const tableMax = matchedSched.maxDailyAppointments || matchedSched.max_daily_appointments || matchedSched.capacity;
+      if (tableMax !== undefined && tableMax !== null && !isNaN(Number(tableMax)) && Number(tableMax) > 0) {
+        maxCapacity = Number(tableMax);
+      }
+
       if (dateStr) {
         const dateObj = new Date(dateStr + "T00:00:00");
         const dayShort = dateObj.toLocaleDateString("en-US", { weekday: "short" });
@@ -463,13 +468,6 @@ export function BookAppointmentPage() {
           if (cfg && (cfg.capacity || cfg.maxDailyAppointments || cfg.max_daily_appointments)) {
             maxCapacity = Number(cfg.capacity || cfg.maxDailyAppointments || cfg.max_daily_appointments);
           }
-        }
-      }
-
-      if (maxCapacity === 15 || !maxCapacity) {
-        const tableMax = matchedSched.maxDailyAppointments || matchedSched.max_daily_appointments || matchedSched.capacity;
-        if (tableMax !== undefined && tableMax !== null && !isNaN(Number(tableMax))) {
-          maxCapacity = Number(tableMax);
         }
       }
     }

@@ -149,11 +149,23 @@ export function DoctorsPage() {
       return (sDocId && (sDocId === docCode || sDocId === docNumericId || sDocId === String(doctor.id))) || (sName && docName && sName.includes(docName));
     });
 
-    let totalCapacity = Number(doctor.capacity || 15);
+    let totalCapacity = Number(doctor.capacity || doctor.daily_capacity || doctor.dailyCapacity || doctor.maxDailyAppointments || 15);
     if (matchedSched) {
       const tableMax = matchedSched.maxDailyAppointments || matchedSched.max_daily_appointments || matchedSched.capacity;
-      if (tableMax !== undefined && tableMax !== null && !isNaN(Number(tableMax))) {
+      if (tableMax !== undefined && tableMax !== null && !isNaN(Number(tableMax)) && Number(tableMax) > 0) {
         totalCapacity = Number(tableMax);
+      }
+
+      if (todayStr) {
+        const dateObj = new Date(todayStr + "T00:00:00");
+        const dayShort = dateObj.toLocaleDateString("en-US", { weekday: "short" });
+        const dayName = dateObj.toLocaleDateString("en-US", { weekday: "long" });
+        if (matchedSched.dayConfigs) {
+          const cfg = matchedSched.dayConfigs[dayShort] || matchedSched.dayConfigs[dayName];
+          if (cfg && cfg.capacity && !isNaN(Number(cfg.capacity))) {
+            totalCapacity = Number(cfg.capacity);
+          }
+        }
       }
     }
 
