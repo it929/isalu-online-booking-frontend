@@ -26,6 +26,7 @@ import {
   Share2,
 } from "lucide-react";
 import { updateBookingAPI, getDoctorsAPI, getSchedulesAPI, lookupBookingAPI, getBookingAvailabilityAPI } from "../api/client";
+
 const getDoctorDisplayAcronym = (booking: any) => booking?.doctorName || booking?.doctor_name || booking?.acronym || "Specialist";
 
 export function CheckAppointmentsPage() {
@@ -63,13 +64,13 @@ export function CheckAppointmentsPage() {
     setTimeout(() => setCopiedRef(false), 2500);
   };
 
-  // Helper: Format day numbers to ordinal suffixes (e.g. 1 -> 1st, 2 -> 2nd, 3 -> 3rd, 7 -> 7th, 21 -> 21st, 22 -> 22nd, 23 -> 23rd, 31 -> 31st)
+  // Helper: Format day numbers to ordinal suffixes
   const getOrdinalSuffix = (day: number): string => {
     if (day > 3 && day < 21) return `${day}th`;
     switch (day % 10) {
-      case 1:  return `${day}st`;
-      case 2:  return `${day}nd`;
-      case 3:  return `${day}rd`;
+      case 1: return `${day}st`;
+      case 2: return `${day}nd`;
+      case 3: return `${day}rd`;
       default: return `${day}th`;
     }
   };
@@ -80,14 +81,12 @@ export function CheckAppointmentsPage() {
 
     const trimmed = String(dateInput).trim();
 
-    // If already formatted like "7th October, 2026", return as is
     if (/\d+(st|nd|rd|th)\s+[A-Za-z]+,\s*\d{4}/i.test(trimmed)) {
       return trimmed;
     }
 
     let dateObj: Date;
 
-    // Handle ISO format YYYY-MM-DD
     if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
       const [year, month, day] = trimmed.split("-").map(Number);
       dateObj = new Date(year, month - 1, day);
@@ -105,6 +104,28 @@ export function CheckAppointmentsPage() {
     const yearNum = dateObj.getFullYear();
 
     return `${ordinalDay} ${monthName}, ${yearNum}`;
+  };
+
+  // Helper: Format date to standard ISO YYYY-MM-DD for backend Django/DRF submission
+  const formatDateToISO = (dateInput: string): string => {
+    if (!dateInput) return "";
+    const trimmed = String(dateInput).trim();
+
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+      return trimmed;
+    }
+
+    const cleaned = trimmed.replace(/(\d+)(st|nd|rd|th)/i, "$1");
+    const parsedDate = new Date(cleaned);
+
+    if (!isNaN(parsedDate.getTime())) {
+      const year = parsedDate.getFullYear();
+      const month = String(parsedDate.getMonth() + 1).padStart(2, "0");
+      const day = String(parsedDate.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    }
+
+    return dateInput;
   };
 
   // Helper 1: Find Doctor object matching a booking
@@ -125,7 +146,7 @@ export function CheckAppointmentsPage() {
         const dName = String(d.name || "").toLowerCase().trim();
         const dFullName = String(d.fullName || d.full_name || "").toLowerCase().trim();
         return (dName && (bDocName.includes(dName) || dName.includes(bDocName))) ||
-               (dFullName && (bDocName.includes(dFullName) || dFullName.includes(bDocName)));
+          (dFullName && (bDocName.includes(dFullName) || dFullName.includes(bDocName)));
       });
       if (matched) return matched;
     }
@@ -140,7 +161,6 @@ export function CheckAppointmentsPage() {
     const bDocId = String(booking.doctorId || booking.doctor_id || "").toLowerCase().trim();
     const bDocName = String(booking.doctorName || booking.doctor_name || "").toLowerCase().trim();
 
-    // 1st Priority: Specialist Schedule from Roster
     const matchedSchedules = schedulesList.filter((s) => {
       const sDocId = String(s.doctorId || s.doctor_id || "").toLowerCase().trim();
       if (bDocId && sDocId && sDocId === bDocId) return true;
@@ -165,7 +185,6 @@ export function CheckAppointmentsPage() {
       return Array.from(new Set(scheduleDays));
     }
 
-    // 2nd Priority: Doctor model availableDays
     const docObj = findDoctorForBooking(booking);
     if (docObj) {
       const docDays = docObj.availableDays || docObj.available_days || docObj.availability;
@@ -176,12 +195,11 @@ export function CheckAppointmentsPage() {
         try {
           const parsed = JSON.parse(docDays);
           if (Array.isArray(parsed) && parsed.length > 0) return Array.from(new Set(parsed));
-        } catch {}
+        } catch { }
         return [docDays.trim()];
       }
     }
 
-    // Default fallback weekdays
     return ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
   };
 
@@ -192,8 +210,8 @@ export function CheckAppointmentsPage() {
     const dateObj = new Date(dateStr + "T00:00:00");
     if (isNaN(dateObj.getTime())) return false;
 
-    const dayName = dateObj.toLocaleDateString("en-US", { weekday: "long" }); // e.g. "Monday"
-    const dayShort = dateObj.toLocaleDateString("en-US", { weekday: "short" }); // e.g. "Mon"
+    const dayName = dateObj.toLocaleDateString("en-US", { weekday: "long" });
+    const dayShort = dateObj.toLocaleDateString("en-US", { weekday: "short" });
 
     return dutyDays.some((av) => {
       const upperAv = av.toUpperCase();
@@ -215,11 +233,11 @@ export function CheckAppointmentsPage() {
     });
   };
 
-  // Helper 4: Get upcoming valid duty dates for the doctor (strictly enforce 24h cutoff & single Next Available schedule)
+  // Helper 4: Get upcoming valid duty dates for doctor
   const getUpcomingAvailableDutyDatesForDoctor = (dutyDays: string[], maxCount = 25) => {
     const dates: { dateStr: string; displayLabel: string; dayName: string; dayShort: string; isNextAvailable?: boolean; isAvailable?: boolean; isPast24HoursNotice?: boolean }[] = [];
     const now = new Date();
-    const minAllowedTime = new Date(now.getTime() + 24 * 60 * 60 * 1000); // 24 hours notice
+    const minAllowedTime = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -246,7 +264,6 @@ export function CheckAppointmentsPage() {
       }
     }
 
-    // Flag the earliest available date as Next Available and restrict selection strictly to ONLY this next available date
     let foundNext = false;
     for (const item of dates) {
       if (item.isAvailable && !foundNext) {
@@ -254,14 +271,14 @@ export function CheckAppointmentsPage() {
         foundNext = true;
       } else {
         item.isNextAvailable = false;
-        item.isAvailable = false; // Patients can pick ONLY the next available schedule date
+        item.isAvailable = false;
       }
     }
 
     return dates;
   };
 
-  // Helper 5: Calculate live capacity, booked count, and remaining slots for a doctor on a specific date
+  // Helper 5: Calculate slot stats
   const getDoctorSlotStatsForDate = (booking: any, dateStr: string) => {
     if (!booking || !dateStr) return { bookedCount: 0, maxCapacity: 15, remainingSlots: 15, isLocked: false };
 
@@ -269,7 +286,6 @@ export function CheckAppointmentsPage() {
     const bDocName = String(booking.doctorName || booking.doctor_name || "").toLowerCase().trim();
     const currentRef = String(booking.refCode || booking.ref_code || "").toLowerCase().trim();
 
-    // 1. Count active bookings for this doctor on dateStr (excluding Cancelled & current booking)
     const bookedCount = bookings.filter((b) => {
       const bCode = String(b.refCode || b.ref_code || "").toLowerCase().trim();
       if (bCode && bCode === currentRef) return false;
@@ -281,7 +297,6 @@ export function CheckAppointmentsPage() {
       return isMatchDoc && b.date === dateStr && b.status !== "Cancelled";
     }).length;
 
-    // 2. Resolve capacity from SpecialistSchedule or Doctor model
     const matchedSched = schedulesList.find((s) => {
       const sDocId = String(s.doctorId || s.doctor_id || "").toLowerCase().trim();
       if (bDocId && sDocId && sDocId === bDocId) return true;
@@ -316,13 +331,12 @@ export function CheckAppointmentsPage() {
     return { bookedCount, maxCapacity, remainingSlots, isLocked };
   };
 
-  // Helper 6: Extract clean exact time string (e.g. "04:00 PM – 05:00 PM") from raw schedule strings like "Mon: 04:00 PM – 05:00 PM (15 visits) | Wed: ..."
+  // Helper 6: Extract clean time slot string
   const cleanTimeSlotString = (rawTime: string, dateStr?: string): string => {
     if (!rawTime) return "08:00 AM – 10:00 AM";
 
     let inputStr = String(rawTime).trim();
 
-    // If input contains multiple day parts separated by '|', find the part for dateStr day of week
     if (inputStr.includes("|") && dateStr) {
       const dateObj = new Date(dateStr + "T00:00:00");
       if (!isNaN(dateObj.getTime())) {
@@ -344,13 +358,11 @@ export function CheckAppointmentsPage() {
       inputStr = inputStr.split("|")[0].trim();
     }
 
-    // 1. Try match standard time range pattern e.g. "04:00 PM – 05:00 PM" or "8:00 AM - 12:00 PM"
     const timeRangeMatch = inputStr.match(/\d{1,2}:\d{2}\s*(?:AM|PM|am|pm)\s*(?:–|-|to)\s*\d{1,2}:\d{2}\s*(?:AM|PM|am|pm)/i);
     if (timeRangeMatch) {
       return timeRangeMatch[0].trim();
     }
 
-    // 2. Fallback: Strip day prefixes (Mon:, Monday:), visit counts "(15 visits)", and extra symbols
     const cleaned = inputStr
       .replace(/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)[a-z]*:\s*/i, "")
       .replace(/\(\d+\s*visits?\)/gi, "")
@@ -361,7 +373,7 @@ export function CheckAppointmentsPage() {
     return cleaned || "08:00 AM – 10:00 AM";
   };
 
-  // Helper 7: Resolve specific clean time slots for doctor based on selected date
+  // Helper 7: Resolve specific clean time slots for doctor based on date
   const getDoctorTimeSlotsForDate = (booking: any, dateStr: string): string[] => {
     const defaultSlots = [
       "08:00 AM – 10:00 AM",
@@ -377,7 +389,6 @@ export function CheckAppointmentsPage() {
 
     let rawList: string[] = [];
 
-    // 1. Check SpecialistSchedule
     const matchedSched = schedulesList.find((s) => {
       const sDocId = String(s.doctorId || s.doctor_id || "").toLowerCase().trim();
       if (bDocId && sDocId && sDocId === bDocId) return true;
@@ -408,7 +419,6 @@ export function CheckAppointmentsPage() {
       }
     }
 
-    // 2. Check Doctor profile
     if (rawList.length === 0) {
       const docObj = findDoctorForBooking(booking);
       if (docObj) {
@@ -430,7 +440,6 @@ export function CheckAppointmentsPage() {
       rawList = defaultSlots;
     }
 
-    // Clean all extracted time strings
     const cleanedList = rawList
       .map((s) => cleanTimeSlotString(s, dateStr))
       .filter((s, idx, arr) => s && arr.indexOf(s) === idx);
@@ -489,7 +498,6 @@ export function CheckAppointmentsPage() {
     ctx.textAlign = "center";
     ctx.fillText("OFFICIAL APPOINTMENT TICKET", 600, 140);
 
-    // 4-Sphere Isalu Logo Emblem on Canvas
     const logoX = 390;
     const logoY = 205;
     const sR = 12;
@@ -567,7 +575,6 @@ export function CheckAppointmentsPage() {
       ctx.fillText(`📎 ${booking.referralDocName || booking.referral_doc_name}`, 140, y + 35);
     }
 
-    // Watermark Overlay in Center
     ctx.save();
     ctx.globalAlpha = 0.05;
     ctx.fillStyle = "#008AC9";
@@ -580,7 +587,6 @@ export function CheckAppointmentsPage() {
     ctx.fillText("OFFICIAL VERIFIED TICKET", 0, 45);
     ctx.restore();
 
-    // Official Red Verification Seal
     ctx.save();
     const sealX = 940;
     const sealY = 1130;
@@ -654,7 +660,6 @@ export function CheckAppointmentsPage() {
 
     const code = booking.refCode || booking.ref_code || "ISALU-000000";
 
-    // Watermark Overlay in PDF
     doc.setTextColor(215, 235, 248);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(36);
@@ -670,7 +675,6 @@ export function CheckAppointmentsPage() {
     doc.setFontSize(10);
     doc.text("OFFICIAL APPOINTMENT TICKET", 105, 14, { align: "center" });
 
-    // 4-Sphere Isalu Logo Emblem on PDF Header
     const pdfLogoX = 62;
     const pdfLogoY = 26;
     const r = 2.5;
@@ -741,7 +745,6 @@ export function CheckAppointmentsPage() {
       y += 20;
     }
 
-    // Red Official Verification Seal
     const sX = 168;
     const sY = 225;
     const sR = 18;
@@ -808,12 +811,10 @@ export function CheckAppointmentsPage() {
       }
     }
 
-    // Fallback: trigger download and show toast
     doc.save(fileName);
     showToast("PDF Ticket generated & downloaded.", "success");
   };
 
-  // PDF Ticket Generator
   const downloadTicketAsPdf = (booking: any) => {
     if (!booking) return;
 
@@ -848,7 +849,6 @@ export function CheckAppointmentsPage() {
       } else {
         setBookings([]);
       }
-
     }
     loadAllData();
 
@@ -862,7 +862,7 @@ export function CheckAppointmentsPage() {
       channel.onmessage = () => {
         loadAllData();
       };
-    } catch {}
+    } catch { }
 
     window.addEventListener("storage", loadAllData);
     window.addEventListener("isalu_booking_updated", loadAllData);
@@ -883,843 +883,507 @@ export function CheckAppointmentsPage() {
     if (!q) { setHasSearched(false); setFilteredBookings([]); return; }
     setIsSearching(true);
     try {
-      const result = await lookupBookingAPI(q);
-      const results = result && !result.error ? [result] : [];
+      const found = await lookupBookingAPI(q);
+      const matches = found && !found.error ? [found] : [];
+      setBookings(matches);
+      setFilteredBookings(matches);
       setHasSearched(true);
-      setFilteredBookings(results);
-      if (results.length) { setSelectedBooking(results[0]); }
-    } finally { setIsSearching(false); }
+    } catch {
+      setFilteredBookings([]);
+      setHasSearched(true);
+    } finally {
+      setIsSearching(false);
+    }
   };
 
-  const isActionDisabled = (booking: any): { disabled: boolean; reason: string; badgeLabel: string; type: "checkedin" | "completed" | "cleared" | "hmo" | "cancelled" | "none" } => {
-    if (!booking) return { disabled: false, reason: "", badgeLabel: "", type: "none" };
+  const isActionDisabled = (booking: any) => {
+    if (!booking) return { disabled: true, reason: "Invalid appointment" };
+    const status = String(booking.status || "").toLowerCase().trim();
 
-    const st = String(booking.status || "").toLowerCase();
-    const payType = String(booking.paymentType || booking.payment_type || "Private Self-Pay");
-    const paySt = String(booking.paymentStatus || booking.payment_status || "").toLowerCase();
-    const hmoSt = String(booking.hmoStatus || booking.hmo_status || "").toLowerCase();
-
-    if (st.includes("checked") || st.includes("in room")) {
-      return { disabled: true, reason: "Patient Checked-In to Room", badgeLabel: "Patient Checked-In to Consultation Room", type: "checkedin" };
+    if (status === "cancelled" || status === "canceled") {
+      return { disabled: true, reason: "Appointment is cancelled" };
     }
-    if (st.includes("completed")) {
-      return { disabled: true, reason: "Consultation Completed", badgeLabel: "Consultation Completed", type: "completed" };
-    }
-    if (st.includes("cancelled")) {
-      return { disabled: true, reason: "Appointment Cancelled", badgeLabel: "Appointment Cancelled", type: "cancelled" };
+    if (status === "completed") {
+      return { disabled: true, reason: "Appointment is already completed" };
     }
 
-    const isHmoTicket = payType === "HMO Insurance";
-    const hmoName = booking.hmoName && booking.hmoName !== "N/A" ? booking.hmoName : (booking.hmo_name && booking.hmo_name !== "N/A" ? booking.hmo_name : "HMO Insurance");
-    const isHmoApproved = isHmoTicket && (hmoSt === "approved" || hmoSt === "hmo approved");
-
-    if (isHmoApproved) {
-      return {
-        disabled: true,
-        reason: `Approved by ${hmoName}`,
-        badgeLabel: `Approved by ${hmoName}`,
-        type: "hmo",
-      };
-    }
-
-    if (paySt.includes("cleared") || paySt === "paid") {
-      return { disabled: true, reason: "Payment Cleared by Cashdesk", badgeLabel: "Paid & Cleared by Cashdesk", type: "cleared" };
-    }
-
-    return { disabled: false, reason: "", badgeLabel: "", type: "none" };
+    return { disabled: false, reason: "" };
   };
 
-  const openSlipModal = (booking: any) => {
+  const handleOpenReschedule = (booking: any) => {
     const check = isActionDisabled(booking);
     if (check.disabled) {
-      showToast(`Ticket Slip viewing is disabled: ${check.reason}.`, "error");
-      return;
-    }
-    setSelectedBooking(booking);
-    setRescheduleDate(booking.date || "");
-    setRescheduleTime(booking.time || "08:00 AM – 10:00 AM");
-    setIsRescheduleOpen(false);
-    setIsSlipModalOpen(true);
-  };
-
-  const closeSlipModal = () => {
-    setIsSlipModalOpen(false);
-    setIsRescheduleOpen(false);
-  };
-
-  const isRescheduleDisabled = (status?: string) => {
-    if (!status) return false;
-    const s = String(status).toLowerCase().trim();
-    return (
-      s.includes("checked") ||
-      s.includes("completed") ||
-      s.includes("cancelled") ||
-      s.includes("in room") ||
-      s === "checked in" ||
-      s === "completed"
-    );
-  };
-
-  const openRescheduleView = (booking: any) => {
-    const check = isActionDisabled(booking);
-    if (check.disabled) {
-      showToast(`Rescheduling is disabled: ${check.reason}.`, "error");
+      showToast(`Cannot reschedule: ${check.reason}.`, "error");
       return;
     }
 
     setSelectedBooking(booking);
+    const isoDate = formatDateToISO(booking.date);
+    setRescheduleDate(isoDate);
 
-    // Resolve doctor's duty days and available dates
-    const dutyDays = getDoctorEffectiveDutyDays(booking);
-    const validDates = getUpcomingAvailableDutyDatesForDoctor(dutyDays, 25);
-
-    // Do not autoselect date or time - let patient select manually
-    setRescheduleDate("");
-    setRescheduleTime("");
-
+    const timeSlots = getDoctorTimeSlotsForDate(booking, isoDate);
+    const cleanedTime = cleanTimeSlotString(booking.time, isoDate);
+    setRescheduleTime(timeSlots.includes(cleanedTime) ? cleanedTime : timeSlots[0] || "");
     setRescheduleReason("");
     setIsRescheduleOpen(true);
-    setIsSlipModalOpen(true);
-  };
-
-  const handleSelectRescheduleDate = (dateStr: string) => {
-    setRescheduleDate(dateStr);
-    if (selectedBooking) {
-      const slots = getDoctorTimeSlotsForDate(selectedBooking, dateStr);
-      if (slots.length > 0 && (!rescheduleTime || !slots.includes(rescheduleTime))) {
-        setRescheduleTime(slots[0]);
-      }
-    }
   };
 
   const handleConfirmReschedule = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedBooking || !rescheduleDate) return;
-
-    const doctorId = selectedBooking.doctorId || selectedBooking.doctor_id;
-    if (doctorId) {
-      const availability = await getBookingAvailabilityAPI({ doctor_id: String(doctorId), date: rescheduleDate });
-      if (!availability || availability.error || availability.available === false) {
-        showToast(availability?.error || "Selected date is fully booked. Please choose another date.", "error");
-        return;
-      }
+    if (!selectedBooking || !rescheduleDate) {
+      showToast("Please select a valid appointment date.", "error");
+      return;
     }
 
-    const refCode = selectedBooking.refCode || selectedBooking.ref_code;
+    const isoDate = formatDateToISO(rescheduleDate);
+
+    const targetDateObj = new Date(isoDate + "T08:00:00");
+    const minNoticeTime = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+    if (targetDateObj.getTime() < minNoticeTime.getTime()) {
+      showToast("Rescheduling requires at least 24 hours advance notice.", "error");
+      return;
+    }
+
     setIsSubmittingReschedule(true);
 
-    const formattedDate = formatDateToOrdinal(rescheduleDate);
-    const cleanTime = cleanTimeSlotString(rescheduleTime, rescheduleDate);
-
-    const updatedFields = {
-      date: formattedDate,
-      time: cleanTime,
-      status: "Rescheduled",
-      reason: rescheduleReason ? `${selectedBooking.reason || ''} [Rescheduled: ${rescheduleReason}]`.trim() : selectedBooking.reason,
-    };
-
     try {
-      // Send the mutation to Django; the server is authoritative.
-      const updatedFromServer: any = await updateBookingAPI(refCode, updatedFields);
-      if (!updatedFromServer || updatedFromServer.error) throw new Error(typeof updatedFromServer?.error === "string" ? updatedFromServer.error : "Server rejected the reschedule request.");
-
-      // 2. Update local state objects
-      const updatedBooking = {
-        ...selectedBooking,
-        ...updatedFields,
-        date: formattedDate,
-        time: cleanTime,
-        status: "Rescheduled",
+      const payload = {
+        date: isoDate,
+        time: rescheduleTime,
+        reschedule_reason: rescheduleReason || "Patient requested reschedule",
+        status: "Confirmed",
       };
 
-      const updateList = (prev: any[]) =>
-        prev.map((b) => ((b.refCode || b.ref_code) === refCode ? updatedBooking : b));
+      const refCode = selectedBooking.refCode || selectedBooking.ref_code;
+      const res = await updateBookingAPI(refCode, payload);
 
-      const newAllBookings = updateList(bookings);
-      const newFilteredBookings = updateList(filteredBookings);
+      if (res && res.error) {
+        const err = Array.isArray(res.error) ? res.error.join(" ") : String(res.error);
+        showToast(`Reschedule failed: ${err}`, "error");
+        setIsSubmittingReschedule(false);
+        return;
+      }
 
-      setBookings(newAllBookings);
-      setFilteredBookings(newFilteredBookings);
+      const updatedBooking = {
+        ...selectedBooking,
+        date: isoDate,
+        time: rescheduleTime,
+        rescheduleReason,
+      };
+
       setSelectedBooking(updatedBooking);
-
-      // 3. Sync LocalStorage for offline persistence
-
-      // 4. Return to updated ticket slip view
-      setIsRescheduleOpen(false);
-      showToast(
-        `✓ Appointment successfully rescheduled to ${formattedDate} (${cleanTime})! Your Ticket Reference Code (${refCode}) remains unchanged.`,
-        "success"
+      setBookings((prev) =>
+        prev.map((b) =>
+          (b.refCode || b.ref_code) === refCode ? updatedBooking : b
+        )
       );
-    } catch (error) {
-      console.error("Reschedule Error:", error);
-      showToast("Could not update the appointment on the hospital server. Please try again.", "error");
-      return;
+      setFilteredBookings((prev) =>
+        prev.map((b) =>
+          (b.refCode || b.ref_code) === refCode ? updatedBooking : b
+        )
+      );
 
+      setIsRescheduleOpen(false);
+      showToast("Appointment rescheduled successfully!", "success");
+    } catch {
+      showToast("An unexpected error occurred while rescheduling.", "error");
     } finally {
       setIsSubmittingReschedule(false);
     }
   };
 
   return (
-    <div className="flex-1 bg-slate-100 dark:bg-slate-950 py-10 md:py-16 relative">
-      {/* Toast Banner */}
+    <div className="min-h-screen bg-slate-50 py-12 px-4 sm:px-6 lg:px-8">
+      {/* Toast Notification */}
       {toastNotification && (
-        <div className="fixed top-20 right-5 z-[9999] max-w-md w-full animate-bounce">
-          <div
-            className={`p-4 rounded-2xl shadow-2xl border-2 flex items-center justify-between gap-3 text-sm font-bold ${
-              toastNotification.type === "success"
-                ? "bg-emerald-900 text-emerald-100 border-emerald-500"
-                : "bg-rose-900 text-rose-100 border-rose-500"
+        <div
+          className={`fixed bottom-6 right-6 z-50 flex items-center gap-3 px-5 py-3 rounded-xl shadow-xl text-white font-medium text-sm transition-all animate-bounce ${toastNotification.type === "error" ? "bg-red-600" : "bg-emerald-600"
             }`}
-          >
-            <div className="flex items-center gap-2">
-              <CheckCircle className="h-5 w-5 text-emerald-400 shrink-0" />
-              <span>{toastNotification.message}</span>
-            </div>
-            <button onClick={() => setToastNotification(null)} className="text-white hover:text-slate-300">
-              <X className="h-4 w-4" />
-            </button>
-          </div>
+        >
+          {toastNotification.type === "error" ? (
+            <AlertCircle className="w-5 h-5 shrink-0" />
+          ) : (
+            <CheckCircle2 className="w-5 h-5 shrink-0" />
+          )}
+          <span>{toastNotification.message}</span>
         </div>
       )}
 
-      <div className="container mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">
+      <div className="max-w-4xl mx-auto space-y-8">
         {/* Header */}
-        <div className="text-center mb-10 space-y-3 max-w-xl mx-auto">
-          <div className="inline-flex items-center gap-2 rounded-full bg-[#008ac9]/10 px-4 py-1.5 text-xs font-black text-[#008ac9] dark:text-sky-400 border-2 border-[#008ac9]/20">
-            <Ticket className="h-4 w-4" /> Real-time Ticket Verification & Doctor Availability Reschedule
-          </div>
-          <h1 className="text-3xl font-black text-slate-900 dark:text-white sm:text-4xl tracking-tight">
-            Check & Reschedule Appointment
+        <div className="text-center space-y-3">
+          <h1 className="text-3xl sm:text-4xl font-extrabold text-slate-900 tracking-tight">
+            Appointment Status & Management
           </h1>
-          <p className="text-slate-800 dark:text-slate-200 text-sm font-semibold leading-relaxed">
-            Enter your Ticket Reference Code (e.g. ISALU-XXXXXX) or Patient Phone Number to view your booking slip or pick an available duty date for your doctor.
+          <p className="text-slate-600 max-w-xl mx-auto text-sm sm:text-base">
+            Track your appointment status, view booking details, download official slips, or reschedule your visit.
           </p>
+        </div>
 
-          {/* Search Box */}
-          <form onSubmit={handleSearch} className="pt-2 flex gap-2 max-w-md mx-auto">
-            <div className="relative flex-1">
-              <Search className="absolute left-4 top-3.5 h-5 w-5 text-slate-500" />
-              <input
-                type="text"
-                disabled={isSearching}
-                placeholder="Reference Code or Phone..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-12 pr-4 py-3.5 rounded-2xl bg-white dark:bg-slate-900 border-2 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white text-sm font-bold shadow-md focus:outline-none focus:ring-2 focus:ring-[#008ac9] transition-all disabled:opacity-60"
-              />
-            </div>
+        {/* Search Bar */}
+        <form onSubmit={handleSearch} className="relative max-w-2xl mx-auto">
+          <div className="relative flex items-center shadow-lg rounded-2xl overflow-hidden border border-slate-200 bg-white focus-within:ring-2 focus-within:ring-sky-500 transition-all">
+            <Search className="w-5 h-5 text-slate-400 absolute left-4" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Enter Reference Code (e.g., ISALU-982341)..."
+              className="w-full pl-12 pr-32 py-4 text-slate-800 placeholder-slate-400 focus:outline-none text-sm sm:text-base"
+            />
             <button
               type="submit"
               disabled={isSearching}
-              className="px-6 py-3.5 bg-[#008ac9] hover:bg-[#0072b1] text-white font-black rounded-2xl text-sm shadow-lg border border-[#008ac9] transition-all flex items-center justify-center gap-2 disabled:opacity-60"
+              className="absolute right-2 bg-sky-600 hover:bg-sky-700 text-white font-semibold px-5 py-2.5 rounded-xl transition-all disabled:opacity-50 text-sm flex items-center gap-2"
             >
-              {isSearching ? (
-                <>
-                  <RefreshCw className="h-4 w-4 animate-spin text-white" />
-                  <span>Searching...</span>
-                </>
-              ) : (
-                <>Lookup</>
-              )}
+              {isSearching ? <RefreshCw className="w-4 h-4 animate-spin" /> : "Search"}
             </button>
-          </form>
-
-          {isSearching && (
-            <div className="p-3.5 rounded-2xl bg-sky-50 dark:bg-slate-900 border-2 border-[#008ac9] text-[#008ac9] dark:text-sky-300 text-xs font-bold flex items-center justify-center gap-2.5 animate-pulse max-w-md mx-auto mt-3 shadow-sm">
-              <RefreshCw className="h-4 w-4 animate-spin text-[#008ac9]" />
-              <span>Searching verified ticket records... Please wait.</span>
-            </div>
-          )}
-        </div>
-
-        {/* State 1: Prompt before searching */}
-        {!hasSearched && (
-          <div className="text-center py-16 bg-white dark:bg-slate-900 border-2 border-dashed border-slate-300 dark:border-slate-800 rounded-3xl p-8 shadow-sm">
-            <Search className="h-14 w-14 text-[#008ac9] mx-auto mb-3" />
-            <h3 className="text-xl font-black text-slate-900 dark:text-white">Search Your Appointment Ticket</h3>
-            <p className="text-sm font-semibold text-slate-700 dark:text-slate-300 mt-1 max-w-md mx-auto">
-              Please enter your Ticket Reference Code (e.g. ISALU-XXXXXX) or Patient Phone Number in the search box above and click "Lookup".
-            </p>
           </div>
-        )}
+        </form>
 
-        {/* State 2: Has searched but no bookings match */}
-        {hasSearched && filteredBookings.length === 0 && (
-          <div className="text-center py-16 bg-white dark:bg-slate-900 border-2 border-slate-300 dark:border-slate-800 rounded-3xl p-8 shadow-md animate-fadeIn">
-            <Ticket className="h-14 w-14 text-rose-500 mx-auto mb-3" />
-            <h3 className="text-xl font-black text-slate-900 dark:text-white">No Appointment Ticket Found</h3>
-            <p className="text-sm font-semibold text-slate-700 dark:text-slate-300 mt-1 mb-6 max-w-md mx-auto">
-              No appointment matches your search query "{searchQuery}". Please verify your ticket reference code or phone number.
-            </p>
-            <Link
-              to="/book"
-              className="px-7 py-3.5 bg-[#008ac9] hover:bg-[#0072b1] text-white font-black rounded-2xl text-xs inline-block shadow-lg border border-[#008ac9]"
-            >
-              + Book New Appointment
-            </Link>
-          </div>
-        )}
+        {/* Search Results */}
+        {hasSearched && (
+          <div className="space-y-4">
+            {filteredBookings.length === 0 ? (
+              <div className="text-center py-12 bg-white rounded-2xl shadow-sm border border-slate-200">
+                <AlertTriangle className="w-12 h-12 text-amber-500 mx-auto mb-3" />
+                <h3 className="text-lg font-bold text-slate-800">No Appointments Found</h3>
+                <p className="text-slate-500 text-sm mt-1">
+                  We couldn't find any appointment matching reference "{searchQuery}".
+                </p>
+              </div>
+            ) : (
+              filteredBookings.map((b, idx) => {
+                const actionCheck = isActionDisabled(b);
 
-        {/* State 3: Has searched and matches found */}
-        {hasSearched && filteredBookings.length > 0 && (
-          <div className="space-y-4 animate-fadeIn">
-            <div className="flex items-center justify-between px-2">
-              <span className="text-xs font-black text-slate-700 dark:text-slate-300 uppercase tracking-wider">
-                Found {filteredBookings.length} Matching Booking(s)
-              </span>
-            </div>
-
-            {filteredBookings.map((b) => {
-              const code = b.refCode || b.ref_code;
-              const isClosed = b.status === "Completed" || b.status === "Cancelled";
-              return (
-                <div
-                  key={code}
-                  className="bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-md hover:shadow-xl hover:border-[#008ac9] transition-all duration-300 flex flex-col md:flex-row md:items-center justify-between gap-4"
-                >
-                  <div className="space-y-2.5">
-                    <div className="flex items-center gap-3">
-                      <span className="text-2xl font-black text-[#008ac9] dark:text-sky-400 tracking-widest font-mono">
-                        {code}
-                      </span>
-                      <span
-                        className={`px-3.5 py-1 rounded-full text-xs font-black ${
-                          b.status === "Rescheduled"
-                            ? "bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border-2 border-amber-400 font-extrabold"
-                            : b.status === "Completed"
-                            ? "bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border-2 border-rose-400 font-extrabold"
-                            : b.status === "Cancelled"
-                            ? "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-300"
-                            : "bg-sky-100 dark:bg-slate-800 text-[#008ac9] dark:text-sky-300 border border-[#008ac9]/30"
-                        }`}
-                      >
-                        {b.status || "Confirmed"}
-                      </span>
-                    </div>
-
-                    <div className="text-base font-black text-slate-900 dark:text-white">
-                      Patient: {b.patientName || b.patient_name} ({b.patientPhone || b.patient_phone})
-                    </div>
-
-                    <div className="text-xs text-slate-800 dark:text-slate-200 flex flex-wrap gap-4 pt-1 font-bold">
-                      <span className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-xl border border-slate-200 dark:border-slate-700">
-                        <Calendar className="h-4 w-4 text-[#008ac9]" /> {b.date}
-                      </span>
-                      <span className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-xl border border-slate-200 dark:border-slate-700">
-                        <Clock className="h-4 w-4 text-[#008ac9]" /> {cleanTimeSlotString(b.time, b.date)}
-                      </span>
-                    </div>
-
-                    <div className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                      Specialist: <strong className="text-slate-900 dark:text-white font-black">{getDoctorDisplayAcronym(b)}</strong> ({b.doctorSpecialty || b.doctor_specialty})
-                    </div>
-                  </div>
-
-                  {(() => {
-                    const check = isActionDisabled(b);
-
-                    if (check.disabled) {
-                      let badgeStyle = "bg-emerald-50 dark:bg-emerald-950/80 border-2 border-emerald-400 text-emerald-800 dark:text-emerald-300";
-                      let IconComponent = CheckCircle2;
-
-                      if (check.type === "completed" || check.type === "cancelled") {
-                        badgeStyle = "bg-rose-50 dark:bg-rose-950/80 border-2 border-rose-300 text-rose-800 dark:text-rose-300";
-                      } else if (check.type === "hmo") {
-                        badgeStyle = "bg-sky-50 dark:bg-sky-950/80 border-2 border-sky-400 text-sky-800 dark:text-sky-300";
-                        IconComponent = ShieldCheck;
-                      } else if (check.type === "checkedin") {
-                        badgeStyle = "bg-emerald-50 dark:bg-emerald-950/80 border-2 border-emerald-400 text-emerald-800 dark:text-emerald-300";
-                        IconComponent = UserCheck;
-                      } else if (check.type === "cleared") {
-                        badgeStyle = "bg-emerald-50 dark:bg-emerald-950/80 border-2 border-emerald-500 text-emerald-800 dark:text-emerald-300";
-                        IconComponent = CheckCircle2;
-                      }
-
-                      return (
-                        <div className={`flex items-center gap-2 px-4 py-3 rounded-2xl ${badgeStyle} text-xs font-black shrink-0 self-center`}>
-                          <IconComponent className="h-4 w-4 shrink-0" />
-                          <span>{check.badgeLabel}</span>
-                        </div>
-                      );
-                    }
-
-                    return (
-                      <div className="flex flex-wrap md:flex-col items-stretch gap-2 pt-3 md:pt-0 border-t-2 md:border-t-0 border-slate-200 dark:border-slate-800">
-                        <button
-                          type="button"
-                          onClick={() => openSlipModal(b)}
-                          className="px-5 py-2.5 bg-[#008ac9] hover:bg-[#0072b1] text-white text-xs font-black rounded-xl shadow-md transition-all flex items-center justify-center gap-1.5 border border-[#008ac9] cursor-pointer"
-                        >
-                          <Ticket className="h-4 w-4" /> View Ticket Slip
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => openRescheduleView(b)}
-                          className="px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-black rounded-xl shadow-md transition-all flex items-center justify-center gap-1.5 border border-amber-600 cursor-pointer"
-                        >
-                          <RefreshCw className="h-4 w-4" /> Reschedule Date
-                        </button>
-
-                        <div className="flex gap-2">
+                return (
+                  <div
+                    key={idx}
+                    className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200 space-y-6 hover:shadow-md transition-shadow"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-slate-100">
+                      <div>
+                        <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                          Reference Code
+                        </span>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="font-mono text-lg font-extrabold text-sky-600">
+                            {b.refCode || b.ref_code || "N/A"}
+                          </span>
                           <button
-                            type="button"
-                            onClick={() => downloadTicketAsImage(b)}
-                            className="flex-1 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-black rounded-xl shadow-sm transition-all flex items-center justify-center gap-1 cursor-pointer"
-                            title="Download PNG"
+                            onClick={() => copyToClipboard(b.refCode || b.ref_code)}
+                            className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-slate-600 transition-colors"
                           >
-                            <Download className="h-3.5 w-3.5" /> PNG
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => downloadTicketAsPdf(b)}
-                            className="flex-1 px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-black rounded-xl shadow-sm transition-all flex items-center justify-center gap-1 cursor-pointer"
-                            title="Download PDF"
-                          >
-                            <FileText className="h-3.5 w-3.5 text-sky-400" /> PDF
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => shareTicketAsPdf(b)}
-                            className="flex-1 px-3 py-2 bg-sky-600 hover:bg-sky-700 text-white text-[11px] font-black rounded-xl shadow-sm transition-all flex items-center justify-center gap-1 cursor-pointer"
-                            title="Share PDF Ticket"
-                          >
-                            <Share2 className="h-3.5 w-3.5 text-white" /> Share PDF
+                            {copiedRef ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
                           </button>
                         </div>
                       </div>
-                    );
-                  })()}
+
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${b.status === "Confirmed"
+                              ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                              : b.status === "Cancelled"
+                                ? "bg-red-50 text-red-700 border border-red-200"
+                                : "bg-sky-50 text-sky-700 border border-sky-200"
+                            }`}
+                        >
+                          {b.status || "Confirmed"}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
+                      <div className="flex items-start gap-3">
+                        <UserCheck className="w-5 h-5 text-sky-600 shrink-0 mt-0.5" />
+                        <div>
+                          <p className="text-xs text-slate-400 font-semibold">Patient</p>
+                          <p className="font-bold text-slate-800">{b.patientName || b.patient_name || "N/A"}</p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-start gap-3">
+                        <ShieldCheck className="w-5 h-5 text-sky-600 shrink-0 mt-0.5" />
+                        <div>
+                          <p className="text-xs text-slate-400 font-semibold">Doctor</p>
+                          <p className="font-bold text-slate-800">{getDoctorDisplayAcronym(b)}</p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-start gap-3">
+                        <CalendarDays className="w-5 h-5 text-sky-600 shrink-0 mt-0.5" />
+                        <div>
+                          <p className="text-xs text-slate-400 font-semibold">Date & Time</p>
+                          <p className="font-bold text-slate-800">
+                            {formatDateToOrdinal(b.date)} ({cleanTimeSlotString(b.time, b.date)})
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Action Buttons */}
+                    <div className="flex flex-wrap items-center gap-3 pt-4 border-t border-slate-100">
+                      <button
+                        onClick={() => {
+                          setSelectedBooking(b);
+                          setIsSlipModalOpen(true);
+                        }}
+                        className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs sm:text-sm transition-colors"
+                      >
+                        <FileText className="w-4 h-4" /> View Details
+                      </button>
+
+                      <button
+                        disabled={actionCheck.disabled}
+                        onClick={() => downloadTicketAsPdf(b)}
+                        className="flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-semibold text-xs sm:text-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        <Download className="w-4 h-4" /> Download Ticket (PDF)
+                      </button>
+
+                      <button
+                        disabled={actionCheck.disabled}
+                        onClick={() => downloadTicketAsImage(b)}
+                        className="flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-50 hover:bg-sky-100 text-sky-700 font-semibold text-xs sm:text-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        <Ticket className="w-4 h-4" /> Save Ticket (Image)
+                      </button>
+
+                      <button
+                        disabled={actionCheck.disabled}
+                        onClick={() => shareTicketAsPdf(b)}
+                        className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs sm:text-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        <Share2 className="w-4 h-4" /> Share
+                      </button>
+
+                      <button
+                        disabled={actionCheck.disabled}
+                        onClick={() => handleOpenReschedule(b)}
+                        className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 font-semibold text-xs sm:text-sm transition-colors ml-auto disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        <Edit3 className="w-4 h-4" /> Reschedule
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        )}
+
+        {/* Reschedule Modal */}
+        {isRescheduleOpen && selectedBooking && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
+            <div className="bg-white rounded-3xl max-w-lg w-full p-6 sm:p-8 shadow-2xl border border-slate-100 space-y-6">
+              <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-amber-50 rounded-2xl text-amber-600">
+                    <Calendar className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-slate-900">Reschedule Visit</h2>
+                    <p className="text-xs text-slate-500">Select a new date and time slot</p>
+                  </div>
                 </div>
-              );
-            })}
+                <button
+                  onClick={() => setIsRescheduleOpen(false)}
+                  className="p-2 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <form onSubmit={handleConfirmReschedule} className="space-y-5">
+                {/* Available Date Picker */}
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-slate-600 uppercase tracking-wider block">
+                    Available Scheduled Dates
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto p-1 border border-slate-200 rounded-2xl">
+                    {getUpcomingAvailableDutyDatesForDoctor(
+                      getDoctorEffectiveDutyDays(selectedBooking)
+                    ).map((dItem, idx) => {
+                      const stats = getDoctorSlotStatsForDate(selectedBooking, dItem.dateStr);
+                      const isSelected = rescheduleDate === dItem.dateStr;
+                      const isDisabled = !dItem.isAvailable || stats.isLocked;
+
+                      return (
+                        <button
+                          key={idx}
+                          type="button"
+                          disabled={isDisabled}
+                          onClick={() => {
+                            setRescheduleDate(dItem.dateStr);
+                            const slots = getDoctorTimeSlotsForDate(selectedBooking, dItem.dateStr);
+                            if (slots.length > 0) setRescheduleTime(slots[0]);
+                          }}
+                          className={`p-3 rounded-xl border text-left transition-all text-xs flex flex-col justify-between gap-1 ${isSelected
+                              ? "border-sky-600 bg-sky-50 ring-2 ring-sky-500/20 text-sky-900 font-bold"
+                              : isDisabled
+                                ? "border-slate-100 bg-slate-50 text-slate-300 cursor-not-allowed"
+                                : "border-slate-200 bg-white hover:border-sky-300 text-slate-700"
+                            }`}
+                        >
+                          <div className="flex items-center justify-between w-full">
+                            <span className="font-semibold">{dItem.dayName}</span>
+                            {dItem.isNextAvailable && (
+                              <span className="bg-emerald-100 text-emerald-800 text-[10px] font-extrabold px-1.5 py-0.5 rounded">
+                                Next Available
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-slate-500 font-medium">{dItem.displayLabel}</span>
+                          <span className="text-[10px] text-slate-400">
+                            {stats.remainingSlots} / {stats.maxCapacity} slots left
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Available Time Slots */}
+                {rescheduleDate && (
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-slate-600 uppercase tracking-wider block">
+                      Time Slot
+                    </label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {getDoctorTimeSlotsForDate(selectedBooking, rescheduleDate).map((slot, idx) => {
+                        const isSelected = rescheduleTime === slot;
+                        return (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={() => setRescheduleTime(slot)}
+                            className={`p-3 rounded-xl border text-center transition-all text-xs font-semibold ${isSelected
+                                ? "border-sky-600 bg-sky-50 text-sky-900 ring-2 ring-sky-500/20"
+                                : "border-slate-200 bg-white hover:border-sky-300 text-slate-700"
+                              }`}
+                          >
+                            {slot}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Reschedule Reason */}
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-slate-600 uppercase tracking-wider block">
+                    Reason for Rescheduling
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={rescheduleReason}
+                    onChange={(e) => setRescheduleReason(e.target.value)}
+                    placeholder="Optional reason for rescheduling..."
+                    className="w-full p-3 rounded-xl border border-slate-200 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 text-xs sm:text-sm"
+                  />
+                </div>
+
+                {/* Buttons */}
+                <div className="flex items-center gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsRescheduleOpen(false)}
+                    className="w-1/2 py-3 rounded-xl border border-slate-200 text-slate-600 font-bold text-xs sm:text-sm hover:bg-slate-50 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmittingReschedule || !rescheduleDate}
+                    className="w-1/2 py-3 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs sm:text-sm transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {isSubmittingReschedule ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" /> Updating...
+                      </>
+                    ) : (
+                      "Confirm Reschedule"
+                    )}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* View Details Slip Modal */}
+        {isSlipModalOpen && selectedBooking && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
+            <div className="bg-white rounded-3xl max-w-xl w-full p-6 sm:p-8 shadow-2xl border border-slate-100 space-y-6 max-h-[90vh] overflow-y-auto">
+              <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-sky-50 rounded-2xl text-sky-600">
+                    <Ticket className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-slate-900">Appointment Slip</h2>
+                    <p className="text-xs text-slate-500">Official verified appointment details</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setIsSlipModalOpen(false)}
+                  className="p-2 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="space-y-4 text-sm text-slate-700">
+                <div className="bg-slate-50 p-4 rounded-2xl space-y-2 border border-slate-100">
+                  <div className="flex justify-between">
+                    <span className="text-slate-400 text-xs font-semibold">Reference:</span>
+                    <span className="font-mono font-bold text-sky-600">{selectedBooking.refCode || selectedBooking.ref_code}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400 text-xs font-semibold">Patient:</span>
+                    <span className="font-bold">{selectedBooking.patientName || selectedBooking.patient_name}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400 text-xs font-semibold">Phone:</span>
+                    <span className="font-bold">{selectedBooking.patientPhone || selectedBooking.patient_phone}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400 text-xs font-semibold">Doctor:</span>
+                    <span className="font-bold">{getDoctorDisplayAcronym(selectedBooking)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400 text-xs font-semibold">Date:</span>
+                    <span className="font-bold">{formatDateToOrdinal(selectedBooking.date)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400 text-xs font-semibold">Time Slot:</span>
+                    <span className="font-bold">{cleanTimeSlotString(selectedBooking.time, selectedBooking.date)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400 text-xs font-semibold">Payment Type:</span>
+                    <span className="font-bold">{selectedBooking.paymentType || selectedBooking.payment_type || "Private Self-Pay"}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400 text-xs font-semibold">Status:</span>
+                    <span className="font-bold text-emerald-600">{selectedBooking.status || "Confirmed"}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 pt-2">
+                <button
+                  onClick={() => setIsSlipModalOpen(false)}
+                  className="w-full py-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs sm:text-sm transition-colors"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>
-
-      {/* BOOKING SLIP & RESCHEDULE POPUP MODAL */}
-      {isSlipModalOpen && selectedBooking && (
-        <div className="fixed inset-0 z-[999] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md overflow-y-auto animate-fadeIn">
-          <div className="bg-white dark:bg-slate-900 border-2 border-slate-300 dark:border-slate-800 rounded-3xl max-w-xl w-full shadow-2xl overflow-hidden my-8 relative flex flex-col max-h-[90vh]">
-            
-            {/* Modal Top Header */}
-            <div className="bg-[#008ac9] text-white p-5 flex items-center justify-between relative shrink-0">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-2xl bg-white/20 backdrop-blur-md">
-                  <Ticket className="h-6 w-6 text-white" />
-                </div>
-                <div>
-                  <h2 className="text-lg font-black tracking-tight">
-                    {isRescheduleOpen ? "Reschedule Appointment Date" : "Official Booking Slip"}
-                  </h2>
-                  <p className="text-xs text-sky-100 font-semibold">
-                    {isRescheduleOpen ? "Select doctor duty date and time slot" : "Isalu Hospitals Verified Ticket"}
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={closeSlipModal}
-                className="size-9 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-all"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            {/* Scrollable Modal Content */}
-            <div className="p-6 overflow-y-auto space-y-6 flex-1">
-              
-              {/* TICKET REFERENCE MAINTENANCE BANNER */}
-              <div className="bg-sky-50 dark:bg-sky-950/60 border-2 border-[#008ac9]/30 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-inner">
-                <div>
-                  <span className="text-[10px] font-black uppercase text-[#008ac9] dark:text-sky-400 tracking-wider block">
-                    Permanent Ticket Reference Code
-                  </span>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    <span className="text-2xl font-black text-[#008ac9] dark:text-sky-300 font-mono tracking-widest">
-                      {selectedBooking.refCode || selectedBooking.ref_code}
-                    </span>
-                    <button
-                      onClick={() => copyToClipboard(selectedBooking.refCode || selectedBooking.ref_code)}
-                      className="p-1.5 rounded-lg bg-sky-200/60 dark:bg-sky-900 text-[#008ac9] dark:text-sky-300 hover:bg-sky-300 transition"
-                      title="Copy Reference Code"
-                    >
-                      {copiedRef ? <Check className="h-4 w-4 text-emerald-600" /> : <Copy className="h-4 w-4" />}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-100 dark:bg-amber-950/80 border border-amber-300 text-amber-900 dark:text-amber-200 text-xs font-black shrink-0">
-                  <Lock className="h-3.5 w-3.5 text-amber-600" /> Reference Kept Intact
-                </div>
-              </div>
-
-              {/* MODE 1: RESCHEDULE FORM BASED STRICTLY ON DOCTOR SCHEDULE & SLOTS */}
-              {isRescheduleOpen ? (() => {
-                if (isRescheduleDisabled(selectedBooking?.status)) {
-                  return (
-                    <div className="p-6 bg-rose-50 dark:bg-rose-950/80 border-2 border-rose-300 rounded-2xl text-center space-y-2">
-                      <div className="text-sm font-black text-rose-700 dark:text-rose-300 flex items-center justify-center gap-2">
-                        <AlertCircle className="h-5 w-5" /> Rescheduling Unavailable
-                      </div>
-                      <p className="text-xs font-semibold text-rose-600 dark:text-rose-400">
-                        Appointments with status '{selectedBooking?.status}' cannot be rescheduled. Rescheduling is strictly disabled for checked-in and completed consultations.
-                      </p>
-                    </div>
-                  );
-                }
-
-                const dutyDays = getDoctorEffectiveDutyDays(selectedBooking);
-                const upcomingDutyDates = getUpcomingAvailableDutyDatesForDoctor(dutyDays, 25);
-                const timeSlotsForSelectedDate = getDoctorTimeSlotsForDate(selectedBooking, rescheduleDate);
-                const currentSlotStats = getDoctorSlotStatsForDate(selectedBooking, rescheduleDate);
-
-                return (
-                  <form onSubmit={handleConfirmReschedule} className="space-y-5 animate-fadeIn">
-                    
-                    {/* Doctor Schedule Information Box */}
-                    <div className="bg-sky-900 text-white p-4.5 rounded-2xl border-2 border-sky-700 shadow-md space-y-2">
-                      <div className="flex items-center justify-between border-b border-sky-700/80 pb-2">
-                        <div className="flex items-center gap-2">
-                          <UserCheck className="h-5 w-5 text-sky-300" />
-                          <span className="text-xs font-black uppercase text-sky-200">Doctor Roster & Capacity</span>
-                        </div>
-                        <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 text-[10px] font-black uppercase">
-                          Live Schedule
-                        </span>
-                      </div>
-
-                      <div className="text-xs font-bold space-y-1">
-                        <p className="text-sm font-black text-white">
-                          {getDoctorDisplayAcronym(selectedBooking)}
-                        </p>
-                        <p className="text-sky-200 font-semibold">
-                          Specialty: {selectedBooking.doctorSpecialty || selectedBooking.doctor_specialty}
-                        </p>
-                        <div className="pt-1 flex items-center gap-2">
-                          <span className="text-sky-300 text-[11px] font-black">Scheduled Duty Days:</span>
-                          <div className="flex flex-wrap gap-1">
-                            {dutyDays.map((day) => (
-                              <span key={day} className="px-2 py-0.5 rounded-md bg-white/20 text-white text-[10px] font-black">
-                                {day}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Doctor Duty Dates Selection (Only Next Available Allowed) */}
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <label className="block text-xs font-black uppercase text-slate-700 dark:text-slate-300 tracking-wider flex items-center gap-1.5">
-                          <Calendar className="h-3.5 w-3.5 text-[#008ac9]" /> 1. Select Scheduled Duty Date <span className="text-rose-500">*</span>
-                        </label>
-                        <span className="text-[10px] font-extrabold text-[#008ac9] bg-sky-50 dark:bg-slate-800 px-2.5 py-0.5 rounded-full border border-[#008ac9]/30">
-                          Only Next Available Allowed (24h+ Notice)
-                        </span>
-                      </div>
-
-                      {upcomingDutyDates.length > 0 ? (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-56 overflow-y-auto p-1 custom-scrollbar">
-                          {upcomingDutyDates.map((item) => {
-                            const isSelected = rescheduleDate === item.dateStr;
-                            const isNext = item.isNextAvailable;
-                            const stats = getDoctorSlotStatsForDate(selectedBooking, item.dateStr);
-                            const isDisabled = stats.isLocked || !item.isAvailable;
-
-                            return (
-                              <button
-                                key={item.dateStr}
-                                type="button"
-                                disabled={isDisabled}
-                                onClick={() => handleSelectRescheduleDate(item.dateStr)}
-                                className={`p-3.5 rounded-2xl text-left border-2 transition-all flex flex-col justify-between relative overflow-hidden ${
-                                  isDisabled
-                                    ? "bg-slate-100 dark:bg-slate-900/60 text-slate-400 dark:text-slate-600 border-slate-200 dark:border-slate-800 cursor-not-allowed opacity-60"
-                                    : isSelected
-                                    ? "bg-[#008ac9] text-white border-[#008ac9] shadow-lg scale-[1.01]"
-                                    : isNext
-                                    ? "bg-sky-50 dark:bg-sky-950/40 border-[#008ac9] ring-2 ring-[#008ac9]/40 text-slate-900 dark:text-white font-bold hover:bg-sky-100"
-                                    : "bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:border-[#008ac9]"
-                                }`}
-                              >
-                                {isNext && (
-                                  <span className={`absolute top-0 right-0 px-2 py-0.5 text-[8px] font-black rounded-bl-xl uppercase tracking-wider shadow-sm border-l border-b ${
-                                    isSelected ? "bg-amber-400 text-slate-900 border-amber-300" : "bg-[#008ac9] text-white border-[#008ac9]"
-                                  }`}>
-                                    ★ Next Avail
-                                  </span>
-                                )}
-                                <div className="flex items-center justify-between w-full pr-14">
-                                  <span className="text-xs font-black uppercase tracking-wider">
-                                    {item.dayName}
-                                  </span>
-                                </div>
-
-                                <div className="text-sm font-black mt-2 font-mono flex items-center justify-between">
-                                  <span>{item.displayLabel}</span>
-                                  {!item.isPast24HoursNotice ? (
-                                    <span className="text-[10px] font-black text-rose-500 bg-rose-50 dark:bg-rose-950 px-2 py-0.5 rounded-full border border-rose-300">
-                                      &lt;24h Notice
-                                    </span>
-                                  ) : stats.isLocked ? (
-                                    <span className="px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 text-[10px] font-black border border-rose-300 flex items-center gap-1">
-                                      <Lock className="h-3 w-3" /> FULL
-                                    </span>
-                                  ) : isNext ? (
-                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
-                                      isSelected ? "bg-white/20 text-white" : "bg-[#008ac9] text-white"
-                                    }`}>
-                                      ★ Next Available
-                                    </span>
-                                  ) : (
-                                    <span className="text-[10px] font-black text-slate-400">
-                                      Locked
-                                    </span>
-                                  )}
-                                </div>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      ) : (
-                        <div className="p-4 bg-amber-50 text-amber-800 text-xs rounded-2xl font-bold border border-amber-300 flex items-center gap-2">
-                          <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0" />
-                          <span>No upcoming roster dates found for this specialist.</span>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Time Slot Selection (Based on Doctor's Selected Date) */}
-                    {rescheduleDate && (
-                      <div className="space-y-2 pt-2 border-t border-slate-200 dark:border-slate-800 animate-fadeIn">
-                        <div className="flex items-center justify-between">
-                          <label className="block text-xs font-black uppercase text-slate-700 dark:text-slate-300 tracking-wider">
-                            2. Select Time Slot for {formatDateToOrdinal(rescheduleDate)} <span className="text-rose-500">*</span>
-                          </label>
-                          <span className="text-[11px] font-extrabold text-[#008ac9]">
-                            {timeSlotsForSelectedDate.length} slot(s) available
-                          </span>
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                          {timeSlotsForSelectedDate.map((slot) => {
-                            const isSelected = rescheduleTime === slot;
-                            return (
-                              <button
-                                key={slot}
-                                type="button"
-                                onClick={() => setRescheduleTime(slot)}
-                                className={`p-3 rounded-2xl text-xs font-black border-2 transition-all flex items-center justify-between ${
-                                  isSelected
-                                    ? "bg-slate-900 text-white dark:bg-sky-500 border-slate-900 dark:border-sky-500 shadow-md"
-                                    : "bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:border-slate-400"
-                                }`}
-                              >
-                                <span className="flex items-center gap-2">
-                                  <Clock className="h-4 w-4 text-[#008ac9] dark:text-sky-200" />
-                                  {slot}
-                                </span>
-                                {isSelected && <CheckCircle className="h-4 w-4 text-emerald-400" />}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Reason Input */}
-                    <div className="space-y-1.5">
-                      <label className="block text-xs font-black uppercase text-slate-700 dark:text-slate-300 tracking-wider">
-                        Reason for Rescheduling <span className="text-slate-400 font-normal">(Optional)</span>
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="e.g. Work commitment, travel schedule, medical preference..."
-                        value={rescheduleReason}
-                        onChange={(e) => setRescheduleReason(e.target.value)}
-                        className="w-full px-4 py-2.5 rounded-2xl bg-white dark:bg-slate-950 border-2 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white text-xs font-medium focus:outline-none focus:ring-2 focus:ring-[#008ac9]"
-                      />
-                    </div>
-
-                    {isSubmittingReschedule && (
-                      <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-slate-900 border-2 border-amber-500 text-amber-800 dark:text-amber-300 text-xs font-bold flex items-center justify-center gap-2.5 animate-pulse shadow-sm my-2">
-                        <RefreshCw className="h-4 w-4 animate-spin text-amber-600" />
-                        <span>Updating doctor consultation schedule & issuing revised appointment ticket... Please wait.</span>
-                      </div>
-                    )}
-
-                    {/* Form Action Controls */}
-                    <div className="pt-4 border-t-2 border-slate-200 dark:border-slate-800 flex items-center justify-end gap-3">
-                      <button
-                        type="button"
-                        onClick={() => setIsRescheduleOpen(false)}
-                        disabled={isSubmittingReschedule}
-                        className="px-5 py-3 rounded-2xl bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 text-slate-800 dark:text-slate-200 text-xs font-black transition disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        Back to Ticket Slip
-                      </button>
-
-                      <button
-                        type="submit"
-                        disabled={isSubmittingReschedule || !rescheduleDate || currentSlotStats.isLocked}
-                        className="px-6 py-3 rounded-2xl bg-amber-500 hover:bg-amber-600 text-white font-black text-xs shadow-lg transition flex items-center gap-2 border border-amber-600 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {isSubmittingReschedule ? (
-                          <>
-                            <RefreshCw className="h-4 w-4 animate-spin" /> Saving Reschedule...
-                          </>
-                        ) : (
-                          <>
-                            Confirm Reschedule & Keep Ticket Reference ✓
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  </form>
-                );
-              })() : (
-                /* MODE 2: DISPLAY BOOKING SLIP DETAILS */
-                <div className="space-y-6 animate-fadeIn">
-                  
-                  {/* Summary Grid */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl border border-slate-200 dark:border-slate-800">
-                      <span className="text-[10px] font-black uppercase text-slate-400 block">Patient Name</span>
-                      <p className="text-base font-black text-slate-900 dark:text-white mt-0.5">
-                        {selectedBooking.patientName || selectedBooking.patient_name}
-                      </p>
-                      <span className="text-xs font-bold text-slate-500">
-                        Phone: {selectedBooking.patientPhone || selectedBooking.patient_phone}
-                      </span>
-                    </div>
-
-                    <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl border border-slate-200 dark:border-slate-800">
-                      <span className="text-[10px] font-black uppercase text-slate-400 block">Specialist Physician</span>
-                      <p className="text-base font-black text-slate-900 dark:text-white mt-0.5">
-                        {getDoctorDisplayAcronym(selectedBooking)}
-                      </p>
-                      <span className="text-xs font-bold text-[#008ac9]">
-                        {selectedBooking.doctorSpecialty || selectedBooking.doctor_specialty}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Date & Time Highlight Box */}
-                  <div className="bg-gradient-to-r from-sky-50 to-indigo-50 dark:from-slate-800 dark:to-slate-900 p-5 rounded-3xl border-2 border-[#008ac9]/30 flex flex-col sm:flex-row items-center justify-between gap-4">
-                    <div>
-                      <span className="text-[10px] font-black uppercase text-[#008ac9] dark:text-sky-400 tracking-wider">
-                        Scheduled Date & Time Slot
-                      </span>
-                      <div className="flex items-center gap-3 mt-1.5 text-slate-900 dark:text-white font-black text-base">
-                        <span className="flex items-center gap-1.5">
-                          <Calendar className="h-5 w-5 text-[#008ac9]" /> {selectedBooking.date}
-                        </span>
-                        <span>•</span>
-                        <span className="flex items-center gap-1.5">
-                          <Clock className="h-5 w-5 text-[#008ac9]" /> {cleanTimeSlotString(selectedBooking.time, selectedBooking.date)}
-                        </span>
-                      </div>
-                    </div>
-
-                    {selectedBooking.status !== "Completed" && selectedBooking.status !== "Cancelled" && (
-                      <button
-                        onClick={() => openRescheduleView(selectedBooking)}
-                        className="px-4 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-600 text-white font-black text-xs shadow-md transition flex items-center gap-1.5 shrink-0 border border-amber-600"
-                      >
-                        <RefreshCw className="h-4 w-4" /> Change Date
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Payment & Category Matrix */}
-                  <div className="grid grid-cols-2 gap-4 text-xs font-bold">
-                    <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800">
-                      <span className="text-[10px] uppercase text-slate-400 font-black block">Payment Type</span>
-                      <p className="text-slate-800 dark:text-slate-200 mt-1">
-                        {selectedBooking.paymentType || selectedBooking.payment_type || "Private Self-Pay"}
-                      </p>
-                    </div>
-
-                    <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800">
-                      <span className="text-[10px] uppercase text-slate-400 font-black block">Status</span>
-                      <span
-                        className={`inline-block mt-1 px-3 py-0.5 rounded-full text-xs font-black ${
-                          selectedBooking.status === "Rescheduled"
-                            ? "bg-amber-100 text-amber-800 border border-amber-400"
-                            : selectedBooking.status === "Completed"
-                            ? "bg-rose-100 text-rose-800 border border-rose-400"
-                            : selectedBooking.status === "Cancelled"
-                            ? "bg-slate-200 text-slate-700 border border-slate-300"
-                            : "bg-emerald-100 text-emerald-800 border border-emerald-400"
-                        }`}
-                      >
-                        {selectedBooking.status || "Confirmed"}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Slip Verification Stamp Footer */}
-                  <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900 flex items-center justify-between text-xs font-bold text-emerald-800 dark:text-emerald-200">
-                    <div className="flex items-center gap-2">
-                      <ShieldCheck className="h-5 w-5 text-emerald-600 shrink-0" />
-                      <span>Verified Official Appointment Slip — Isalu Hospitals</span>
-                    </div>
-                    <span className="font-mono text-[11px] text-emerald-600 dark:text-emerald-400">ISO 9001:2026</span>
-                  </div>
-
-                  {/* Action Buttons */}
-                  <div className="pt-4 border-t-2 border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3">
-                    {selectedBooking.status !== "Completed" && selectedBooking.status !== "Cancelled" ? (
-                      <button
-                        type="button"
-                        onClick={() => openRescheduleView(selectedBooking)}
-                        className="px-5 py-3 bg-amber-500 hover:bg-amber-600 text-white text-xs font-black rounded-2xl shadow-md transition-all flex items-center gap-2 border border-amber-600"
-                      >
-                        <RefreshCw className="h-4 w-4" /> Reschedule Appointment
-                      </button>
-                    ) : (
-                      <span className="px-4 py-2.5 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-black text-xs border border-slate-300 dark:border-slate-700 flex items-center gap-1.5">
-                        <Lock className="h-4 w-4 text-slate-400" /> Reschedule Closed ({selectedBooking.status})
-                      </span>
-                    )}
-
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => downloadTicketAsImage(selectedBooking)}
-                        className="px-4 py-3 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black rounded-2xl shadow-sm transition-all flex items-center gap-1.5 border border-emerald-500"
-                      >
-                        <Download className="h-4 w-4" /> PNG
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => downloadTicketAsPdf(selectedBooking)}
-                        className="px-4 py-3 bg-[#0f172a] hover:bg-slate-800 text-white text-xs font-black rounded-2xl shadow-sm transition-all flex items-center gap-1.5 border border-slate-700"
-                      >
-                        <FileText className="h-4 w-4 text-sky-400" /> PDF
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => shareTicketAsPdf(selectedBooking)}
-                        className="px-4 py-3 bg-sky-600 hover:bg-sky-700 text-white text-xs font-black rounded-2xl shadow-sm transition-all flex items-center gap-1.5 border border-sky-500"
-                      >
-                        <Share2 className="h-4 w-4" /> Share PDF
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
-          </div>
-        </div>
-      )}
     </div>
   );
 }

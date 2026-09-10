@@ -5309,7 +5309,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
       try {
         const createdISO = new Date(b.createdAt || b.created_at).toISOString().split("T")[0];
         if (createdISO === todayStrISO) return true;
-      } catch {}
+      } catch { }
     }
     return false;
   }).length;
@@ -5349,7 +5349,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
         try {
           const createdISO = new Date(b.createdAt || b.created_at).toISOString().split("T")[0];
           if (createdISO === todayStrISO) return true;
-        } catch {}
+        } catch { }
       }
       return false;
     })
@@ -5731,83 +5731,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
           </div>
         )}
 
-        {/* Today's Active Clinic Sessions & Patient Count Badges */}
-        {["helpdesk", "hmo", "cashdesk", "analytics", "monitor"].includes(activeDesk) && (
-          <div className="bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 rounded-3xl p-5 shadow-sm mb-8 space-y-3">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <div className="p-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 font-black">
-                  <Building2 className="h-4 w-4" />
-                </div>
-                <div>
-                  <h4 className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-white flex items-center gap-2">
-                    <span>Today's Active Clinic Sessions</span>
-                    <span className="px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 font-black text-[10px] border border-emerald-300">
-                      {todayActiveClinics.length} Active {todayActiveClinics.length === 1 ? "Clinic" : "Clinics"}
-                    </span>
-                  </h4>
-                  <p className="text-[11px] font-bold text-slate-500">
-                    Clinics holding consultations today and their scheduled patient queue count. Click a badge to filter.
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <span className="px-3 py-1 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-black text-xs border border-indigo-200">
-                  {todayBookingsCount} Total Patient Appointments Today
-                </span>
-                {clinicFilter !== "all" && (
-                  <button
-                    type="button"
-                    onClick={() => setClinicFilter("all")}
-                    className="px-2.5 py-1 rounded-full bg-rose-100 dark:bg-rose-950 text-rose-600 dark:text-rose-300 font-black text-xs border border-rose-300 hover:bg-rose-200 transition-colors cursor-pointer"
-                    title="Reset Clinic Filter to All Clinics"
-                  >
-                    ✕ Reset Clinic Filter
-                  </button>
-                )}
-              </div>
-            </div>
 
-            <div className="flex flex-wrap gap-2.5 pt-1">
-              {todayActiveClinics.length === 0 ? (
-                <div className="text-xs font-bold text-slate-500 italic py-1">
-                  No active clinic sessions scheduled for today ({new Date().toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}).
-                </div>
-              ) : (
-                todayActiveClinics.map((item) => {
-                  const hasBookings = item.patientCount > 0;
-                  const isSelected = clinicFilter.toLowerCase() === item.clinicName.toLowerCase();
-
-                  return (
-                    <button
-                      key={item.clinicName}
-                      type="button"
-                      onClick={() => setClinicFilter(item.clinicName)}
-                      className={`px-3.5 py-2 rounded-2xl text-xs font-black transition-all flex items-center gap-2 border cursor-pointer ${
-                        isSelected
-                          ? "bg-[#008ac9] text-white border-[#008ac9] shadow-md shadow-[#008ac9]/30 ring-2 ring-sky-300"
-                          : hasBookings
-                          ? "bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200 border-slate-200 dark:border-slate-800 hover:border-[#008ac9] hover:bg-sky-50 dark:hover:bg-sky-950/40"
-                          : "bg-slate-100/60 dark:bg-slate-900/40 text-slate-500 dark:text-slate-400 border-slate-200/80 dark:border-slate-800/80 hover:border-slate-300"
-                      }`}
-                    >
-                      <span>🏥 {item.clinicName}</span>
-                      <span
-                        className={`px-2 py-0.5 rounded-full font-black text-[11px] border ${
-                          hasBookings
-                            ? "bg-emerald-600 text-white border-emerald-400/40 shadow-2xs"
-                            : "bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-300 dark:border-slate-700"
-                        }`}
-                      >
-                        {item.patientCount} {item.patientCount === 1 ? "Patient" : "Patients"}
-                      </span>
-                    </button>
-                  );
-                })
-              )}
-            </div>
-          </div>
-        )}
 
         {/* Desk Switcher Bar (Shown ONLY on main dashboard & role desks) */}
         {["helpdesk", "hmo", "cashdesk", "analytics", "monitor"].includes(activeDesk) && (
@@ -7532,11 +7456,10 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
                   <button
                     type="button"
                     onClick={() => setEligibleOnlyFilter((prev) => !prev)}
-                    className={`px-3.5 py-2 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap border shrink-0 ${
-                      eligibleOnlyFilter
-                        ? "bg-emerald-600 text-white border-emerald-500 shadow-md shadow-emerald-600/30 ring-2 ring-emerald-400/50"
-                        : "bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-400 border-emerald-300 dark:border-emerald-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/50"
-                    }`}
+                    className={`px-3.5 py-2 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap border shrink-0 ${eligibleOnlyFilter
+                      ? "bg-emerald-600 text-white border-emerald-500 shadow-md shadow-emerald-600/30 ring-2 ring-emerald-400/50"
+                      : "bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-400 border-emerald-300 dark:border-emerald-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/50"
+                      }`}
                     title="Toggle filter strictly for patients cleared by HMO Auth or Cashdesk payment"
                   >
                     <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500 dark:text-emerald-400" />
@@ -7712,11 +7635,10 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
                                 type="button"
                                 onClick={() => handleSendReminder(b)}
                                 disabled={sendingReminderRef === refCode}
-                                className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-all flex items-center gap-1 border shrink-0 cursor-pointer ${
-                                  b.reminder_sent || b.reminderSent
-                                    ? "bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800"
-                                    : "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border-indigo-300 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/60"
-                                }`}
+                                className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-all flex items-center gap-1 border shrink-0 cursor-pointer ${b.reminder_sent || b.reminderSent
+                                  ? "bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800"
+                                  : "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border-indigo-300 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/60"
+                                  }`}
                                 title="Send Email & SMS appointment reminder to patient"
                               >
                                 <Bell className="h-3 w-3 text-indigo-600 dark:text-indigo-400 shrink-0" />
@@ -7724,8 +7646,8 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
                                   {sendingReminderRef === refCode
                                     ? "Sending..."
                                     : b.reminder_sent || b.reminderSent
-                                    ? "Reminder Sent ✓"
-                                    : "Send Reminder 📧📱"}
+                                      ? "Reminder Sent ✓"
+                                      : "Send Reminder 📧📱"}
                                 </span>
                               </button>
                             </div>

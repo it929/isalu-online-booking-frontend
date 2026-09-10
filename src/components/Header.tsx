@@ -57,7 +57,7 @@ export function Header() {
   const publicNavigation = [
     { href: "/", name: "Home" },
     { href: "/#specialized-medical-centers", name: "Book Appointment", isScroll: true },
-    { href: "/appointments", name: "Check Appointment" },
+    { href: "/appointments", name: "Check/Reschedule Appointment" },
   ];
 
   return (
@@ -100,11 +100,10 @@ export function Header() {
                   <li className="relative">
                     <button
                       onClick={() => toggleDropdown("users")}
-                      className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 ${
-                        activeDropdown === "users"
-                          ? "bg-[#008ac9] text-white shadow-md"
-                          : "text-slate-800 dark:text-slate-200 hover:text-[#008ac9] hover:bg-sky-50 dark:hover:bg-slate-800"
-                      }`}
+                      className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 ${activeDropdown === "users"
+                        ? "bg-[#008ac9] text-white shadow-md"
+                        : "text-slate-800 dark:text-slate-200 hover:text-[#008ac9] hover:bg-sky-50 dark:hover:bg-slate-800"
+                        }`}
                     >
                       <Users className="h-4 w-4 text-[#008ac9] group-hover:text-white" />
                       Users
@@ -159,11 +158,10 @@ export function Header() {
                   <li className="relative">
                     <button
                       onClick={() => toggleDropdown("schedule")}
-                      className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 ${
-                        activeDropdown === "schedule"
-                          ? "bg-[#008ac9] text-white shadow-md"
-                          : "text-slate-800 dark:text-slate-200 hover:text-[#008ac9] hover:bg-sky-50 dark:hover:bg-slate-800"
-                      }`}
+                      className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 ${activeDropdown === "schedule"
+                        ? "bg-[#008ac9] text-white shadow-md"
+                        : "text-slate-800 dark:text-slate-200 hover:text-[#008ac9] hover:bg-sky-50 dark:hover:bg-slate-800"
+                        }`}
                     >
                       <Calendar className="h-4 w-4 text-[#008ac9]" />
                       Schedule
@@ -211,11 +209,10 @@ export function Header() {
                   <li className="relative">
                     <button
                       onClick={() => toggleDropdown("clinic")}
-                      className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 ${
-                        activeDropdown === "clinic"
-                          ? "bg-[#008ac9] text-white shadow-md"
-                          : "text-slate-800 dark:text-slate-200 hover:text-[#008ac9] hover:bg-sky-50 dark:hover:bg-slate-800"
-                      }`}
+                      className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 ${activeDropdown === "clinic"
+                        ? "bg-[#008ac9] text-white shadow-md"
+                        : "text-slate-800 dark:text-slate-200 hover:text-[#008ac9] hover:bg-sky-50 dark:hover:bg-slate-800"
+                        }`}
                     >
                       <Building2 className="h-4 w-4 text-[#008ac9]" />
                       Clinic
@@ -268,11 +265,10 @@ export function Header() {
                               }
                             }
                           }}
-                          className={`px-3.5 py-2 rounded-xl text-xs font-extrabold transition-all ${
-                            isActive
-                              ? "bg-[#008ac9] text-white shadow-md shadow-[#008ac9]/25"
-                              : "text-slate-800 dark:text-slate-200 hover:text-[#008ac9] hover:bg-sky-50 dark:hover:bg-slate-800"
-                          }`}
+                          className={`px-3.5 py-2 rounded-xl text-xs font-extrabold transition-all ${isActive
+                            ? "bg-[#008ac9] text-white shadow-md shadow-[#008ac9]/25"
+                            : "text-slate-800 dark:text-slate-200 hover:text-[#008ac9] hover:bg-sky-50 dark:hover:bg-slate-800"
+                            }`}
                         >
                           {item.name}
                         </Link>

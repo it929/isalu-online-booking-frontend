@@ -1063,9 +1063,44 @@ export async function deleteScheduleAPI(
 export async function getBookingsAPI(): Promise<
   Booking[] | null
 > {
-  return apiRequest<Booking[]>(
+  const response = await apiRequest<any>(
     "/bookings/"
   );
+
+  if (response === null || isApiError(response)) {
+    return response as Booking[] | null;
+  }
+
+  // Support both standard DRF list responses and paginated DRF responses.
+  // This keeps the dashboard compatible with either pagination configuration.
+  if (Array.isArray(response)) {
+    return response as Booking[];
+  }
+
+  if (
+    response &&
+    typeof response === "object" &&
+    Array.isArray(response.results)
+  ) {
+    return response.results as Booking[];
+  }
+
+  if (
+    response &&
+    typeof response === "object" &&
+    Array.isArray(response.data)
+  ) {
+    return response.data as Booking[];
+  }
+
+  if (ENABLE_DEBUG_LOGGING) {
+    console.error(
+      "[BOOKINGS] Unexpected API response shape:",
+      response
+    );
+  }
+
+  return [];
 }
 
 /**

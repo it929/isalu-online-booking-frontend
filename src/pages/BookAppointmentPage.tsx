@@ -314,11 +314,23 @@ export function BookAppointmentPage() {
   }, [selectedDoctorId, allDoctors]);
 
   useEffect(() => {
-    if (initialDoctor) {
-      const doc = allDoctors.find((d) => d.id === initialDoctor || d.doc_id === initialDoctor);
+    if (initialDoctor && allDoctors.length > 0) {
+      const q = String(initialDoctor).toLowerCase().trim();
+      const doc = allDoctors.find(
+        (d) =>
+          String(d.id || "").toLowerCase() === q ||
+          String(d.doc_id || "").toLowerCase() === q ||
+          String(d.acronym || "").toLowerCase() === q ||
+          String(d.name || "").toLowerCase() === q ||
+          String(d.full_name || "").toLowerCase() === q ||
+          String(d.fullName || "").toLowerCase() === q
+      );
       if (doc) {
         setSelectedDept(doc.departmentId || doc.department);
+        setSelectedDoctorId(doc.id || doc.doc_id);
         setStep(2);
+      } else {
+        setSelectedDoctorId(initialDoctor);
       }
     }
   }, [initialDoctor, allDoctors]);
@@ -484,6 +496,252 @@ export function BookAppointmentPage() {
     const bookedOnDate = Math.max(remoteBooked, clientBookedCount);
     const remaining = Math.max(0, maxCapacity - bookedOnDate);
     return { bookedOnDate, maxCapacity, remaining };
+  };
+
+  const getClinicAnalyticsDoctors = (): Doctor[] => {
+    if (!selectedDoctor) return [];
+
+    const clinicName = String(
+      selectedDoctor.hospital ||
+      selectedDoctor.clinic ||
+      selectedDoctor.clinic_name ||
+      selectedDoctor.clinicName ||
+      ""
+    ).trim().toLowerCase();
+
+    if (!clinicName) return [];
+
+    return allDoctors.filter((doctor: any) => {
+      const isDisabled =
+        doctor.status === false ||
+        doctor.status === "Disabled" ||
+        doctor.status === "Inactive" ||
+        String(doctor.status || "").toLowerCase().includes("disable") ||
+        String(doctor.status || "").toLowerCase().includes("false") ||
+        doctor.is_active === false;
+
+      if (isDisabled) return false;
+
+      const doctorClinic = String(
+        doctor.hospital ||
+        doctor.clinic ||
+        doctor.clinic_name ||
+        doctor.clinicName ||
+        ""
+      ).trim().toLowerCase();
+
+      return doctorClinic === clinicName;
+    });
+  };
+
+  /**
+   * Returns aggregate clinic capacity/bookings for one date.
+   */
+  const getClinicSlotStatsForDate = (dateStr: string) => {
+    if (!dateStr) {
+      return {
+        doctors: 0,
+        capacity: 0,
+        booked: 0,
+        available: 0,
+        occupancy: 0,
+        status: "Closed",
+      };
+    }
+
+    const clinicDoctors = getClinicAnalyticsDoctors();
+
+    const dateObj = new Date(`${dateStr}T00:00:00`);
+
+    const doctorsOnDuty = clinicDoctors.filter((doctor) =>
+      isDoctorOnDutyOnDate(doctor, dateObj)
+    );
+
+    let totalCapacity = 0;
+    let totalBooked = 0;
+
+    doctorsOnDuty.forEach((doctor: any) => {
+      const doctorId = doctor.id || doctor.doc_id;
+
+      const doctorStats = getDoctorSlotStatsForDate(
+        String(doctorId),
+        dateStr
+      );
+
+      totalCapacity += Number(doctorStats?.maxCapacity || 0);
+      totalBooked += Number(doctorStats?.bookedOnDate || 0);
+    });
+
+    const available = Math.max(0, totalCapacity - totalBooked);
+
+    const occupancy =
+      totalCapacity > 0
+        ? Math.min(
+          100,
+          Math.round((totalBooked / totalCapacity) * 100)
+        )
+        : 0;
+
+    let status = "Closed";
+
+    if (doctorsOnDuty.length === 0 || totalCapacity === 0) {
+      status = "Closed";
+    } else if (available <= 0) {
+      status = "Full";
+    } else if (occupancy >= 80) {
+      status = "Limited";
+    } else {
+      status = "Open";
+    }
+
+    return {
+      doctors: doctorsOnDuty.length,
+      capacity: totalCapacity,
+      booked: totalBooked,
+      available,
+      occupancy,
+      status,
+    };
+  };
+
+  /**
+   * Generate the next occurrence of each weekday.
+   *
+   * The analytics therefore represents REAL dates rather than
+   * displaying fake "Open/Off" values.
+   */
+  const getClinicWeeklyAnalytics = () => {
+    if (!selectedDoctor) return [];
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const weekdayOrder = [
+      "Monday",
+      "Tuesday",
+      "Wednesday",
+      "Thursday",
+      "Friday",
+      "Saturday",
+      "Sunday",
+    ];
+
+    return weekdayOrder.map((dayName) => {
+      const targetIndex = weekdayOrder.indexOf(dayName);
+
+      const date = new Date(today);
+
+      // JS: Sunday = 0, Monday = 1 ... Saturday = 6
+      const currentJsDay = date.getDay();
+      const targetJsDay = targetIndex === 6 ? 0 : targetIndex + 1;
+
+      let daysUntil = targetJsDay - currentJsDay;
+
+      if (daysUntil < 0) {
+        daysUntil += 7;
+      }
+
+      date.setDate(date.getDate() + daysUntil);
+
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const day = String(date.getDate()).padStart(2, "0");
+
+      const dateStr = `${year}-${month}-${day}`;
+
+      const stats = getClinicSlotStatsForDate(dateStr);
+
+      return {
+        day: dayName,
+        shortDay: dayName.substring(0, 3),
+        date: dateStr,
+        ...stats,
+      };
+    });
+  };
+
+  const getClinicWeeklyStats = () => {
+    // 1. Identify the current selected clinic from doctor or props
+    const currentClinic = String(
+      selectedDoctor?.hospital ||
+      selectedDoctor?.clinic ||
+      selectedDoctor?.clinic_name ||
+      selectedDoctor?.clinicName ||
+      ""
+    ).trim().toLowerCase();
+
+    // 2. Filter all active doctors belonging to this clinic
+    const clinicDoctors = allDoctors.filter((doc: any) => {
+      const isInactive =
+        doc.status === false ||
+        doc.status === "Disabled" ||
+        doc.status === "Inactive" ||
+        doc.is_active === false;
+
+      if (isInactive) return false;
+
+      const docClinic = String(
+        doc.hospital || doc.clinic || doc.clinic_name || doc.clinicName || ""
+      ).trim().toLowerCase();
+
+      return docClinic === currentClinic;
+    });
+
+    // 3. Define the days of the week to display
+    const daysOfWeek = [
+      "Monday",
+      "Tuesday",
+      "Wednesday",
+      "Thursday",
+      "Friday",
+      "Saturday",
+      "Sunday",
+    ];
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    return daysOfWeek.map((dayName, index) => {
+      // Calculate target date for each day of the current week
+      const targetDate = new Date(today);
+      const currentJsDay = targetDate.getDay(); // Sunday = 0, Monday = 1
+      const targetJsDay = index === 6 ? 0 : index + 1; // Map Sunday to 0
+
+      let diff = targetJsDay - currentJsDay;
+      if (diff < 0) diff += 7;
+      targetDate.setDate(targetDate.getDate() + diff);
+
+      const year = targetDate.getFullYear();
+      const month = String(targetDate.getMonth() + 1).padStart(2, "0");
+      const day = String(targetDate.getDate()).padStart(2, "0");
+      const dateStr = `${year}-${month}-${day}`;
+
+      // Aggregate stats across all doctors on duty for this date
+      let totalCapacity = 0;
+      let totalBooked = 0;
+
+      clinicDoctors.forEach((doctor: any) => {
+        const doctorId = String(doctor.id || doctor.doc_id || "");
+        const stats = getDoctorSlotStatsForDate(doctorId, dateStr);
+
+        totalCapacity += Number(stats?.maxCapacity || 0);
+        totalBooked += Number(stats?.bookedOnDate || 0);
+      });
+
+      const slotsLeft = Math.max(0, totalCapacity - totalBooked);
+      const occupancyRate =
+        totalCapacity > 0 ? Math.round((totalBooked / totalCapacity) * 100) : 0;
+
+      return {
+        day: dayName,
+        shortDay: dayName.substring(0, 3),
+        date: dateStr,
+        totalCapacity,
+        bookedSlots: totalBooked,
+        slotsLeft,
+        occupancyRate,
+      };
+    });
   };
 
   const isDateFullyBooked = (doctor: Doctor | undefined, dateStr: string): boolean => {
@@ -969,6 +1227,7 @@ export function BookAppointmentPage() {
     const yearNum = dateObj.getFullYear();
     return `${ordinalDay} ${monthName}, ${yearNum}`;
   };
+
 
   const downloadTicketAsImage = (booking: any) => {
     if (!booking) return;
@@ -1468,265 +1727,630 @@ export function BookAppointmentPage() {
 
         {/* STEP 1: Patient Information & Payment Category */}
         {step === 1 && (
-          <div className="space-y-6 max-w-3xl mx-auto">
-            <div className="bg-white dark:bg-slate-900 border-2 border-slate-300 dark:border-slate-800 rounded-3xl p-6 md:p-8 shadow-md space-y-6">
-              <div className="border-b-2 border-slate-200 dark:border-slate-800 pb-4 flex items-center justify-between">
-                <div>
-                  <h2 className="text-2xl font-black text-slate-900 dark:text-white flex items-center gap-2">
-                    <User className="h-6 w-6 text-[#008ac9]" /> Step 1: Patient Details & Category Type
-                  </h2>
-                  <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 mt-1">
-                    Enter patient details and select payment category to filter eligible specialist doctors.
-                  </p>
-                </div>
-                <span className="px-3 py-1 bg-[#008ac9]/10 text-[#008ac9] font-black text-xs rounded-xl border border-[#008ac9]/30">
-                  Step 1 of 4
-                </span>
-              </div>
+          <div className="max-w-6xl mx-auto space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
 
-              {/* Patient Category Type Selector */}
-              <div className="bg-sky-50/70 dark:bg-slate-800/60 p-5 rounded-2xl border-2 border-[#008ac9]/30 space-y-4">
-                <div>
-                  <label className="text-xs font-black text-slate-900 dark:text-white mb-2 flex items-center justify-between">
-                    <span className="flex items-center gap-1.5">
-                      <CreditCard className="h-4 w-4 text-[#008ac9]" /> Patient Payment Category <span className="text-red-500 font-black ml-0.5">*</span>
-                    </span>
-                    <span className="text-[10px] font-bold text-[#008ac9] uppercase">Determines Doctor Availability</span>
-                  </label>
+              {/* LEFT COLUMN: CLINIC-LEVEL SCHEDULE ANALYTICS */}
+              <div className="md:col-span-1 bg-sky-50/80 dark:bg-slate-900 border-2 border-[#008ac9]/30 rounded-3xl p-5 md:p-6 shadow-sm space-y-5 md:sticky md:top-6">
+                {/* Header */}
+                <div className="border-b border-[#008ac9]/20 pb-3 flex items-center justify-between">
+                  <h3 className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-2">
+                    <Sparkles className="h-4 w-4 text-[#008ac9]" />
+                    Clinic Schedule Analytics
+                  </h3>
 
-                  <div className="grid grid-cols-2 gap-3">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPatientType("Private Self-Pay");
-                        if (selectedDoctor) {
-                          const accepted = (selectedDoctor as any).acceptedPatientTypes || (selectedDoctor as any).accepted_patient_types || ["Private Self-Pay", "HMO Insurance"];
-                          if (!accepted.includes("Private Self-Pay")) setSelectedDoctorId("");
-                        }
-                      }}
-                      className={`p-4 rounded-2xl border-2 text-xs font-black transition-all flex flex-col items-center justify-center gap-1.5 ${patientType === "Private Self-Pay"
-                        ? "bg-[#008ac9] text-white border-[#008ac9] shadow-lg ring-2 ring-[#008ac9]/30 scale-[1.02]"
-                        : "bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white hover:border-[#008ac9]"
-                        }`}
-                    >
-                      <span className="text-lg">💳</span>
-                      <span>Private Self-Pay Patient</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPatientType("HMO Insurance");
-                        if (selectedDoctor) {
-                          const accepted = (selectedDoctor as any).acceptedPatientTypes || (selectedDoctor as any).accepted_patient_types || ["Private Self-Pay", "HMO Insurance"];
-                          if (!accepted.includes("HMO Insurance")) setSelectedDoctorId("");
-                        }
-                      }}
-                      className={`p-4 rounded-2xl border-2 text-xs font-black transition-all flex flex-col items-center justify-center gap-1.5 ${patientType === "HMO Insurance"
-                        ? "bg-[#008ac9] text-white border-[#008ac9] shadow-lg ring-2 ring-[#008ac9]/30 scale-[1.02]"
-                        : "bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white hover:border-[#008ac9]"
-                        }`}
-                    >
-                      <span className="text-lg">🛡️</span>
-                      <span>HMO Insurance Enrollee</span>
-                    </button>
-                  </div>
+                  <span className="text-[10px] font-bold px-2 py-0.5 bg-[#008ac9]/10 text-[#008ac9] rounded-lg">
+                    Live Capacity
+                  </span>
                 </div>
 
-                {/* Conditional HMO Fields */}
-                {patientType === "HMO Insurance" && (
-                  <div className="grid gap-4 sm:grid-cols-2 pt-3 border-t border-[#008ac9]/20 animate-fadeIn">
-                    <div className="relative">
-                      <label className="text-xs font-extrabold text-slate-900 dark:text-white mb-1.5 block">
-                        Search HMO Provider <span className="text-red-500 font-black ml-0.5">*</span>
-                      </label>
-                      <div className="relative">
-                        <input
-                          type="text"
-                          required={patientType === "HMO Insurance"}
-                          placeholder="Type 2+ letters (e.g. Hy, Re, AX)..."
-                          value={hmoSearchQuery}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            setHmoSearchQuery(val);
-                            setHmoName(val);
-                            setShowHmoSuggestions(val.trim().length >= 2);
-                          }}
-                          onFocus={() => {
-                            if (hmoSearchQuery.trim().length >= 2) {
-                              setShowHmoSuggestions(true);
-                            }
-                          }}
-                          className="w-full p-3.5 pr-9 rounded-xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-bold text-xs focus:ring-2 focus:ring-[#008ac9] transition-all"
-                        />
-                        <Search className="absolute right-3 top-3.5 h-4 w-4 text-slate-400 pointer-events-none" />
+                {selectedDoctor ? (
+                  <div className="space-y-4">
+                    {/* 1. SELECTED CLINIC */}
+                    <div className="bg-white dark:bg-slate-800 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xs">
+                      <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400 block mb-1">
+                        Target Clinic
+                      </span>
+
+                      <div className="space-y-1">
+                        <p className="text-xs font-black text-slate-800 dark:text-slate-100 flex items-center gap-1">
+                          📍 {selectedDoctor.hospital ?? selectedDoctor.clinic ?? selectedDoctor.clinic_name ?? selectedDoctor.clinicName ?? "Selected Clinic"}
+                        </p>
+
+                        <p className="text-[10px] font-bold text-[#008ac9]">
+                          {getClinicAnalyticsDoctors().length} active specialist
+                          {getClinicAnalyticsDoctors().length === 1 ? "" : "s"} in this clinic
+                        </p>
+
+                        <p className="text-[9px] font-semibold text-slate-500 dark:text-slate-400">
+                          Analytics combines the schedules and bookings of all doctors assigned to this clinic.
+                        </p>
                       </div>
+                    </div>
 
-                      {showHmoSuggestions && hmoSearchQuery.trim().length >= 2 && (
-                        <div className="absolute z-30 left-0 right-0 mt-1 bg-white dark:bg-slate-900 border-2 border-[#008ac9] rounded-2xl shadow-xl max-h-52 overflow-y-auto p-1.5 animate-fadeIn">
-                          {(() => {
-                            const allHmoNames = hmoCompanies.map((h: any) => h.name).filter(Boolean);
+                    {/* 2. SELECTED DAY SUMMARY */}
+                    <div className="bg-white dark:bg-slate-800 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xs space-y-2">
+                      <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400 block">
+                        Selected Day Analysis
+                      </span>
 
-                            const matches = allHmoNames.filter((provider) =>
-                              provider.toLowerCase().includes(hmoSearchQuery.trim().toLowerCase())
-                            );
-                            if (matches.length === 0) {
-                              return (
-                                <div className="p-3 text-center text-xs font-bold text-slate-500">
-                                  No preset HMO found. Keeping custom input: "{hmoSearchQuery}"
+                      {selectedDate ? (
+                        (() => {
+                          const stats = getClinicSlotStatsForDate(selectedDate);
+                          const dateParts = selectedDate.split("-");
+                          const parsedDate = dateParts.length === 3
+                            ? new Date(Number(dateParts[0]), Number(dateParts[1]) - 1, Number(dateParts[2]))
+                            : new Date(selectedDate);
+
+                          const formattedDay = parsedDate.toLocaleDateString("en-US", {
+                            weekday: "long",
+                            month: "short",
+                            day: "numeric",
+                          });
+
+                          const statusStyles = {
+                            Full: "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800",
+                            Limited: "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800",
+                            Open: "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800",
+                          };
+
+                          const barColors = {
+                            Full: "bg-rose-500",
+                            Limited: "bg-amber-500",
+                            Open: "bg-emerald-500",
+                          };
+
+                          return (
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-black text-slate-800 dark:text-white">
+                                  {formattedDay}
+                                </span>
+
+                                <span
+                                  className={`px-2 py-1 rounded-lg text-[9px] font-black border ${statusStyles[stats.status] || "bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-400"
+                                    }`}
+                                >
+                                  {stats.status}
+                                </span>
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-2">
+                                <div className="bg-sky-50 dark:bg-sky-950/30 p-2.5 rounded-xl border border-sky-200/60 dark:border-sky-800/40 text-center">
+                                  <span className="text-[9px] font-black text-sky-600 dark:text-sky-400 uppercase block">
+                                    Doctors
+                                  </span>
+                                  <span className="text-xl font-black text-sky-700 dark:text-sky-300">
+                                    {stats.doctors}
+                                  </span>
+                                  <span className="text-[8px] font-bold text-sky-600/80 dark:text-sky-400/80 block">
+                                    On Duty
+                                  </span>
                                 </div>
-                              );
-                            }
-                            return matches.map((provider) => (
-                              <button
-                                type="button"
-                                key={provider}
-                                onClick={() => {
-                                  setHmoName(provider);
-                                  setHmoSearchQuery(provider);
-                                  setShowHmoSuggestions(false);
-                                }}
-                                className="w-full text-left px-3.5 py-2 rounded-xl text-xs font-black text-slate-800 dark:text-slate-200 hover:bg-[#008ac9] hover:text-white flex items-center justify-between transition-all group"
-                              >
-                                <span>🛡️ {provider}</span>
-                                <span className="text-[10px] font-bold text-[#008ac9] group-hover:text-white uppercase">Select</span>
-                              </button>
-                            ));
-                          })()}
-                        </div>
+
+                                <div className="bg-amber-50 dark:bg-amber-950/30 p-2.5 rounded-xl border border-amber-200/60 dark:border-amber-800/40 text-center">
+                                  <span className="text-[9px] font-black text-amber-600 dark:text-amber-400 uppercase block">
+                                    Booked
+                                  </span>
+                                  <span className="text-xl font-black text-amber-700 dark:text-amber-300">
+                                    {stats.booked}
+                                  </span>
+                                  <span className="text-[8px] font-bold text-amber-600/80 dark:text-amber-400/80 block">
+                                    Slots Taken
+                                  </span>
+                                </div>
+
+                                <div className="bg-emerald-50 dark:bg-emerald-950/30 p-2.5 rounded-xl border border-emerald-200/60 dark:border-emerald-800/40 text-center">
+                                  <span className="text-[9px] font-black text-emerald-600 dark:text-emerald-400 uppercase block">
+                                    Available
+                                  </span>
+                                  <span className="text-xl font-black text-emerald-700 dark:text-emerald-300">
+                                    {stats.available}
+                                  </span>
+                                  <span className="text-[8px] font-bold text-emerald-600/80 dark:text-emerald-400/80 block">
+                                    Slots Open
+                                  </span>
+                                </div>
+
+                                <div className="bg-purple-50 dark:bg-purple-950/30 p-2.5 rounded-xl border border-purple-200/60 dark:border-purple-800/40 text-center">
+                                  <span className="text-[9px] font-black text-purple-600 dark:text-purple-400 uppercase block">
+                                    Capacity
+                                  </span>
+                                  <span className="text-xl font-black text-purple-700 dark:text-purple-300">
+                                    {stats.capacity}
+                                  </span>
+                                  <span className="text-[8px] font-bold text-purple-600/80 dark:text-purple-400/80 block">
+                                    Total Slots
+                                  </span>
+                                </div>
+                              </div>
+
+                              {/* Occupancy Progress Bar */}
+                              <div className="space-y-1.5 pt-1">
+                                <div className="flex justify-between items-center text-[9px] font-black">
+                                  <span className="text-slate-500 dark:text-slate-400">
+                                    Clinic Occupancy
+                                  </span>
+                                  <span className="text-[#008ac9]">
+                                    {stats.occupancy}%
+                                  </span>
+                                </div>
+
+                                <div className="w-full h-2 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
+                                  <div
+                                    className={`h-full transition-all duration-500 ${barColors[stats.status] || "bg-slate-400"}`}
+                                    style={{ width: `${Math.min(100, stats.occupancy)}%` }}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })()
+                      ) : (
+                        <p className="text-xs font-semibold text-slate-400 italic">
+                          Select a consultation date to view the clinic's live capacity for that day.
+                        </p>
                       )}
                     </div>
 
-                    <div>
-                      <label className="text-xs font-extrabold text-slate-900 dark:text-white mb-1.5 block">
-                        Enrollee No / Policy ID <span className="text-red-500 font-black ml-0.5">*</span>
-                      </label>
-                      <input
-                        type="text"
-                        required={patientType === "HMO Insurance"}
-                        placeholder="e.g. HYG-984210"
-                        value={hmoPolicyCode}
-                        onChange={(e) => setHmoPolicyCode(e.target.value)}
-                        className="w-full p-3.5 rounded-xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-bold text-xs focus:ring-2 focus:ring-[#008ac9]"
-                      />
+                    {/* 3. WEEKLY CLINIC ANALYTICS */}
+                    <div className="bg-white dark:bg-slate-800 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xs space-y-3">
+                      <div>
+                        <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400 block">
+                          Weekly Clinic Capacity
+                        </span>
+                        <p className="text-[9px] font-semibold text-slate-500 dark:text-slate-400 mt-0.5">
+                          Aggregate schedule across all doctors in this clinic
+                        </p>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        {getClinicWeeklyAnalytics().map((item) => {
+                          const isSelected = selectedDate === item.date;
+
+                          return (
+                            <div
+                              key={item.day}
+                              onClick={() => setSelectedDate(item.date)}
+                              className={`rounded-xl border p-2 transition-all cursor-pointer ${isSelected
+                                ? "bg-[#008ac9]/10 border-[#008ac9] ring-1 ring-[#008ac9]/30"
+                                : "bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700 hover:border-[#008ac9]/50"
+                                }`}
+                            >
+                              {/* Day heading */}
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <span
+                                    className={`w-8 h-8 rounded-lg flex items-center justify-center text-[9px] font-black shrink-0 ${isSelected
+                                      ? "bg-[#008ac9] text-white"
+                                      : "bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300"
+                                      }`}
+                                  >
+                                    {item.shortDay}
+                                  </span>
+
+                                  <div className="min-w-0">
+                                    <p className="text-[10px] font-black text-slate-800 dark:text-white">
+                                      {item.day}
+                                    </p>
+                                    <p className="text-[8px] font-semibold text-slate-400">
+                                      {item.date}
+                                    </p>
+                                  </div>
+                                </div>
+
+                                <span
+                                  className={`px-2 py-0.5 rounded-md text-[8px] font-black ${item.status === "Full"
+                                    ? "bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300"
+                                    : item.status === "Limited"
+                                      ? "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300"
+                                      : item.status === "Open"
+                                        ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
+                                        : "bg-slate-200 text-slate-600 dark:bg-slate-800 dark:text-slate-400"
+                                    }`}
+                                >
+                                  {item.status}
+                                </span>
+                              </div>
+
+                              {/* Daily figures */}
+                              <div className="grid grid-cols-4 gap-1 mt-2 text-center">
+                                <div>
+                                  <span className="text-[7px] uppercase font-black text-slate-400 block">
+                                    Doctors
+                                  </span>
+                                  <span className="text-[10px] font-black text-slate-800 dark:text-white">
+                                    {item.doctors}
+                                  </span>
+                                </div>
+
+                                <div>
+                                  <span className="text-[7px] uppercase font-black text-slate-400 block">
+                                    Booked
+                                  </span>
+                                  <span className="text-[10px] font-black text-amber-600 dark:text-amber-400">
+                                    {item.booked}
+                                  </span>
+                                </div>
+
+                                <div>
+                                  <span className="text-[7px] uppercase font-black text-slate-400 block">
+                                    Available
+                                  </span>
+                                  <span className="text-[10px] font-black text-emerald-600 dark:text-emerald-400">
+                                    {item.available}
+                                  </span>
+                                </div>
+
+                                <div>
+                                  <span className="text-[7px] uppercase font-black text-slate-400 block">
+                                    Capacity
+                                  </span>
+                                  <span className="text-[10px] font-black text-[#008ac9]">
+                                    {item.capacity}
+                                  </span>
+                                </div>
+                              </div>
+
+                              {/* Occupancy bar */}
+                              <div className="mt-2">
+                                <div className="w-full h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                                  <div
+                                    className={`h-full transition-all duration-500 ${item.status === "Full"
+                                      ? "bg-rose-500"
+                                      : item.status === "Limited"
+                                        ? "bg-amber-500"
+                                        : "bg-emerald-500"
+                                      }`}
+                                    style={{ width: `${Math.min(100, item.occupancy)}%` }}
+                                  />
+                                </div>
+
+                                <div className="flex justify-between mt-0.5">
+                                  <span className="text-[7px] font-bold text-slate-400">
+                                    {item.occupancy}% occupied
+                                  </span>
+                                  <span className="text-[7px] font-black text-slate-500 dark:text-slate-400">
+                                    {item.available} slots remaining
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
+
+                    {/* 4. CLINIC SUMMARY */}
+                    {(() => {
+                      const weeklyAnalytics = getClinicWeeklyAnalytics();
+                      const totalDoctors = getClinicAnalyticsDoctors().length;
+                      const weeklyCapacity = weeklyAnalytics.reduce((sum, item) => sum + item.capacity, 0);
+                      const weeklyBooked = weeklyAnalytics.reduce((sum, item) => sum + item.booked, 0);
+                      const weeklyAvailable = weeklyAnalytics.reduce((sum, item) => sum + item.available, 0);
+
+                      return (
+                        <div className="bg-slate-900 dark:bg-slate-950 p-3.5 rounded-2xl border border-slate-700 shadow-sm">
+                          <span className="text-[9px] font-black uppercase tracking-wider text-slate-400 block mb-2">
+                            Clinic Weekly Summary
+                          </span>
+
+                          <div className="grid grid-cols-3 gap-2 text-center">
+                            <div>
+                              <span className="text-lg font-black text-white block">
+                                {totalDoctors}
+                              </span>
+                              <span className="text-[7px] font-bold text-slate-400 uppercase">
+                                Doctors
+                              </span>
+                            </div>
+
+                            <div>
+                              <span className="text-lg font-black text-amber-400 block">
+                                {weeklyBooked}
+                              </span>
+                              <span className="text-[7px] font-bold text-slate-400 uppercase">
+                                Booked
+                              </span>
+                            </div>
+
+                            <div>
+                              <span className="text-lg font-black text-emerald-400 block">
+                                {weeklyAvailable}
+                              </span>
+                              <span className="text-[7px] font-bold text-slate-400 uppercase">
+                                Available
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="mt-2 pt-2 border-t border-slate-700 text-center">
+                            <span className="text-[8px] font-bold text-slate-400">
+                              Weekly scheduled capacity:
+                            </span>
+                            <span className="text-[9px] font-black text-white ml-1">
+                              {weeklyCapacity} appointments
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                ) : (
+                  <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 text-center">
+                    <Building2 className="h-8 w-8 text-[#008ac9] mx-auto mb-2" />
+                    <p className="text-xs font-black text-slate-700 dark:text-slate-300">
+                      Clinic Analytics
+                    </p>
+                    <p className="text-[10px] font-semibold text-slate-400 mt-1 leading-relaxed">
+                      Select a specialist to identify the clinic. Analytics will then combine the schedules and bookings of every active doctor assigned to that clinic.
+                    </p>
                   </div>
                 )}
               </div>
 
-              {/* Basic Contact Info */}
-              <div className="grid gap-5 md:grid-cols-2">
-                <div>
-                  <label className="text-xs font-extrabold text-slate-900 dark:text-white mb-1.5 block">
-                    Patient Full Name <span className="text-red-500 font-black ml-0.5">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. John Doe"
-                    value={patientName}
-                    onChange={(e) => setPatientName(e.target.value)}
-                    className="w-full p-4 rounded-2xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-bold text-sm focus:ring-2 focus:ring-[#008ac9] transition-all"
-                  />
+              {/* RIGHT COLUMN: Step 1 Form Controls */}
+              <div className="md:col-span-2 bg-white dark:bg-slate-900 border-2 border-slate-300 dark:border-slate-800 rounded-3xl p-6 md:p-8 shadow-md space-y-6">
+                <div className="border-b-2 border-slate-200 dark:border-slate-800 pb-4 flex items-center justify-between">
+                  <div>
+                    <h2 className="text-2xl font-black text-slate-900 dark:text-white flex items-center gap-2">
+                      <User className="h-6 w-6 text-[#008ac9]" /> Step 1: Patient Details & Category Type
+                    </h2>
+                    <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 mt-1">
+                      Enter patient details and select payment category to filter eligible specialist doctors.
+                    </p>
+                  </div>
+                  <span className="px-3 py-1 bg-[#008ac9]/10 text-[#008ac9] font-black text-xs rounded-xl border border-[#008ac9]/30">
+                    Step 1 of 4
+                  </span>
                 </div>
 
-                <div>
-                  <label className="text-xs font-extrabold text-slate-900 dark:text-white mb-1.5 block">
-                    Contact Phone Number <span className="text-red-500 font-black ml-0.5">*</span>
-                  </label>
-                  <input
-                    type="tel"
-                    required
-                    placeholder="e.g. +234 801 234 5678"
-                    value={patientPhone}
-                    onChange={(e) => setPatientPhone(e.target.value)}
-                    className="w-full p-4 rounded-2xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-bold text-sm focus:ring-2 focus:ring-[#008ac9] transition-all"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-xs font-extrabold text-slate-900 dark:text-white mb-1.5 block">Email Address (Optional)</label>
-                  <input
-                    type="email"
-                    placeholder="e.g. john@example.com"
-                    value={patientEmail}
-                    onChange={(e) => setPatientEmail(e.target.value)}
-                    className="w-full p-4 rounded-2xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-bold text-sm focus:ring-2 focus:ring-[#008ac9] transition-all"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-xs font-extrabold text-slate-900 dark:text-white mb-1.5 block">Chief Complaint / Reason (Optional)</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Heart Checkup, General Fever"
-                    value={reason}
-                    onChange={(e) => setReason(e.target.value)}
-                    className="w-full p-4 rounded-2xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-bold text-sm focus:ring-2 focus:ring-[#008ac9] transition-all"
-                  />
-                </div>
-
-                {/* Optional Attach Referral Document */}
-                <div className="md:col-span-2 pt-2">
-                  <label className="text-xs font-extrabold text-slate-900 dark:text-white mb-1.5 block flex items-center justify-between">
-                    <span>Attach Referral Letter / Document (Optional)</span>
-                    <span className="text-[10px] text-slate-500 font-bold">Formats: PDF, PNG, JPG, DOC</span>
-                  </label>
-                  <div className="flex flex-wrap items-center gap-3">
-                    <input
-                      type="file"
-                      id="referral-upload"
-                      accept=".pdf,.png,.jpg,.jpeg,.doc,.docx"
-                      onChange={(e) => {
-                        if (e.target.files && e.target.files[0]) {
-                          const file = e.target.files[0];
-                          setReferralDocName(file.name);
-                          const dataReader = new FileReader();
-                          dataReader.onload = (evt) => {
-                            setReferralDocData((evt.target?.result as string) || "");
-                          };
-                          dataReader.readAsDataURL(file);
-
-                          const textReader = new FileReader();
-                          textReader.onload = (evt) => {
-                            const rawTxt = (evt.target?.result as string) || "";
-                            const cleanTxt = rawTxt.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/g, " ").trim();
-                            if (cleanTxt.length > 10) {
-                              setReferralDocText(cleanTxt.substring(0, 4000));
-                            }
-                          };
-                          textReader.readAsText(file);
-                        }
-                      }}
-                      className="hidden"
-                    />
-                    <label
-                      htmlFor="referral-upload"
-                      className="px-4 py-2.5 rounded-xl bg-white dark:bg-slate-900 border-2 border-dashed border-[#008ac9] text-[#008ac9] hover:bg-sky-50 dark:hover:bg-slate-800 text-xs font-black cursor-pointer transition-all inline-flex items-center gap-1.5 shadow-sm"
-                    >
-                      📎 Choose Referral Document
-                    </label>
-                    {referralDocName ? (
-                      <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-3.5 py-2 rounded-xl border border-emerald-300">
-                        ✓ {referralDocName}
+                {/* Patient Category Type Selector */}
+                <div className="bg-sky-50/70 dark:bg-slate-800/60 p-5 rounded-2xl border-2 border-[#008ac9]/30 space-y-4">
+                  <div>
+                    <label className="text-xs font-black text-slate-900 dark:text-white mb-2 flex items-center justify-between">
+                      <span className="flex items-center gap-1.5">
+                        <CreditCard className="h-4 w-4 text-[#008ac9]" /> Patient Payment Category <span className="text-red-500 font-black ml-0.5">*</span>
                       </span>
-                    ) : (
-                      <span className="text-xs font-semibold text-slate-500">No document attached</span>
-                    )}
+                      <span className="text-[10px] font-bold text-[#008ac9] uppercase">Determines Doctor Availability</span>
+                    </label>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPatientType("Private Self-Pay");
+                          if (selectedDoctor) {
+                            const accepted = (selectedDoctor as any).acceptedPatientTypes || (selectedDoctor as any).accepted_patient_types || ["Private Self-Pay", "HMO Insurance"];
+                            if (!accepted.includes("Private Self-Pay")) setSelectedDoctorId("");
+                          }
+                        }}
+                        className={`p-4 rounded-2xl border-2 text-xs font-black transition-all flex flex-col items-center justify-center gap-1.5 ${patientType === "Private Self-Pay"
+                          ? "bg-[#008ac9] text-white border-[#008ac9] shadow-lg ring-2 ring-[#008ac9]/30 scale-[1.02]"
+                          : "bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white hover:border-[#008ac9]"
+                          }`}
+                      >
+                        <span className="text-lg">💳</span>
+                        <span>Private Self-Pay Patient</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPatientType("HMO Insurance");
+                          if (selectedDoctor) {
+                            const accepted = (selectedDoctor as any).acceptedPatientTypes || (selectedDoctor as any).accepted_patient_types || ["Private Self-Pay", "HMO Insurance"];
+                            if (!accepted.includes("HMO Insurance")) setSelectedDoctorId("");
+                          }
+                        }}
+                        className={`p-4 rounded-2xl border-2 text-xs font-black transition-all flex flex-col items-center justify-center gap-1.5 ${patientType === "HMO Insurance"
+                          ? "bg-[#008ac9] text-white border-[#008ac9] shadow-lg ring-2 ring-[#008ac9]/30 scale-[1.02]"
+                          : "bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white hover:border-[#008ac9]"
+                          }`}
+                      >
+                        <span className="text-lg">🛡️</span>
+                        <span>HMO Insurance Enrollee</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Conditional HMO Fields */}
+                  {patientType === "HMO Insurance" && (
+                    <div className="grid gap-4 sm:grid-cols-2 pt-3 border-t border-[#008ac9]/20 animate-fadeIn">
+                      <div className="relative">
+                        <label className="text-xs font-extrabold text-slate-900 dark:text-white mb-1.5 block">
+                          Search HMO Provider <span className="text-red-500 font-black ml-0.5">*</span>
+                        </label>
+                        <div className="relative">
+                          <input
+                            type="text"
+                            required={patientType === "HMO Insurance"}
+                            placeholder="Type 2+ letters (e.g. Hy, Re, AX)..."
+                            value={hmoSearchQuery}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setHmoSearchQuery(val);
+                              setHmoName(val);
+                              setShowHmoSuggestions(val.trim().length >= 2);
+                            }}
+                            onFocus={() => {
+                              if (hmoSearchQuery.trim().length >= 2) {
+                                setShowHmoSuggestions(true);
+                              }
+                            }}
+                            className="w-full p-3.5 pr-9 rounded-xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-bold text-xs focus:ring-2 focus:ring-[#008ac9] transition-all"
+                          />
+                          <Search className="absolute right-3 top-3.5 h-4 w-4 text-slate-400 pointer-events-none" />
+                        </div>
+
+                        {showHmoSuggestions && hmoSearchQuery.trim().length >= 2 && (
+                          <div className="absolute z-30 left-0 right-0 mt-1 bg-white dark:bg-slate-900 border-2 border-[#008ac9] rounded-2xl shadow-xl max-h-52 overflow-y-auto p-1.5 animate-fadeIn">
+                            {(() => {
+                              const allHmoNames = hmoCompanies.map((h: any) => h.name).filter(Boolean);
+
+                              const matches = allHmoNames.filter((provider) =>
+                                provider.toLowerCase().includes(hmoSearchQuery.trim().toLowerCase())
+                              );
+                              if (matches.length === 0) {
+                                return (
+                                  <div className="p-3 text-center text-xs font-bold text-slate-500">
+                                    No preset HMO found. Keeping custom input: "{hmoSearchQuery}"
+                                  </div>
+                                );
+                              }
+                              return matches.map((provider) => (
+                                <button
+                                  type="button"
+                                  key={provider}
+                                  onClick={() => {
+                                    setHmoName(provider);
+                                    setHmoSearchQuery(provider);
+                                    setShowHmoSuggestions(false);
+                                  }}
+                                  className="w-full text-left px-3.5 py-2 rounded-xl text-xs font-black text-slate-800 dark:text-slate-200 hover:bg-[#008ac9] hover:text-white flex items-center justify-between transition-all group"
+                                >
+                                  <span>🛡️ {provider}</span>
+                                  <span className="text-[10px] font-bold text-[#008ac9] group-hover:text-white uppercase">Select</span>
+                                </button>
+                              ));
+                            })()}
+                          </div>
+                        )}
+                      </div>
+
+                      <div>
+                        <label className="text-xs font-extrabold text-slate-900 dark:text-white mb-1.5 block">
+                          Enrollee No / Policy ID <span className="text-red-500 font-black ml-0.5">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          required={patientType === "HMO Insurance"}
+                          placeholder="e.g. HYG-984210"
+                          value={hmoPolicyCode}
+                          onChange={(e) => setHmoPolicyCode(e.target.value)}
+                          className="w-full p-3.5 rounded-xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-bold text-xs focus:ring-2 focus:ring-[#008ac9]"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Basic Contact Info */}
+                <div className="grid gap-5 md:grid-cols-2">
+                  <div>
+                    <label className="text-xs font-extrabold text-slate-900 dark:text-white mb-1.5 block">
+                      Patient Full Name <span className="text-red-500 font-black ml-0.5">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. John Doe"
+                      value={patientName}
+                      onChange={(e) => setPatientName(e.target.value)}
+                      className="w-full p-4 rounded-2xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-bold text-sm focus:ring-2 focus:ring-[#008ac9] transition-all"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-extrabold text-slate-900 dark:text-white mb-1.5 block">
+                      Contact Phone Number <span className="text-red-500 font-black ml-0.5">*</span>
+                    </label>
+                    <input
+                      type="tel"
+                      required
+                      placeholder="e.g. +234 801 234 5678"
+                      value={patientPhone}
+                      onChange={(e) => setPatientPhone(e.target.value)}
+                      className="w-full p-4 rounded-2xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-bold text-sm focus:ring-2 focus:ring-[#008ac9] transition-all"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-extrabold text-slate-900 dark:text-white mb-1.5 block">Email Address (Optional)</label>
+                    <input
+                      type="email"
+                      placeholder="e.g. john@example.com"
+                      value={patientEmail}
+                      onChange={(e) => setPatientEmail(e.target.value)}
+                      className="w-full p-4 rounded-2xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-bold text-sm focus:ring-2 focus:ring-[#008ac9] transition-all"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-extrabold text-slate-900 dark:text-white mb-1.5 block">Chief Complaint / Reason (Optional)</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Heart Checkup, General Fever"
+                      value={reason}
+                      onChange={(e) => setReason(e.target.value)}
+                      className="w-full p-4 rounded-2xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-bold text-sm focus:ring-2 focus:ring-[#008ac9] transition-all"
+                    />
+                  </div>
+
+                  {/* Optional Attach Referral Document */}
+                  <div className="md:col-span-2 pt-2">
+                    <label className="text-xs font-extrabold text-slate-900 dark:text-white mb-1.5 flex items-center justify-between">
+                      <span>Attach Referral Letter / Document (Optional)</span>
+                      <span className="text-[10px] text-slate-500 font-bold">Formats: PDF, PNG, JPG, DOC</span>
+                    </label>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <input
+                        type="file"
+                        id="referral-upload"
+                        accept=".pdf,.png,.jpg,.jpeg,.doc,.docx"
+                        onChange={(e) => {
+                          if (e.target.files && e.target.files[0]) {
+                            const file = e.target.files[0];
+                            setReferralDocName(file.name);
+                            const dataReader = new FileReader();
+                            dataReader.onload = (evt) => {
+                              setReferralDocData((evt.target?.result as string) || "");
+                            };
+                            dataReader.readAsDataURL(file);
+
+                            const textReader = new FileReader();
+                            textReader.onload = (evt) => {
+                              const rawTxt = (evt.target?.result as string) || "";
+                              const cleanTxt = rawTxt.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/g, " ").trim();
+                              if (cleanTxt.length > 10) {
+                                setReferralDocText(cleanTxt.substring(0, 4000));
+                              }
+                            };
+                            textReader.readAsText(file);
+                          }
+                        }}
+                        className="hidden"
+                      />
+                      <label
+                        htmlFor="referral-upload"
+                        className="px-4 py-2.5 rounded-xl bg-white dark:bg-slate-900 border-2 border-dashed border-[#008ac9] text-[#008ac9] hover:bg-sky-50 dark:hover:bg-slate-800 text-xs font-black cursor-pointer transition-all inline-flex items-center gap-1.5 shadow-sm"
+                      >
+                        📎 Choose Referral Document
+                      </label>
+                      {referralDocName ? (
+                        <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-3.5 py-2 rounded-xl border border-emerald-300">
+                          ✓ {referralDocName}
+                        </span>
+                      ) : (
+                        <span className="text-xs font-semibold text-slate-500">No document attached</span>
+                      )}
+                    </div>
                   </div>
                 </div>
+
+                {/* Form Action Controls */}
+                <div className="flex justify-end pt-4 border-t border-slate-200 dark:border-slate-800">
+                  <button
+                    type="button"
+                    disabled={!patientName.trim() || !patientPhone.trim() || (patientType === "HMO Insurance" && !hmoPolicyCode.trim())}
+                    onClick={() => setStep(2)}
+                    className="bg-[#008ac9] hover:bg-[#0072b1] disabled:opacity-50 text-white px-8 py-3.5 text-sm font-black rounded-2xl flex items-center gap-2 shadow-lg border-2 border-sky-300/40 transition-all transform hover:-translate-y-0.5"
+                  >
+                    Continue to Doctor Selection <ArrowRight className="h-5 w-5" />
+                  </button>
+                </div>
               </div>
 
-              <div className="flex justify-end pt-4 border-t border-slate-200 dark:border-slate-800">
-                <button
-                  type="button"
-                  disabled={!patientName.trim() || !patientPhone.trim() || (patientType === "HMO Insurance" && !hmoPolicyCode.trim())}
-                  onClick={() => setStep(2)}
-                  className="bg-[#008ac9] hover:bg-[#0072b1] disabled:opacity-50 text-white px-8 py-3.5 text-sm font-black rounded-2xl flex items-center gap-2 shadow-lg border-2 border-sky-300/40 transition-all transform hover:-translate-y-0.5"
-                >
-                  Continue to Doctor Selection <ArrowRight className="h-5 w-5" />
-                </button>
-              </div>
             </div>
           </div>
         )}
