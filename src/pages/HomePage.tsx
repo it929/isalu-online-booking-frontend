@@ -12,6 +12,7 @@ import {
   Eye,
   Activity,
   ShieldCheck,
+  ThumbsUp,
   ArrowRight,
   Star,
   CheckCircle2,
@@ -996,105 +997,108 @@ export function HomePage() {
       )}
 
       {/* HERO SECTION */}
-      <section id="hero-section" className="relative overflow-hidden bg-slate-950 text-white py-20 lg:py-4">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-sky-500/30 via-slate-950 to-slate-950 opacity-90 pointer-events-none" />
-        <div className="absolute -top-40 -right-40 w-96 h-96 bg-sky-500/20 rounded-full blur-3xl pointer-events-none" />
+      <section id="hero-section" className="relative overflow-hidden bg-slate-950 text-white py-4 lg:py-1">
+        {/* Ambient Mesh Glows */}
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-sky-500/20 via-slate-950 to-slate-950 opacity-90 pointer-events-none" />
+        <div className="absolute -top-24 -right-24 w-80 h-80 bg-sky-500/15 rounded-full blur-3xl pointer-events-none" />
 
         <div className="container mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 relative z-10">
-
-          <div className="grid lg:grid-cols-12 gap-12 items-center">
+          <div className="grid lg:grid-cols-12 gap-6 lg:gap-10 items-center min-h-[340px]">
 
             {/* Left Hero Content */}
-            <div className="lg:col-span-7 space-y-6 text-center lg:text-left">
-              <div className="inline-flex items-center gap-2.5 rounded-full bg-sky-500/15 px-5 py-2 text-xs sm:text-sm font-bold text-sky-300 border border-sky-400/30 backdrop-blur-md shadow-lg">
-                <Sparkles className="h-4 w-4 text-sky-600" /> call<a href="tel:+2348062287502" className="text-white">08062287502</a>for assistance
+            <div className="lg:col-span-7 space-y-4 text-center lg:text-left">
+
+              {/* Dynamic Assistance Pill with Thumbs Right/Point Icon */}
+              <div className="inline-flex items-center gap-2 rounded-full bg-slate-900/90 px-3.5 py-1 text-xs font-semibold text-sky-300 border border-slate-800/80 backdrop-blur-xl shadow-md">
+                <PhoneCall className="h-5.5 w-5.5 text-white animate-bounce" />
+                <span>Need help?</span>
+                <ThumbsUp className="h-3.5 w-3.5 text-amber-400 transform rotate-90" />
+                <span>Call</span>
+                <a
+                  href="tel:+2348062287502"
+                  className="text-white hover:text-sky-300 transition-colors font-bold underline decoration-sky-400/50 underline-offset-2"
+                >
+                  08062287502
+                </a>
               </div>
 
-              <h3 className="text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight text-white leading-[1.10]">
-                Quality Healthcare <br />
-                {/* <span className="text-[#008ac9]">You Can Always Trust</span> */}
-              </h3>
+              {/* Headline */}
+              <h1 className="text-2xl sm:text-3xl lg:text-4xl font-black tracking-tight text-white leading-tight">
+                <span className="block mb-2 sm:mb-3">Quality Healthcare</span>
+                <span className="bg-gradient-to-r from-sky-400 via-teal-300 to-sky-200 bg-clip-text text-transparent drop-shadow-sm block">
+                  You Can Trust.
+                </span>
+              </h1>
 
-
-              <div className="pt-3 flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4">
+              {/* Beautified & Animated Action Buttons */}
+              <div className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-3.5 pt-1">
+                {/* Primary CTA */}
                 <button
                   onClick={() => scrollToSection("specialized-medical-centers")}
-                  className="w-full sm:w-auto px-8 py-4 bg-[#008ac9] hover:bg-[#0072b1] text-white font-bold rounded-2xl text-center shadow-xl shadow-sky-500/20 hover:shadow-sky-500/30 hover:-translate-y-0.5 transition-all text-sm sm:text-base flex items-center justify-center gap-2"
+                  className="group relative w-full sm:w-auto px-6 py-3 overflow-hidden rounded-xl bg-gradient-to-r from-[#008ac9] via-sky-500 to-[#0072b1] text-white text-xs sm:text-sm font-bold shadow-lg shadow-sky-500/25 hover:shadow-sky-500/40 hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.98] transition-all duration-300 flex items-center justify-center gap-2.5 border border-sky-400/30"
                 >
-                  Book Appointment Now <ArrowRight className="h-4 w-4" />
+                  <span className="absolute inset-0 w-1/2 h-full bg-white/20 skew-x-12 -translate-x-full group-hover:translate-x-[300%] transition-transform duration-1000 ease-in-out" />
+                  <span className="relative z-10 tracking-wide">Book Appointment</span>
+                  <ArrowRight className="relative z-10 h-4 w-4 transition-transform duration-300 group-hover:translate-x-1.5" />
                 </button>
 
-                {/* Open Navigation Modal CTA */}
+                {/* Secondary CTA */}
                 <button
                   onClick={() => setIsNavModalOpen(true)}
-                  className="w-full sm:w-auto px-6 py-4 bg-slate-900/80 hover:bg-slate-800 text-sky-300 font-bold rounded-2xl border border-sky-500/30 hover:border-sky-400 transition-all text-sm sm:text-base flex items-center justify-center gap-2 backdrop-blur-md shadow-lg"
+                  className="group relative w-full sm:w-auto px-6 py-3 rounded-xl bg-slate-900/80 hover:bg-slate-800/90 text-slate-200 hover:text-white text-xs sm:text-sm font-semibold border border-slate-700/80 hover:border-sky-500/50 backdrop-blur-md shadow-md hover:shadow-sky-500/10 hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.98] transition-all duration-300 flex items-center justify-center gap-2.5"
                 >
-                  <Compass className="h-4 w-4 text-sky-400" /> Explore Navigation Guide
+                  <Compass className="h-4 w-4 text-sky-400 transition-transform duration-500 group-hover:rotate-45" />
+                  <span className="tracking-wide">Navigation Guide</span>
                 </button>
               </div>
 
-              {/* Stats Banner */}
-              <div className="grid grid-cols-3 gap-4 pt-8 border-t border-slate-800 text-center lg:text-left">
-                <div className="bg-slate-900/80 p-4 rounded-2xl border border-slate-800 shadow-md">
-                  <h3 className="text-2xl sm:text-3xl font-extrabold text-[#008ac9]">24/7</h3>
-                  <p className="text-xs sm:text-sm font-semibold text-slate-300 mt-1">Emergency Care</p>
+              {/* Sleek Metrics Bar */}
+              <div className="grid grid-cols-3 gap-3 pt-3 border-t border-slate-900/80">
+                <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800/60">
+                  <h3 className="text-base sm:text-lg font-black text-[#008ac9]">24/7</h3>
+                  <p className="text-[10px] font-medium text-slate-400">Emergency Care</p>
                 </div>
-                <div className="bg-slate-900/80 p-4 rounded-2xl border border-slate-800 shadow-md">
-                  <h3 className="text-2xl sm:text-3xl font-extrabold text-sky-400">{allDoctors.length}+</h3>
-                  <p className="text-xs sm:text-sm font-semibold text-slate-300 mt-1">Lead Specialists</p>
+                <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800/60">
+                  <h3 className="text-base sm:text-lg font-black text-sky-400">{allDoctors.length}+</h3>
+                  <p className="text-[10px] font-medium text-slate-400">Lead Specialists</p>
                 </div>
-                <div className="bg-slate-900/80 p-4 rounded-2xl border border-slate-800 shadow-md">
-                  <h3 className="text-2xl sm:text-3xl font-extrabold text-teal-400">100%</h3>
-                  <p className="text-xs sm:text-sm font-semibold text-slate-300 mt-1">Verified Booking</p>
+                <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800/60">
+                  <h3 className="text-base sm:text-lg font-black text-teal-400">100%</h3>
+                  <p className="text-[10px] font-medium text-slate-400">Verified Booking</p>
                 </div>
               </div>
             </div>
 
-            {/* Right Hero Image - Zoomed Out Seated Nurse / Healthcare Professional on Dark Background */}
-            <div className="lg:col-span-5 relative flex items-center justify-center">
-              {/* Background Glow Ring */}
-              <div className="absolute inset-0 bg-gradient-to-tr from-[#008ac9]/30 via-sky-500/20 to-teal-400/20 rounded-[3rem] blur-2xl pointer-events-none" />
+            {/* Right Column */}
+            <div className="lg:col-span-5 relative flex items-center justify-center h-[300px] sm:h-[340px] w-full">
 
-              <div className="relative w-full h-[480px] sm:h-[500px] rounded-[3rem] overflow-hidden border border-slate-800 bg-slate-900 shadow-2xl group">
-                <img
-                  src="/isalu-hero.png"
-                  alt="Nurse sitting and smiling warmly"
-                  className="w-full h-full object-cover object-center filter brightness-90 contrast-105 transition-transform duration-700 group-hover:scale-105"
-                />
+              {/* Tilted Accent Shape Card */}
+              <div className="absolute w-[85%] h-[75%] bg-amber-400 rounded-[2.2rem] transform -rotate-12 translate-y-3 shadow-2xl" />
 
-                {/* Subtle Gradient Masks */}
-                <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/30 to-transparent" />
-                <div className="absolute inset-0 bg-gradient-to-r from-slate-950/40 via-transparent to-slate-950/20" />
+              {/* Ambient Glow */}
+              <div className="absolute w-[80%] h-[70%] bg-sky-500/20 rounded-[2.2rem] transform rotate-6 blur-xl pointer-events-none" />
 
-                {/* Live Availability Badge */}
-                <div className="absolute top-6 left-6 z-10 flex items-center gap-2 px-4 py-2 rounded-full bg-slate-950/80 border border-sky-400/30 text-sky-300 text-xs font-black uppercase tracking-wider backdrop-blur-md shadow-xl">
-                  <span className="relative flex h-2.5 w-2.5">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
-                  </span>
-                  Dedicated Patient Care
-                </div>
+              {/* Maximized Cutout Subject Image */}
+              <img
+                src="/isalu-hero.png"
+                alt="Healthcare professional"
+                className="relative z-10 max-h-[140%] w-auto object-contain object-bottom filter brightness-105 contrast-[1.02] drop-shadow-2xl pointer-events-none transform scale-130 translate-y-3 transition-transform duration-500 hover:scale-135"
+              />
 
-                {/* Bottom Overlay Badge */}
-                <div className="absolute bottom-6 left-6 right-6 z-10 p-5 rounded-2xl bg-slate-900/80 border border-slate-700/80 backdrop-blur-xl shadow-2xl flex items-center justify-between">
-                  <div>
-                    {/* <h4 className="text-sm font-extrabold text-white"></h4> */}
-                    <p className="text-xs text-slate-300 mt-0.5">Quality healthcare you can always trust</p>
-                  </div>
-                  <button
-                    onClick={() => scrollToSection("specialized-medical-centers")}
-                    className="p-3 rounded-xl bg-[#008ac9] hover:bg-[#0072b1] text-white transition-all shadow-lg shrink-0"
-                  >
-                    <ArrowRight className="h-4 w-4" />
-                  </button>
-                </div>
+              {/* Floating Status Badge */}
+              <div className="absolute top-8 -left-2 sm:-left-6 z-20 flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900/90 border border-slate-800 text-sky-300 text-[10px] font-extrabold uppercase tracking-wider backdrop-blur-xl shadow-xl">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+                Dedicated Patient Care
               </div>
+
             </div>
 
           </div>
         </div>
       </section>
-
 
       {/* SPECIALIZED CLINICAL DEPARTMENTS SECTION WITH SUBTLE BACKGROUND ACCENT & GLASS CARDS */}
       <section id="specialized-medical-centers" className="relative py-10 md:py-8 scroll-mt-20 overflow-hidden bg-slate-50/50 dark:bg-slate-950/50">
@@ -1116,38 +1120,56 @@ export function HomePage() {
         <div className="container relative z-10 mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
 
           {/* Section Header */}
-          <div className="text-center max-w-3xl mx-auto mb-10 space-y-3">
-            <span className="inline-block px-4 py-1.5 rounded-full bg-sky-500/10 dark:bg-sky-500/20 text-[#008ac9] dark:text-sky-300 text-xs sm:text-sm font-bold uppercase tracking-wider border border-sky-400/30 dark:border-sky-500/30 backdrop-blur-md shadow-xs">
-              Clinical Excellence
-            </span>
-            <h2 className="text-3xl sm:text-4xl lg:text-5xl font-black text-slate-900 dark:text-white tracking-tight drop-shadow-xs">
+          <div className="text-center max-w-4xl mx-auto mb-3 space-y-3">
+            <span className="inline-block px-2 py-1.5 rounded-full bg-sky-500/10 dark:bg-sky-500/20 text-[#008ac9] dark:text-sky-300 text-xs sm:text-sm font-bold uppercase tracking-wider border border-sky-400/30 dark:border-sky-500/30 backdrop-blur-md shadow-xs">
               Our Clinics
-            </h2>
+            </span>
           </div>
 
           {/* Glass Search Bar */}
-          <div className="bg-white/70 dark:bg-slate-900/70 backdrop-blur-xl border border-white/60 dark:border-slate-800/80 rounded-[2rem] p-4 shadow-xl max-w-2xl mx-auto mb-12 flex items-center justify-between gap-4 transition-all">
-            <div className="relative w-full">
-              <Search className="absolute left-4 top-3.5 h-5 w-5 text-slate-400 pointer-events-none" />
-              <input
-                type="text"
-                placeholder="Search specialty clinic..."
-                value={clinicSearchQuery}
-                onChange={(e) => setClinicSearchQuery(e.target.value)}
-                className="w-full pl-12 pr-10 py-3 text-sm sm:text-base rounded-2xl border border-slate-200/60 dark:border-slate-700/60 bg-white/50 dark:bg-slate-800/50 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-[#008ac9] backdrop-blur-md transition-all font-medium"
-              />
-              {clinicSearchQuery && (
-                <button
-                  onClick={() => setClinicSearchQuery("")}
-                  className="absolute right-4 top-3.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
-                >
-                  <X className="h-5 w-5" />
-                </button>
-              )}
+          <div className="relative group max-w-2xl mx-auto mb-10">
+            {/* Gradient Backlight Glow */}
+            <div className="absolute -inset-0.5 bg-gradient-to-r from-sky-500 via-teal-400 to-amber-400 rounded-[2rem] opacity-75 blur-md group-hover:opacity-100 group-focus-within:opacity-100 transition-all duration-500 pointer-events-none" />
+
+            {/* Main Glass Shell */}
+            <div className="relative bg-white/80 dark:bg-slate-900/80 backdrop-blur-2xl border border-white/80 dark:border-slate-700/60 rounded-[1.75rem] p-2 shadow-xl flex items-center justify-between gap-2.5 transition-all">
+
+              {/* Input Field Wrapper */}
+              <div className="relative w-full flex items-center">
+                {/* Search Icon */}
+                <Search className="absolute left-3.5 h-4 w-4 text-sky-500 dark:text-sky-400 pointer-events-none transition-colors group-focus-within:text-teal-500 z-10" />
+
+                <input
+                  type="text"
+                  placeholder="Search specialty clinic..."
+                  value={clinicSearchQuery}
+                  onChange={(e) => setClinicSearchQuery(e.target.value)}
+                  className="w-full pl-10 pr-9 py-2 text-xs sm:text-sm rounded-xl border-2 border-sky-400/20 dark:border-sky-500/20 bg-slate-100/60 dark:bg-slate-800/60 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:bg-white dark:focus:bg-slate-900 focus:border-sky-400 dark:focus:border-teal-400 focus:ring-4 focus:ring-sky-500/15 dark:focus:ring-teal-400/15 transition-all duration-300 font-medium shadow-inner"
+                />
+
+                {/* Clear Button */}
+                {clinicSearchQuery && (
+                  <button
+                    onClick={() => setClinicSearchQuery("")}
+                    className="absolute right-3 p-1 rounded-full text-slate-400 hover:text-slate-600 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-700/60 transition-all z-10"
+                    aria-label="Clear search"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+
+              {/* Live Clinic Counter Badge */}
+              <div className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-sky-500/10 via-teal-500/10 to-emerald-500/10 border border-sky-400/30 text-sky-600 dark:text-sky-300 font-extrabold text-xs shadow-sm">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-teal-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-teal-500"></span>
+                </span>
+                <span>{filteredDepartments.length}</span>
+                <span className="hidden sm:inline">Clinics</span>
+              </div>
+
             </div>
-            <span className="text-xs sm:text-sm font-black text-[#008ac9] dark:text-sky-400 shrink-0 px-2">
-              {filteredDepartments.length} Clinics
-            </span>
           </div>
 
           {/* Empty State */}
@@ -1271,11 +1293,19 @@ export function HomePage() {
                         {scheduleEntries.length > 0 ? (
                           <div className="space-y-1.5 max-h-32 overflow-y-auto pr-1 custom-scrollbar">
                             {scheduleEntries.map(([day, time]) => (
-                              <div key={day} className="flex items-center justify-between text-xs font-medium">
-                                <span className="font-bold text-slate-800 dark:text-slate-200">{day}</span>
-                                <span className="text-slate-600 dark:text-slate-300 flex items-center gap-1">
-                                  <Clock className="h-3 w-3 text-sky-500" />
-                                  {time}
+                              <div
+                                key={day}
+                                className="group flex items-center justify-between rounded-md bg-gradient-to-r from-sky-500/5 via-purple-500/5 to-pink-500/5 px-2 py-1 text-xs font-medium transition-all hover:from-sky-500/10 hover:to-pink-500/10"
+                              >
+                                {/* Compact Day Label */}
+                                <span className="font-bold bg-gradient-to-r from-sky-600 to-purple-600 bg-clip-text text-transparent dark:from-sky-400 dark:to-purple-400">
+                                  {day}
+                                </span>
+
+                                {/* Compact Time Badge */}
+                                <span className="flex items-center gap-1 rounded border border-sky-200/50 bg-sky-50/80 px-1.5 py-0.5 text-[11px] text-sky-950 dark:border-sky-500/30 dark:bg-sky-950/40 dark:text-sky-100">
+                                  <Clock className="h-2.5 w-2.5 text-sky-500 dark:text-sky-400" />
+                                  <span>{time}</span>
                                 </span>
                               </div>
                             ))}
@@ -1311,7 +1341,7 @@ export function HomePage() {
             <span className="inline-block px-4 py-1.5 rounded-full bg-white dark:bg-slate-900 text-[#008ac9] dark:text-sky-400 text-xs sm:text-sm font-bold uppercase tracking-wider border border-slate-200 dark:border-slate-800 shadow-xs">
               Healthcare Insurance
             </span>
-            <h2 className="text-3xl sm:text-4xl lg:text-5xl font-black text-slate-900 dark:text-white tracking-tight">
+            <h2 className="text-2xl sm:text-2xl lg:text-2xl font-black text-slate-900 dark:text-white tracking-tight">
               Our HMO Partners in Nigeria
             </h2>
           </div>
@@ -1327,7 +1357,7 @@ export function HomePage() {
             <span className="inline-block px-4 py-1.5 rounded-full bg-slate-800/80 text-sky-400 text-xs sm:text-sm font-bold uppercase tracking-wider border border-slate-700">
               Patient Feedback
             </span>
-            <h2 className="text-3xl sm:text-4xl lg:text-5xl font-black text-white tracking-tight">
+            <h2 className="text-2xl sm:text-2xl lg:text-2xl font-black text-white tracking-tight">
               Trusted by Thousands of Patients
             </h2>
             <p className="text-base sm:text-lg text-slate-300 leading-relaxed">

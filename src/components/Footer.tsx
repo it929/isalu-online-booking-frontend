@@ -72,7 +72,7 @@ export function Footer() {
             <h3 className="mb-4 text-sm font-semibold text-white uppercase tracking-wider">Emergency Contact</h3>
             <ul className="space-y-3 text-sm text-slate-400">
               <li className="flex items-center gap-2 text-teal-300 font-semibold">
-                <PhoneCall className="h-4 w-4" /> +234 (0) 800-ISALU-CARE
+                <PhoneCall className="h-4 w-4" /> <a href="tel:+2348062287502" className="text-white"> +234-80-622-87-502 </a>
               </li>
               <li className="flex items-center gap-2">
                 <Mail className="h-4 w-4 text-slate-400" /> info@isaluhospitals.com

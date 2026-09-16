@@ -102,7 +102,7 @@ export function GynaecologyPopup() {
               Obstetrics & Gynaecology Consultations Are <span className="bg-gradient-to-r from-rose-600 via-pink-600 to-purple-600 bg-clip-text text-transparent underline decoration-rose-400/50">Always Available Everyday!</span>
             </h2>
             <p className="text-[11px] sm:text-xs font-semibold text-slate-600 dark:text-slate-300 mt-1 max-w-sm mx-auto leading-relaxed break-words">
-              At Isalu Hospitals, our Obstetrics & Gynaecology specialists are on duty <strong>7 days a week (including Thursdays)</strong> for comprehensive women's healthcare, prenatal consultations, and fertility evaluations.
+              At Isalu Hospitals, our Obstetrics & Gynaecology specialists are on duty <strong>7 days a week</strong> for comprehensive women's healthcare, prenatal consultations, and fertility evaluations.
             </p>
           </div>
 
