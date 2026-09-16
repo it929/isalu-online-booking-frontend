@@ -1080,7 +1080,7 @@ export function HomePage() {
 
               {/* Maximized Cutout Subject Image */}
               <img
-                src="/isalu-hero.png"
+                src="/isalu-h.png"
                 alt="Healthcare professional"
                 className="relative z-10 max-h-[140%] w-auto object-contain object-bottom filter brightness-105 contrast-[1.02] drop-shadow-2xl pointer-events-none transform scale-130 translate-y-3 transition-transform duration-500 hover:scale-135"
               />
