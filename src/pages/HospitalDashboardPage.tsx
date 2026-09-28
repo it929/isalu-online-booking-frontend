@@ -4126,8 +4126,12 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
 
   // Booking registry is always loaded from the backend.
   const loadBookings = async () => {
-    const remote = await getBookingsAPI();
-    setBookings(Array.isArray(remote) ? remote : []);
+    // const remote = await getBookingsAPI();
+    // setBookings(Array.isArray(remote) ? remote : []);
+    // Example for bookings loading
+    const res = await getBookingsAPI();
+    const bookingList = Array.isArray(res) ? res : (res?.results || []);
+    setBookings(bookingList);
   };
 
   const handleManualRefresh = async () => {
