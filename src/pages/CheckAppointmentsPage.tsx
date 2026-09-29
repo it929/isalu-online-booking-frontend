@@ -832,48 +832,62 @@ export function CheckAppointmentsPage() {
   };
 
   useEffect(() => {
-    async function loadAllData() {
-      const [remoteDoctors, remoteSchedules] = await Promise.all([getDoctorsAPI(), getSchedulesAPI()]);
-      setDoctorsList(Array.isArray(remoteDoctors) ? remoteDoctors : []);
-      setSchedulesList(Array.isArray(remoteSchedules) ? remoteSchedules : []);
+    let isMounted = true;
 
-      const urlRef = searchParams.get("ref") || searchParams.get("code");
-      if (urlRef) {
-        const found = await lookupBookingAPI(urlRef);
-        const matches = found && !found.error ? [found] : [];
-        setBookings(matches);
-        setSearchQuery(urlRef);
-        setHasSearched(true);
-        setFilteredBookings(matches);
-        if (matches.length > 0) { setSelectedBooking(matches[0]); setIsSlipModalOpen(true); }
-      } else {
+    const initialRef =
+      searchParams.get("ref") || searchParams.get("code");
+
+    async function loadAllData() {
+      try {
+        const [remoteDoctors, remoteSchedules] = await Promise.all([
+          getDoctorsAPI(),
+          getSchedulesAPI(),
+        ]);
+
+        if (!isMounted) return;
+
+        setDoctorsList(Array.isArray(remoteDoctors) ? remoteDoctors : []);
+        setSchedulesList(Array.isArray(remoteSchedules) ? remoteSchedules : []);
+
+        if (initialRef) {
+          const found = await lookupBookingAPI(initialRef);
+
+          if (!isMounted) return;
+
+          const matches = found && !found.error ? [found] : [];
+
+          setBookings(matches);
+          setSearchQuery(initialRef);
+          setHasSearched(true);
+          setFilteredBookings(matches);
+
+          if (matches.length > 0) {
+            setSelectedBooking(matches[0]);
+            setIsSlipModalOpen(true);
+          }
+        } else {
+          setBookings([]);
+          setFilteredBookings([]);
+        }
+      } catch (error) {
+        if (!isMounted) return;
+
+        console.error("Failed to load appointment data:", error);
+
+        setDoctorsList([]);
+        setSchedulesList([]);
         setBookings([]);
+        setFilteredBookings([]);
       }
     }
+
+    // ONLY initial page-load request.
     loadAllData();
 
-    const pollInterval = setInterval(() => {
-      loadAllData();
-    }, 2000);
-
-    let channel: BroadcastChannel | null = null;
-    try {
-      channel = new BroadcastChannel("isalu_hospital_channel");
-      channel.onmessage = () => {
-        loadAllData();
-      };
-    } catch { }
-
-    window.addEventListener("storage", loadAllData);
-    window.addEventListener("isalu_booking_updated", loadAllData);
-
     return () => {
-      clearInterval(pollInterval);
-      if (channel) channel.close();
-      window.removeEventListener("storage", loadAllData);
-      window.removeEventListener("isalu_booking_updated", loadAllData);
+      isMounted = false;
     };
-  }, [searchParams]);
+  }, []);
 
   const [isSearching, setIsSearching] = useState(false);
 
@@ -1083,10 +1097,10 @@ export function CheckAppointmentsPage() {
                       <div className="flex items-center gap-2">
                         <span
                           className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${b.status === "Confirmed"
-                              ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                              : b.status === "Cancelled"
-                                ? "bg-red-50 text-red-700 border border-red-200"
-                                : "bg-sky-50 text-sky-700 border border-sky-200"
+                            ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                            : b.status === "Cancelled"
+                              ? "bg-red-50 text-red-700 border border-red-200"
+                              : "bg-sky-50 text-sky-700 border border-sky-200"
                             }`}
                         >
                           {b.status || "Confirmed"}
@@ -1220,10 +1234,10 @@ export function CheckAppointmentsPage() {
                             if (slots.length > 0) setRescheduleTime(slots[0]);
                           }}
                           className={`p-3 rounded-xl border text-left transition-all text-xs flex flex-col justify-between gap-1 ${isSelected
-                              ? "border-sky-600 bg-sky-50 ring-2 ring-sky-500/20 text-sky-900 font-bold"
-                              : isDisabled
-                                ? "border-slate-100 bg-slate-50 text-slate-300 cursor-not-allowed"
-                                : "border-slate-200 bg-white hover:border-sky-300 text-slate-700"
+                            ? "border-sky-600 bg-sky-50 ring-2 ring-sky-500/20 text-sky-900 font-bold"
+                            : isDisabled
+                              ? "border-slate-100 bg-slate-50 text-slate-300 cursor-not-allowed"
+                              : "border-slate-200 bg-white hover:border-sky-300 text-slate-700"
                             }`}
                         >
                           <div className="flex items-center justify-between w-full">
@@ -1259,8 +1273,8 @@ export function CheckAppointmentsPage() {
                             type="button"
                             onClick={() => setRescheduleTime(slot)}
                             className={`p-3 rounded-xl border text-center transition-all text-xs font-semibold ${isSelected
-                                ? "border-sky-600 bg-sky-50 text-sky-900 ring-2 ring-sky-500/20"
-                                : "border-slate-200 bg-white hover:border-sky-300 text-slate-700"
+                              ? "border-sky-600 bg-sky-50 text-sky-900 ring-2 ring-sky-500/20"
+                              : "border-slate-200 bg-white hover:border-sky-300 text-slate-700"
                               }`}
                           >
                             {slot}

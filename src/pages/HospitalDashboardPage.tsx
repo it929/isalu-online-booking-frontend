@@ -366,7 +366,24 @@ export function HospitalDashboardPage() {
     type?: "success" | "info" | "warning" | "danger";
   } | null>(null);
 
-  const [bookings, setBookings] = useState<any[]>([]);
+  const [isLoadingBookings, setIsLoadingBookings] = useState<boolean>(() => {
+    try {
+      const cached = localStorage.getItem("isalu_cached_bookings");
+      if (cached && JSON.parse(cached).length > 0) return false;
+    } catch {}
+    return true;
+  });
+
+  const [bookings, setBookings] = useState<any[]>(() => {
+    try {
+      const cached = localStorage.getItem("isalu_cached_bookings");
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return [];
+  });
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [hmoProviderFilter, setHmoProviderFilter] = useState("all");
@@ -748,7 +765,13 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
   };
 
   // User Management State Module
-  const [systemUsers, setSystemUsers] = useState<any[]>([]);
+  const [systemUsers, setSystemUsers] = useState<any[]>(() => {
+    try {
+      const c = localStorage.getItem("isalu_cached_users");
+      if (c) { const p = JSON.parse(c); if (Array.isArray(p) && p.length > 0) return p; }
+    } catch {}
+    return [];
+  });
 
   const [userSearchQuery, setUserSearchQuery] = useState("");
   const [userRoleFilter, setUserRoleFilter] = useState("all");
@@ -756,7 +779,13 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
 
   // User & Roles Management Module State
   const [userSubTab, setUserSubTab] = useState<"users" | "roles">("users");
-  const [roles, setRoles] = useState<any[]>([]);
+  const [roles, setRoles] = useState<any[]>(() => {
+    try {
+      const c = localStorage.getItem("isalu_cached_roles");
+      if (c) { const p = JSON.parse(c); if (Array.isArray(p) && p.length > 0) return p; }
+    } catch {}
+    return [];
+  });
 
   const [showCreateRoleModal, setShowCreateRoleModal] = useState(false);
   const [newRoleName, setNewRoleName] = useState("");
@@ -785,7 +814,10 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
 
   const loadRoles = async () => {
     const remote = await getRolesAPI();
-    if (Array.isArray(remote)) { setRoles(remote); }
+    if (Array.isArray(remote) && remote.length > 0) {
+      try { localStorage.setItem("isalu_cached_roles", JSON.stringify(remote)); } catch {}
+      setRoles(remote);
+    }
   };
 
   const handleCreateRole = async (e: React.FormEvent) => {
@@ -909,7 +941,12 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
 
   const loadUsers = async () => {
     const remote = await getSystemUsersAPI();
-    setSystemUsers(Array.isArray(remote) ? remote : []);
+    if (Array.isArray(remote) && remote.length > 0) {
+      try { localStorage.setItem("isalu_cached_users", JSON.stringify(remote)); } catch {}
+      setSystemUsers(remote);
+    } else if (Array.isArray(remote)) {
+      setSystemUsers(remote);
+    }
     if (Array.isArray(remote)) {
       const savedProfile = sessionStorage.getItem("isalu_staff_user_profile");
       if (savedProfile) { try { const parsedCur = JSON.parse(savedProfile); const matched = remote.find((u: any) => u.email?.toLowerCase() === parsedCur?.email?.toLowerCase() || u.name?.toLowerCase() === parsedCur?.name?.toLowerCase()); if (matched?.role) { const updatedProf = { ...parsedCur, role: matched.role, desk: matched.desk || getPrimaryDeskForRole(matched.role) }; sessionStorage.setItem("isalu_staff_user_profile", JSON.stringify(updatedProf)); setCurrentUser(updatedProf); } } catch { } }
@@ -1073,7 +1110,13 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
   };
 
   // HMO Provider Companies List State
-  const [hmoCompanies, setHmoCompanies] = useState<any[]>([]);
+  const [hmoCompanies, setHmoCompanies] = useState<any[]>(() => {
+    try {
+      const c = localStorage.getItem("isalu_cached_hmos");
+      if (c) { const p = JSON.parse(c); if (Array.isArray(p) && p.length > 0) return p; }
+    } catch {}
+    return [];
+  });
 
   // Create & Edit HMO Provider Company Form State
   const [showCreateHmoModal, setShowCreateHmoModal] = useState(false);
@@ -1385,7 +1428,13 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
   };
 
   // Clinic & Department Management Module State
-  const [clinics, setClinics] = useState<any[]>([]);
+  const [clinics, setClinics] = useState<any[]>(() => {
+    try {
+      const c = localStorage.getItem("isalu_cached_clinics");
+      if (c) { const p = JSON.parse(c); if (Array.isArray(p) && p.length > 0) return p; }
+    } catch {}
+    return [];
+  });
 
   const loadClinics = async () => {
     const remote = await getDepartmentsAPI({ include_disabled: true });
@@ -1402,8 +1451,10 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
         status: d.status,
         location: d.location || "Main Hospital Complex - Suite Wing",
       }));
-      setClinics(mapped);
-
+      if (mapped.length > 0) {
+        try { localStorage.setItem("isalu_cached_clinics", JSON.stringify(mapped)); } catch {}
+        setClinics(mapped);
+      }
     }
   };
 
@@ -1665,10 +1716,22 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
   };
 
   // Specialist Schedule Management State
-  const [specialistSchedules, setSpecialistSchedules] = useState<any[]>([]);
+  const [specialistSchedules, setSpecialistSchedules] = useState<any[]>(() => {
+    try {
+      const c = localStorage.getItem("isalu_cached_schedules");
+      if (c) { const p = JSON.parse(c); if (Array.isArray(p) && p.length > 0) return p; }
+    } catch {}
+    return [];
+  });
 
   // Registered Doctors State
-  const [doctorsList, setDoctorsList] = useState<any[]>([]);
+  const [doctorsList, setDoctorsList] = useState<any[]>(() => {
+    try {
+      const c = localStorage.getItem("isalu_cached_doctors");
+      if (c) { const p = JSON.parse(c); if (Array.isArray(p) && p.length > 0) return p; }
+    } catch {}
+    return [];
+  });
 
   // New Specialist Doctor Modal State
   const [showAddDoctorModal, setShowAddDoctorModal] = useState(false);
@@ -4124,31 +4187,49 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
 
   const [isRefreshingData, setIsRefreshingData] = useState(false);
 
-  // Booking registry is always loaded from the backend.
   const loadBookings = async () => {
-    // const remote = await getBookingsAPI();
-    // setBookings(Array.isArray(remote) ? remote : []);
-    // Example for bookings loading
     const res = await getBookingsAPI();
-    const bookingList = Array.isArray(res) ? res : (res?.results || []);
-    setBookings(bookingList);
+    const finalBookings = Array.isArray(res) ? res : [];
+    console.log("[loadBookings] getBookingsAPI() raw result:", res);
+    console.log("[loadBookings] setBookings receiving array length:", finalBookings.length, "Sample item:", finalBookings[0]);
+    if (finalBookings.length > 0) {
+      try {
+        localStorage.setItem("isalu_cached_bookings", JSON.stringify(finalBookings));
+      } catch {}
+      setBookings(finalBookings);
+    } else {
+      setBookings((prev) => (prev.length > 0 ? prev : []));
+    }
+    setIsLoadingBookings(false);
   };
 
   const handleManualRefresh = async () => {
     setIsRefreshingData(true);
     try {
+      // Load bookings first so the main table renders immediately
+      await loadBookings();
+
+      // Load secondary metadata afterwards
       await Promise.allSettled([
-        loadBookings(),
         fetchDisabledBookings(),
         loadClinics(),
         getDoctorsAPI().then((remote) => {
-          if (Array.isArray(remote)) setDoctorsList(remote);
+          if (Array.isArray(remote) && remote.length > 0) {
+            try { localStorage.setItem("isalu_cached_doctors", JSON.stringify(remote)); } catch {}
+            setDoctorsList(remote);
+          }
         }),
         getSchedulesAPI().then((remote) => {
-          if (Array.isArray(remote)) setSpecialistSchedules(remote);
+          if (Array.isArray(remote) && remote.length > 0) {
+            try { localStorage.setItem("isalu_cached_schedules", JSON.stringify(remote)); } catch {}
+            setSpecialistSchedules(remote);
+          }
         }),
         getHmoCompaniesAPI().then((remote) => {
-          if (Array.isArray(remote)) setHmoCompanies(remote);
+          if (Array.isArray(remote) && remote.length > 0) {
+            try { localStorage.setItem("isalu_cached_hmos", JSON.stringify(remote)); } catch {}
+            setHmoCompanies(remote);
+          }
         }),
         loadUsers(),
         loadRoles(),
@@ -4361,7 +4442,13 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
   };
 
   // --- SUPERADMIN RESTORE DISABLED BOOKINGS STATE & HANDLERS ---
-  const [disabledBookings, setDisabledBookings] = useState<any[]>([]);
+  const [disabledBookings, setDisabledBookings] = useState<any[]>(() => {
+    try {
+      const c = localStorage.getItem("isalu_cached_disabled_bookings");
+      if (c) { const p = JSON.parse(c); if (Array.isArray(p) && p.length > 0) return p; }
+    } catch {}
+    return [];
+  });
   const [disabledSearchQuery, setDisabledSearchQuery] = useState("");
   const [isRestoringBooking, setIsRestoringBooking] = useState<string | null>(null);
 
@@ -4369,7 +4456,10 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
     try {
       const remote = await getDisabledBookingsAPI();
       if (remote && Array.isArray(remote)) {
-        setDisabledBookings(remote);
+        if (remote.length > 0) {
+          try { localStorage.setItem("isalu_cached_disabled_bookings", JSON.stringify(remote)); } catch {}
+          setDisabledBookings(remote);
+        }
       }
     } catch (err) {
       console.warn("Error fetching disabled bookings:", err);
@@ -4533,30 +4623,40 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
 
     const loadDoctors = async () => {
       const remote = await getDoctorsAPI();
-      if (!disposed && Array.isArray(remote)) {
+      if (!disposed && Array.isArray(remote) && remote.length > 0) {
+        try { localStorage.setItem("isalu_cached_doctors", JSON.stringify(remote)); } catch {}
+        setDoctorsList(remote);
+      } else if (!disposed && Array.isArray(remote)) {
         setDoctorsList(remote);
       }
     };
 
     const loadSchedules = async () => {
       const remote = await getSchedulesAPI();
-      if (!disposed && Array.isArray(remote)) {
+      if (!disposed && Array.isArray(remote) && remote.length > 0) {
+        try { localStorage.setItem("isalu_cached_schedules", JSON.stringify(remote)); } catch {}
+        setSpecialistSchedules(remote);
+      } else if (!disposed && Array.isArray(remote)) {
         setSpecialistSchedules(remote);
       }
     };
 
     const loadHmos = async () => {
       const remote = await getHmoCompaniesAPI();
-      if (!disposed && Array.isArray(remote)) {
+      if (!disposed && Array.isArray(remote) && remote.length > 0) {
+        try { localStorage.setItem("isalu_cached_hmos", JSON.stringify(remote)); } catch {}
+        setHmoCompanies(remote);
+      } else if (!disposed && Array.isArray(remote)) {
         setHmoCompanies(remote);
       }
     };
 
     const loadDashboardData = async () => {
-      // Initial page load only. These requests run concurrently rather than
-      // serially, so the dashboard becomes usable much faster.
+      // 1. Load active bookings first so the table renders immediately.
+      await safeLoad(loadBookings, "bookings");
+
+      // 2. Load secondary metadata after bookings have completed.
       await Promise.allSettled([
-        safeLoad(loadBookings, "bookings"),
         safeLoad(fetchDisabledBookings, "disabled bookings"),
         safeLoad(loadClinics, "departments"),
         safeLoad(loadDoctors, "doctors"),
@@ -5952,7 +6052,12 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
               </button>
             </div>
 
-            {filteredBookings.length === 0 ? (
+            {isLoadingBookings && filteredBookings.length === 0 ? (
+              <div className="bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 rounded-3xl p-8 shadow-sm text-center space-y-3">
+                <div className="h-6 w-6 border-2 border-[#008ac9] border-t-transparent rounded-full animate-spin mx-auto" />
+                <p className="text-xs font-bold text-slate-600 dark:text-slate-400">Synchronizing live patient tickets from server...</p>
+              </div>
+            ) : filteredBookings.length === 0 ? (
               <div className="text-center py-16 bg-white dark:bg-slate-900 border-2 border-dashed border-slate-300 dark:border-slate-800 rounded-3xl p-8 shadow-sm">
                 <Users className="h-10 w-10 text-slate-400 mx-auto mb-2" />
                 <h3 className="text-base font-black text-slate-900 dark:text-white">No Tickets Found</h3>
@@ -8429,7 +8534,12 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
                 </h3>
               </div>
 
-              {filteredBookings.length === 0 ? (
+              {isLoadingBookings && filteredBookings.length === 0 ? (
+                <div className="text-center py-12 space-y-3">
+                  <div className="h-6 w-6 border-2 border-[#008ac9] border-t-transparent rounded-full animate-spin mx-auto" />
+                  <p className="font-bold text-xs text-slate-500">Synchronizing patient records from server...</p>
+                </div>
+              ) : filteredBookings.length === 0 ? (
                 <div className="text-center py-12 space-y-2 text-slate-500">
                   <Users className="h-10 w-10 mx-auto text-slate-300" />
                   <p className="font-bold text-sm">No patient records found matching search filters.</p>
