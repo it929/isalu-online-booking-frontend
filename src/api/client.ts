@@ -1059,24 +1059,25 @@ export async function deleteScheduleAPI(
 /* =========================================================
    BOOKINGS
 ========================================================= */
+export async function getBookingsAPI(): Promise<Booking[] | null> {
+  const response = await apiRequest<any>("/bookings/");
 
-export async function getBookingsAPI(): Promise<
-  Booking[] | null
-> {
-  const response = await apiRequest<any>(
-    "/bookings/"
-  );
-
+  // Request failed.
   if (response === null || isApiError(response)) {
-    return response as Booking[] | null;
+    console.error(
+      "[BOOKINGS] API request failed:",
+      response
+    );
+    return null;
   }
 
-  // Support both standard DRF list responses and paginated DRF responses.
-  // This keeps the dashboard compatible with either pagination configuration.
+  // Standard DRF list response.
   if (Array.isArray(response)) {
     return response as Booking[];
   }
 
+  // DRF pagination:
+  // { count, next, previous, results: [...] }
   if (
     response &&
     typeof response === "object" &&
@@ -1085,6 +1086,8 @@ export async function getBookingsAPI(): Promise<
     return response.results as Booking[];
   }
 
+  // Wrapped response:
+  // { data: [...] }
   if (
     response &&
     typeof response === "object" &&
@@ -1093,14 +1096,45 @@ export async function getBookingsAPI(): Promise<
     return response.data as Booking[];
   }
 
-  if (ENABLE_DEBUG_LOGGING) {
-    console.error(
-      "[BOOKINGS] Unexpected API response shape:",
-      response
-    );
+  // Wrapped paginated response:
+  // { data: { results: [...] } }
+  if (
+    response &&
+    typeof response === "object" &&
+    response.data &&
+    typeof response.data === "object" &&
+    Array.isArray(response.data.results)
+  ) {
+    return response.data.results as Booking[];
   }
 
-  return [];
+  console.error(
+    "[BOOKINGS] Unexpected API response shape:",
+    response
+  );
+
+  return null;
+}
+/**
+ * Fast dashboard KPI snapshot. The Django endpoint is Redis-backed and
+ * returns only the aggregate counters needed by the dashboard cards.
+ */
+export async function getBookingSummaryAPI(): Promise<Record<string, number> | null> {
+  const response = await apiRequest<any>(
+    "/bookings/summary/"
+  );
+
+  if (!response || isApiError(response)) {
+    return null;
+  }
+
+  const data = response?.data && typeof response.data === "object"
+    ? response.data
+    : response;
+
+  return data && typeof data === "object"
+    ? data as Record<string, number>
+    : null;
 }
 
 /**

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { jsPDF } from "jspdf";
 const getAcronymForIndex = (index: number) => { let letters = "", n = index; while (n >= 0) { letters = String.fromCharCode(65 + (n % 26)) + letters; n = Math.floor(n / 26) - 1; } return `Specialist ${letters}`; };
@@ -52,6 +52,7 @@ import {
 } from "lucide-react";
 import {
   getBookingsAPI,
+  getBookingSummaryAPI,
   deleteBookingAPI,
   getDisabledBookingsAPI,
   restoreBookingAPI,
@@ -94,9 +95,12 @@ import {
 } from "../api/client";
 import { IsaluLogo } from "../components/IsaluLogo";
 
+
 export function HospitalDashboardPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const deskParam = searchParams.get("desk") as any;
+
+  const [completingBookingRef, setCompletingBookingRef] = useState<string | null>(null);
 
   const actionParam = searchParams.get("action");
 
@@ -216,10 +220,13 @@ export function HospitalDashboardPage() {
   );
 
   const isDeskAllowed = (desk: DeskType): boolean => {
-    if (!currentUser || !currentUser.role) return false;
-    const roleStr = (currentUser.role || "").toLowerCase().trim();
+    if (!currentUser?.role) return false;
 
-    // Super Administrator / Hospital Administrator / Chief Admin -> Full access to all desks
+    const roleStr = String(currentUser.role)
+      .toLowerCase()
+      .trim();
+
+    // Administrators have full access.
     if (
       roleStr.includes("super administrator") ||
       roleStr.includes("hospital administrator") ||
@@ -232,52 +239,82 @@ export function HospitalDashboardPage() {
       return true;
     }
 
-    // Check dynamic custom roles defined in roles state
-    const matchedRole = roles.find(
-      (r: any) =>
-        (r.name || "").toLowerCase().trim() === roleStr ||
-        (r.role_id || r.id || "").toLowerCase().trim() === roleStr
-    );
-    if (matchedRole) {
-      const allowedList = matchedRole.allowedDesks || matchedRole.allowed_desks || [];
-      if (desk === "clinic" || desk === "users" || desk === "disabled_bookings") {
-        return allowedList.includes(desk);
-      }
-      if (allowedList.length > 0) {
-        return allowedList.includes(desk);
-      }
-      const prim = matchedRole.primaryDesk || matchedRole.primary_desk;
-      if (prim) return prim === desk;
-    }
-
-    // Clinic Module, Manage Users, and Disabled Bookings Archive strictly require Super Administrator access by default
-    if (desk === "clinic" || desk === "users" || desk === "disabled_bookings") {
-      return false;
-    }
-
-    // HMO Approval Officer -> Strictly HMO Approval Desk & HMO Enrollees ONLY (No access to Helpdesk)
+    // Built-in role permissions must work even while
+    // the dynamic roles endpoint is still loading.
     if (roleStr.includes("hmo") || roleStr.includes("insurance")) {
       return desk === "hmo" || desk === "hmo_enrollees";
     }
 
-    // Cashdesk Billing Officer -> Strictly Cashdesk & Private Patients ONLY
-    if (roleStr.includes("cash") || roleStr.includes("cashier") || roleStr.includes("billing")) {
+    if (
+      roleStr.includes("cash") ||
+      roleStr.includes("cashier") ||
+      roleStr.includes("billing")
+    ) {
       return desk === "cashdesk" || desk === "private_patients";
     }
 
-    // Floor Monitor Operator -> Strictly Monitor Desk ONLY
-    if (roleStr.includes("monitor") || roleStr.includes("controller")) {
+    if (
+      roleStr.includes("monitor") ||
+      roleStr.includes("controller")
+    ) {
       return desk === "monitor";
     }
 
-    // Queue Analytics Officer -> Strictly Analytics Desk ONLY
-    if (roleStr.includes("analytics") || roleStr.includes("executive")) {
+    if (
+      roleStr.includes("analytics") ||
+      roleStr.includes("executive")
+    ) {
       return desk === "analytics";
     }
 
-    // Helpdesk Receptionist / Staff Officer -> Helpdesk Reception & Patient Directories ONLY
-    if (roleStr.includes("helpdesk") || roleStr.includes("reception") || roleStr.includes("staff")) {
-      return desk === "helpdesk" || desk === "all_patients" || desk === "checked_in_patients";
+    if (
+      roleStr.includes("helpdesk") ||
+      roleStr.includes("reception") ||
+      roleStr.includes("staff")
+    ) {
+      return (
+        desk === "helpdesk" ||
+        desk === "all_patients" ||
+        desk === "checked_in_patients"
+      );
+    }
+
+    // Then check dynamic custom roles.
+    const matchedRole = roles.find((r: any) => {
+      const roleName = String(r.name || "").toLowerCase().trim();
+      const roleId = String(
+        r.role_id || r.id || ""
+      ).toLowerCase().trim();
+
+      return roleName === roleStr || roleId === roleStr;
+    });
+
+    if (matchedRole) {
+      const allowedList =
+        matchedRole.allowedDesks ||
+        matchedRole.allowed_desks ||
+        [];
+
+      if (Array.isArray(allowedList) && allowedList.length > 0) {
+        return allowedList.includes(desk);
+      }
+
+      const primary =
+        matchedRole.primaryDesk ||
+        matchedRole.primary_desk;
+
+      if (primary) {
+        return primary === desk;
+      }
+    }
+
+    // Restricted modules remain restricted by default.
+    if (
+      desk === "clinic" ||
+      desk === "users" ||
+      desk === "disabled_bookings"
+    ) {
+      return false;
     }
 
     return false;
@@ -366,24 +403,55 @@ export function HospitalDashboardPage() {
     type?: "success" | "info" | "warning" | "danger";
   } | null>(null);
 
-  const [isLoadingBookings, setIsLoadingBookings] = useState<boolean>(() => {
-    try {
-      const cached = localStorage.getItem("isalu_cached_bookings");
-      if (cached && JSON.parse(cached).length > 0) return false;
-    } catch {}
-    return true;
-  });
-
   const [bookings, setBookings] = useState<any[]>(() => {
     try {
       const cached = localStorage.getItem("isalu_cached_bookings");
       if (cached) {
         const parsed = JSON.parse(cached);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed)) return parsed;
       }
-    } catch {}
+    } catch { }
     return [];
   });
+
+  const [isLoadingBookings, setIsLoadingBookings] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("isalu_cached_bookings") === null;
+    } catch {
+      return true;
+    }
+  });
+
+  type DashboardSummary = {
+    totalBookings: number;
+    checkedInCount: number;
+    pendingHmoCount: number;
+    pendingCashCount: number;
+  };
+
+  const DASHBOARD_SUMMARY_CACHE_KEY = "isalu_dashboard_summary";
+
+  const [dashboardSummary, setDashboardSummary] = useState<DashboardSummary | null>(() => {
+    try {
+      const cached = localStorage.getItem(DASHBOARD_SUMMARY_CACHE_KEY);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed && typeof parsed === "object") {
+          return {
+            totalBookings: Number(parsed.totalBookings ?? 0),
+            checkedInCount: Number(parsed.checkedInCount ?? 0),
+            pendingHmoCount: Number(parsed.pendingHmoCount ?? 0),
+            pendingCashCount: Number(parsed.pendingCashCount ?? 0),
+          };
+        }
+      }
+    } catch { }
+    return null;
+  });
+
+  const [isRefreshingSummary, setIsRefreshingSummary] = useState(false);
+  const bookingRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const summaryRequestRef = useRef<Promise<void> | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [hmoProviderFilter, setHmoProviderFilter] = useState("all");
@@ -769,7 +837,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
     try {
       const c = localStorage.getItem("isalu_cached_users");
       if (c) { const p = JSON.parse(c); if (Array.isArray(p) && p.length > 0) return p; }
-    } catch {}
+    } catch { }
     return [];
   });
 
@@ -783,7 +851,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
     try {
       const c = localStorage.getItem("isalu_cached_roles");
       if (c) { const p = JSON.parse(c); if (Array.isArray(p) && p.length > 0) return p; }
-    } catch {}
+    } catch { }
     return [];
   });
 
@@ -815,7 +883,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
   const loadRoles = async () => {
     const remote = await getRolesAPI();
     if (Array.isArray(remote) && remote.length > 0) {
-      try { localStorage.setItem("isalu_cached_roles", JSON.stringify(remote)); } catch {}
+      try { localStorage.setItem("isalu_cached_roles", JSON.stringify(remote)); } catch { }
       setRoles(remote);
     }
   };
@@ -942,7 +1010,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
   const loadUsers = async () => {
     const remote = await getSystemUsersAPI();
     if (Array.isArray(remote) && remote.length > 0) {
-      try { localStorage.setItem("isalu_cached_users", JSON.stringify(remote)); } catch {}
+      try { localStorage.setItem("isalu_cached_users", JSON.stringify(remote)); } catch { }
       setSystemUsers(remote);
     } else if (Array.isArray(remote)) {
       setSystemUsers(remote);
@@ -1114,7 +1182,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
     try {
       const c = localStorage.getItem("isalu_cached_hmos");
       if (c) { const p = JSON.parse(c); if (Array.isArray(p) && p.length > 0) return p; }
-    } catch {}
+    } catch { }
     return [];
   });
 
@@ -1432,7 +1500,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
     try {
       const c = localStorage.getItem("isalu_cached_clinics");
       if (c) { const p = JSON.parse(c); if (Array.isArray(p) && p.length > 0) return p; }
-    } catch {}
+    } catch { }
     return [];
   });
 
@@ -1452,7 +1520,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
         location: d.location || "Main Hospital Complex - Suite Wing",
       }));
       if (mapped.length > 0) {
-        try { localStorage.setItem("isalu_cached_clinics", JSON.stringify(mapped)); } catch {}
+        try { localStorage.setItem("isalu_cached_clinics", JSON.stringify(mapped)); } catch { }
         setClinics(mapped);
       }
     }
@@ -1720,7 +1788,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
     try {
       const c = localStorage.getItem("isalu_cached_schedules");
       if (c) { const p = JSON.parse(c); if (Array.isArray(p) && p.length > 0) return p; }
-    } catch {}
+    } catch { }
     return [];
   });
 
@@ -1729,7 +1797,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
     try {
       const c = localStorage.getItem("isalu_cached_doctors");
       if (c) { const p = JSON.parse(c); if (Array.isArray(p) && p.length > 0) return p; }
-    } catch {}
+    } catch { }
     return [];
   });
 
@@ -3128,15 +3196,6 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
     return "helpdesk";
   };
 
-
-
-  useEffect(() => {
-    if (!isDeskAllowed(activeDesk)) {
-      const primary = getPrimaryDeskForRole(currentUser?.role);
-      setActiveDesk(primary as any);
-    }
-  }, [currentUser, activeDesk]);
-
   // AI Reporting Assistant State
   const [aiPrompt, setAiPrompt] = useState("");
   const [isGeneratingAiReport, setIsGeneratingAiReport] = useState(false);
@@ -4187,27 +4246,112 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
 
   const [isRefreshingData, setIsRefreshingData] = useState(false);
 
-  const loadBookings = async () => {
-    const res = await getBookingsAPI();
-    const finalBookings = Array.isArray(res) ? res : [];
-    console.log("[loadBookings] getBookingsAPI() raw result:", res);
-    console.log("[loadBookings] setBookings receiving array length:", finalBookings.length, "Sample item:", finalBookings[0]);
-    if (finalBookings.length > 0) {
-      try {
-        localStorage.setItem("isalu_cached_bookings", JSON.stringify(finalBookings));
-      } catch {}
-      setBookings(finalBookings);
-    } else {
-      setBookings((prev) => (prev.length > 0 ? prev : []));
+  const loadDashboardSummary = async (background = true) => {
+    // Single-flight: multiple WebSocket events should not create overlapping
+    // summary requests. The last successful server response remains visible.
+    if (summaryRequestRef.current) {
+      return summaryRequestRef.current;
     }
-    setIsLoadingBookings(false);
+
+    const request = (async () => {
+      if (background) setIsRefreshingSummary(true);
+
+      try {
+        const response = await getBookingSummaryAPI();
+        if (!response || typeof response !== "object") return;
+
+        const next: DashboardSummary = {
+          totalBookings: Number((response as any).totalBookings ?? 0),
+          checkedInCount: Number((response as any).checkedInCount ?? 0),
+          pendingHmoCount: Number((response as any).pendingHmoCount ?? 0),
+          pendingCashCount: Number((response as any).pendingCashCount ?? 0),
+        };
+
+        setDashboardSummary(next);
+        try {
+          localStorage.setItem(DASHBOARD_SUMMARY_CACHE_KEY, JSON.stringify(next));
+        } catch { }
+      } catch (error) {
+        console.warn("[Dashboard] Summary refresh failed; keeping previous state.", error);
+      } finally {
+        if (background) setIsRefreshingSummary(false);
+      }
+    })();
+
+    summaryRequestRef.current = request;
+    try {
+      await request;
+    } finally {
+      summaryRequestRef.current = null;
+    }
+  };
+
+  const loadBookings = async () => {
+    try {
+      const res = await getBookingsAPI();
+
+      // null = request/API failure.
+      // NEVER erase already loaded patient data in this case.
+      if (res === null) {
+        console.warn(
+          "[Dashboard] Booking API failed; keeping existing booking data."
+        );
+        setIsLoadingBookings(false);
+        return;
+      }
+
+      // [] = successful API response with no bookings.
+      if (!Array.isArray(res)) {
+        console.warn(
+          "[Dashboard] Invalid bookings response; keeping existing booking data."
+        );
+        setIsLoadingBookings(false);
+        return;
+      }
+
+      console.log(
+        "[Dashboard] Bookings successfully loaded:",
+        res.length
+      );
+
+      if (res.length > 0) {
+        console.log("[Dashboard] First booking:", res[0]);
+      }
+
+      setBookings(res);
+
+      try {
+        localStorage.setItem(
+          "isalu_cached_bookings",
+          JSON.stringify(res)
+        );
+      } catch (storageError) {
+        console.warn(
+          "[Dashboard] Could not cache bookings:",
+          storageError
+        );
+      }
+    } catch (error) {
+      console.error(
+        "[Dashboard] Booking loading failed:",
+        error
+      );
+
+      // Keep whatever was already displayed.
+    } finally {
+      setIsLoadingBookings(false);
+    }
   };
 
   const handleManualRefresh = async () => {
     setIsRefreshingData(true);
     try {
-      // Load bookings first so the main table renders immediately
-      await loadBookings();
+      // Refresh the fast summary and booking list together. Existing cached
+      // values remain visible while these requests are in flight.
+      await Promise.allSettled([
+        loadDashboardSummary(false),
+        loadBookings(),
+      ]);
 
       // Load secondary metadata afterwards
       await Promise.allSettled([
@@ -4215,19 +4359,19 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
         loadClinics(),
         getDoctorsAPI().then((remote) => {
           if (Array.isArray(remote) && remote.length > 0) {
-            try { localStorage.setItem("isalu_cached_doctors", JSON.stringify(remote)); } catch {}
+            try { localStorage.setItem("isalu_cached_doctors", JSON.stringify(remote)); } catch { }
             setDoctorsList(remote);
           }
         }),
         getSchedulesAPI().then((remote) => {
           if (Array.isArray(remote) && remote.length > 0) {
-            try { localStorage.setItem("isalu_cached_schedules", JSON.stringify(remote)); } catch {}
+            try { localStorage.setItem("isalu_cached_schedules", JSON.stringify(remote)); } catch { }
             setSpecialistSchedules(remote);
           }
         }),
         getHmoCompaniesAPI().then((remote) => {
           if (Array.isArray(remote) && remote.length > 0) {
-            try { localStorage.setItem("isalu_cached_hmos", JSON.stringify(remote)); } catch {}
+            try { localStorage.setItem("isalu_cached_hmos", JSON.stringify(remote)); } catch { }
             setHmoCompanies(remote);
           }
         }),
@@ -4446,7 +4590,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
     try {
       const c = localStorage.getItem("isalu_cached_disabled_bookings");
       if (c) { const p = JSON.parse(c); if (Array.isArray(p) && p.length > 0) return p; }
-    } catch {}
+    } catch { }
     return [];
   });
   const [disabledSearchQuery, setDisabledSearchQuery] = useState("");
@@ -4457,7 +4601,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
       const remote = await getDisabledBookingsAPI();
       if (remote && Array.isArray(remote)) {
         if (remote.length > 0) {
-          try { localStorage.setItem("isalu_cached_disabled_bookings", JSON.stringify(remote)); } catch {}
+          try { localStorage.setItem("isalu_cached_disabled_bookings", JSON.stringify(remote)); } catch { }
           setDisabledBookings(remote);
         }
       }
@@ -4624,7 +4768,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
     const loadDoctors = async () => {
       const remote = await getDoctorsAPI();
       if (!disposed && Array.isArray(remote) && remote.length > 0) {
-        try { localStorage.setItem("isalu_cached_doctors", JSON.stringify(remote)); } catch {}
+        try { localStorage.setItem("isalu_cached_doctors", JSON.stringify(remote)); } catch { }
         setDoctorsList(remote);
       } else if (!disposed && Array.isArray(remote)) {
         setDoctorsList(remote);
@@ -4634,7 +4778,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
     const loadSchedules = async () => {
       const remote = await getSchedulesAPI();
       if (!disposed && Array.isArray(remote) && remote.length > 0) {
-        try { localStorage.setItem("isalu_cached_schedules", JSON.stringify(remote)); } catch {}
+        try { localStorage.setItem("isalu_cached_schedules", JSON.stringify(remote)); } catch { }
         setSpecialistSchedules(remote);
       } else if (!disposed && Array.isArray(remote)) {
         setSpecialistSchedules(remote);
@@ -4644,7 +4788,7 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
     const loadHmos = async () => {
       const remote = await getHmoCompaniesAPI();
       if (!disposed && Array.isArray(remote) && remote.length > 0) {
-        try { localStorage.setItem("isalu_cached_hmos", JSON.stringify(remote)); } catch {}
+        try { localStorage.setItem("isalu_cached_hmos", JSON.stringify(remote)); } catch { }
         setHmoCompanies(remote);
       } else if (!disposed && Array.isArray(remote)) {
         setHmoCompanies(remote);
@@ -4652,11 +4796,15 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
     };
 
     const loadDashboardData = async () => {
-      // 1. Load active bookings first so the table renders immediately.
-      await safeLoad(loadBookings, "bookings");
-
-      // 2. Load secondary metadata after bookings have completed.
+      // Critical dashboard data loads in parallel. Cached state is already
+      // rendered, so these requests never need to blank the dashboard first.
       await Promise.allSettled([
+        safeLoad(() => loadDashboardSummary(false), "dashboard summary"),
+        safeLoad(loadBookings, "bookings"),
+      ]);
+
+      // Secondary metadata is intentionally non-blocking.
+      void Promise.allSettled([
         safeLoad(fetchDisabledBookings, "disabled bookings"),
         safeLoad(loadClinics, "departments"),
         safeLoad(loadDoctors, "doctors"),
@@ -4668,10 +4816,16 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
     };
 
     const refreshBookingData = () => {
-      void safeLoad(loadBookings, "bookings");
-      // Disabled-booking counts/statuses are maintained separately in this
-      // dashboard, so refresh them only for booking events.
-      void safeLoad(fetchDisabledBookings, "disabled bookings");
+      if (bookingRefreshTimerRef.current) {
+        clearTimeout(bookingRefreshTimerRef.current);
+      }
+
+      bookingRefreshTimerRef.current = setTimeout(() => {
+        bookingRefreshTimerRef.current = null;
+        void safeLoad(() => loadDashboardSummary(true), "dashboard summary");
+        void safeLoad(loadBookings, "bookings");
+        void safeLoad(fetchDisabledBookings, "disabled bookings");
+      }, 150);
     };
 
     const refreshUsers = () => void safeLoad(loadUsers, "users");
@@ -4909,6 +5063,11 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
         reconnectTimer = null;
       }
 
+      if (bookingRefreshTimerRef.current) {
+        clearTimeout(bookingRefreshTimerRef.current);
+        bookingRefreshTimerRef.current = null;
+      }
+
       if (socket) {
         socket.onopen = null;
         socket.onmessage = null;
@@ -4982,28 +5141,116 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
   };
 
   const handleMarkCompleted = async (refCode: string) => {
-    const target = bookings.find((b) => b.refCode === refCode || b.ref_code === refCode);
-    const payStat = target?.paymentStatus || target?.payment_status || "Pending";
+    if (completingBookingRef === refCode) {
+      return;
+    }
 
-    if (payStat === "Pending") {
+    const target = bookings.find(
+      (b) => b.refCode === refCode || b.ref_code === refCode
+    );
+
+    if (!target) {
+      setToastAlert({
+        title: "Booking Not Found",
+        description: `Unable to find booking ${refCode} in the current dashboard data.`,
+        type: "danger",
+      });
+      return;
+    }
+
+    const payStat = String(
+      target.paymentStatus ??
+      target.payment_status ??
+      "Pending"
+    )
+      .trim()
+      .toLowerCase();
+
+    if (payStat === "pending") {
       setToastAlert({
         title: "Payment Clearance Required 💳",
-        description: `Ticket ${refCode} cannot be marked as Completed while payment is Pending. Please route patient to Cashdesk or HMO Desk for payment clearing.`,
+        description:
+          `Ticket ${refCode} cannot be marked as Completed while ` +
+          `payment is Pending. Please route patient to Cashdesk or ` +
+          `HMO Desk for payment clearing.`,
         type: "warning",
       });
       return;
     }
 
-    await updateBookingAPI(refCode, { status: "Completed" });
-    const updated = bookings.map((b) =>
-      (b.refCode === refCode || b.ref_code === refCode) ? { ...b, status: "Completed" } : b
-    );
-    saveBookings(updated);
-    setToastAlert({
-      title: "Appointment Completed ✓",
-      description: `Ticket ${refCode} marked completed successfully.`,
-      type: "success",
-    });
+    try {
+      setCompletingBookingRef(refCode);
+
+      const response = await updateBookingAPI(refCode, {
+        status: "Completed",
+      });
+
+      if (
+        !response ||
+        (
+          typeof response === "object" &&
+          "error" in response &&
+          (response as any).error
+        )
+      ) {
+        const errorMessage =
+          typeof (response as any)?.error === "string"
+            ? (response as any).error
+            : "The hospital server did not save the Completed status.";
+
+        console.error(
+          "[Monitor] Mark Completed backend failure:",
+          response
+        );
+
+        setToastAlert({
+          title: "Completion Not Saved ❌",
+          description: errorMessage,
+          type: "danger",
+        });
+
+        return;
+      }
+
+      console.log(
+        `[Monitor] Booking ${refCode} successfully saved as Completed.`,
+        response
+      );
+
+      // Update local state ONLY after backend confirms success.
+      const updated = bookings.map((b) =>
+        (b.refCode === refCode || b.ref_code === refCode)
+          ? {
+            ...b,
+            status: "Completed",
+          }
+          : b
+      );
+
+      saveBookings(updated);
+
+      setToastAlert({
+        title: "Appointment Completed ✓",
+        description:
+          `Ticket ${refCode} was successfully saved as Completed.`,
+        type: "success",
+      });
+    } catch (error) {
+      console.error(
+        "[Monitor] Failed to mark booking completed:",
+        error
+      );
+
+      setToastAlert({
+        title: "Completion Failed ❌",
+        description:
+          "The booking could not be saved to the hospital server. " +
+          "The patient record was not changed locally.",
+        type: "danger",
+      });
+    } finally {
+      setCompletingBookingRef(null);
+    }
   };
 
   const handleCancelBooking = (refCode: string) => {
@@ -5404,28 +5651,41 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
   };
 
   // Calculate Key Metrics & Comprehensive Executive Reporting Data
-  const totalBookings = bookings.length;
-  const todayStrISO = new Date().toISOString().split("T")[0];
+  // Headline KPIs come from the dedicated Redis-backed summary. Detailed
+  // analytics below continue to use the booking collection. This prevents a
+  // refresh/WebSocket reconnect from briefly rendering zeroes.
+  const totalBookings = dashboardSummary?.totalBookings ?? 0;
+
+  const todayStrISO = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Africa/Lagos",
+  }).format(new Date());
+
   const todayBookingsCount = bookings.filter((b) => {
-    const bDate = String(b.date || b.appointmentDate || b.appointment_date || "").trim();
-    if (bDate === todayStrISO) return true;
-    if (b.createdAt || b.created_at) {
-      try {
-        const createdISO = new Date(b.createdAt || b.created_at).toISOString().split("T")[0];
-        if (createdISO === todayStrISO) return true;
-      } catch { }
-    }
-    return false;
+    const rawDate =
+      b?.date ??
+      b?.appointmentDate ??
+      b?.appointment_date ??
+      "";
+
+    const bookingDate = String(rawDate).trim().slice(0, 10);
+
+    return bookingDate === todayStrISO;
   }).length;
-  const checkedInCount = bookings.filter((b) => b.status === "Checked In").length;
-  const completedCount = bookings.filter((b) => (b.status || "").toLowerCase().trim() === "completed").length;
+  const checkedInCount = dashboardSummary?.checkedInCount ?? 0;
+  const completedCount = bookings.filter((b) => {
+    const bookingStatus = String(b?.status ?? "")
+      .trim()
+      .toLowerCase();
+
+    return bookingStatus === "completed";
+  }).length;
   const confirmedCount = bookings.filter((b) => b.status === "Confirmed" || !b.status).length;
   const cancelledCount = bookings.filter((b) => b.status === "Cancelled").length;
 
-  const pendingHmoCount = bookings.filter((b) => b.paymentType === "HMO Insurance" && b.hmoStatus !== "Approved").length;
+  const pendingHmoCount = dashboardSummary?.pendingHmoCount ?? 0;
   const hmoApprovedCount = bookings.filter((b) => b.paymentType === "HMO Insurance" && b.hmoStatus === "Approved").length;
 
-  const pendingCashCount = bookings.filter((b) => b.paymentType === "Private Self-Pay" && b.paymentStatus !== "Cleared").length;
+  const pendingCashCount = dashboardSummary?.pendingCashCount ?? 0;
   const clearedPaymentCount = bookings.filter((b) => b.paymentStatus === "Cleared").length;
   const paidOrApprovedCount = bookings.filter((b) => {
     const st = (b.status || "").toLowerCase().trim();
@@ -5774,7 +6034,15 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
                   <Users className="h-5 w-5" />
                 </div>
               </div>
-              <h2 className="text-3xl font-black text-slate-900 dark:text-white mt-2">{totalBookings}</h2>
+              <h2 className="text-3xl font-black text-slate-900 dark:text-white mt-2">
+                {dashboardSummary === null ? (
+                  <span className="placeholder-glow">
+                    <span className="placeholder col-4 rounded"></span>
+                  </span>
+                ) : (
+                  totalBookings
+                )}
+              </h2>
               <p className="text-[11px] font-bold text-slate-500 mt-1">Hospital Consultation Queue</p>
             </div>
 
@@ -5785,7 +6053,13 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
                   <Calendar className="h-5 w-5" />
                 </div>
               </div>
-              <h2 className="text-3xl font-black text-slate-900 dark:text-white mt-2">{todayBookingsCount}</h2>
+              <h2 className="text-3xl font-black text-slate-900 dark:text-white mt-2">
+                {isLoadingBookings ? (
+                  <span className="inline-block h-9 w-16 rounded-md bg-slate-200 dark:bg-slate-700 animate-pulse" />
+                ) : (
+                  todayBookingsCount
+                )}
+              </h2>
               <p className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 mt-1">Scheduled for Today</p>
             </div>
 
@@ -5796,7 +6070,13 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
                   <UserCheck className="h-5 w-5" />
                 </div>
               </div>
-              <h2 className="text-3xl font-black text-slate-900 dark:text-white mt-2">{paidOrApprovedCount}</h2>
+              <h2 className="text-3xl font-black text-slate-900 dark:text-white mt-2">
+                {dashboardSummary === null ? (
+                  <span className="inline-block h-9 w-16 rounded-md bg-slate-200 dark:bg-slate-700 animate-pulse" />
+                ) : (
+                  checkedInCount
+                )}
+              </h2>
               <p className="text-[11px] font-bold text-emerald-600 mt-1">Cleared by HMO Auth or Cashdesk</p>
             </div>
 
@@ -5807,7 +6087,13 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
                   <CheckCircle2 className="h-5 w-5" />
                 </div>
               </div>
-              <h2 className="text-3xl font-black text-slate-900 dark:text-white mt-2">{completedCount}</h2>
+              <h2 className="text-3xl font-black text-slate-900 dark:text-white mt-2">
+                {isLoadingBookings ? (
+                  <span className="inline-block h-9 w-16 rounded-md bg-slate-200 dark:bg-slate-700 animate-pulse" />
+                ) : (
+                  completedCount
+                )}
+              </h2>
               <p className="text-[11px] font-bold text-rose-600 dark:text-rose-400 mt-1">Concluded Consultations</p>
             </div>
 
@@ -5818,7 +6104,13 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
                   <ShieldCheck className="h-5 w-5" />
                 </div>
               </div>
-              <h2 className="text-3xl font-black text-slate-900 dark:text-white mt-2">{pendingHmoCount}</h2>
+              <h2 className="text-3xl font-black text-slate-900 dark:text-white mt-2">
+                {dashboardSummary === null ? (
+                  <span className="inline-block h-9 w-16 rounded-md bg-slate-200 dark:bg-slate-700 animate-pulse" />
+                ) : (
+                  pendingHmoCount
+                )}
+              </h2>
               <p className="text-[11px] font-bold text-amber-600 mt-1">Awaiting Insurance Auth Code</p>
             </div>
 
@@ -5829,7 +6121,13 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
                   <CreditCard className="h-5 w-5" />
                 </div>
               </div>
-              <h2 className="text-3xl font-black text-slate-900 dark:text-white mt-2">{pendingCashCount}</h2>
+              <h2 className="text-3xl font-black text-slate-900 dark:text-white mt-2">
+                {dashboardSummary === null ? (
+                  <span className="inline-block h-9 w-16 rounded-md bg-slate-200 dark:bg-slate-700 animate-pulse" />
+                ) : (
+                  pendingCashCount
+                )}
+              </h2>
               <p className="text-[11px] font-bold text-purple-600 mt-1">Private Patients Uncleared</p>
             </div>
           </div>
@@ -7763,10 +8061,28 @@ SECTION 2: VERIFIED CLINICAL AUDIT KEYS & NOTES
 
                             {isEligibleForCheckIn ? (
                               <button
-                                onClick={() => handleMarkCompleted(refCode)}
-                                className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-black text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                                type="button"
+                                onClick={() => handleMarkCompleted(b.refCode || b.ref_code)}
+                                disabled={completingBookingRef === (b.refCode || b.ref_code)}
+                                className={`inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-bold transition ${completingBookingRef === (b.refCode || b.ref_code)
+                                    ? "cursor-not-allowed bg-slate-300 text-slate-600 dark:bg-slate-700 dark:text-slate-400"
+                                    : "bg-emerald-600 text-white hover:bg-emerald-700"
+                                  }`}
                               >
-                                <CheckCircle2 className="h-4 w-4" /> Mark Consultation Completed ✓
+                                {completingBookingRef === (b.refCode || b.ref_code) ? (
+                                  <>
+                                    <span
+                                      className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"
+                                      aria-hidden="true"
+                                    />
+                                    Saving...
+                                  </>
+                                ) : (
+                                  <>
+                                    <CheckCircle2 className="h-4 w-4" />
+                                    Mark Completed
+                                  </>
+                                )}
                               </button>
                             ) : paymentType === "HMO Insurance" ? (
                               <div className="w-full py-2.5 bg-amber-100 dark:bg-amber-950/70 border border-amber-300 text-amber-800 dark:text-amber-300 font-extrabold text-[11px] rounded-xl text-center flex items-center justify-center gap-1.5">
