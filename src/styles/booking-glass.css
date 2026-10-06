@@ -1,0 +1,188 @@
+/* =====================================================================
+   ISALU HOSPITALS – PATIENT BOOKING PAGE THEME
+   Visual layer only, scoped to the booking page root (.isalu-book).
+   Matches the staff dashboard's glass style.
+   ===================================================================== */
+
+.isalu-book {
+    --brand: #008ac9;
+    --glass-fill: rgba(255, 255, 255, 0.66);
+    --glass-edge: rgba(255, 255, 255, 0.8);
+    --glass-shadow: 0 1px 1px rgba(15, 40, 80, 0.04), 0 18px 45px -18px rgba(15, 60, 110, 0.28);
+    position: relative;
+    isolation: isolate;
+    background: transparent !important;
+    font-family: "Inter", "Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+}
+
+html.dark .isalu-book {
+    --glass-fill: rgba(15, 23, 42, 0.6);
+    --glass-edge: rgba(148, 197, 255, 0.12);
+    --glass-shadow: 0 1px 1px rgba(0, 0, 0, 0.3), 0 18px 45px -18px rgba(0, 0, 0, 0.7);
+}
+
+/* colour backdrop behind the page content */
+.isalu-book::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background:
+        radial-gradient(42rem 32rem at 8% 6%, rgba(0, 138, 201, 0.22), transparent 65%),
+        radial-gradient(36rem 28rem at 95% 18%, rgba(6, 182, 212, 0.20), transparent 62%),
+        radial-gradient(40rem 30rem at 85% 95%, rgba(139, 92, 246, 0.14), transparent 62%),
+        radial-gradient(36rem 28rem at 10% 90%, rgba(16, 185, 129, 0.13), transparent 60%),
+        linear-gradient(170deg, #f3f8fd 0%, #e8f1fb 60%, #eef2fb 100%);
+}
+
+html.dark .isalu-book::before {
+    background:
+        radial-gradient(42rem 32rem at 8% 6%, rgba(0, 138, 201, 0.25), transparent 65%),
+        radial-gradient(40rem 30rem at 85% 95%, rgba(124, 58, 237, 0.18), transparent 62%),
+        linear-gradient(170deg, #040a16 0%, #071427 60%, #050b18 100%);
+}
+
+/* ---------------------------------------------------------------- type */
+.isalu-book :is(h1, h2, h3) {
+    font-family: "Plus Jakarta Sans", "Inter", system-ui, sans-serif;
+    letter-spacing: -0.02em;
+}
+
+/* ---------------------------------------------------------------- glass cards */
+.isalu-book :is(div, form):is(.rounded-3xl, .rounded-\[2rem\]):is(.bg-white, .dark\:bg-slate-900) {
+    background-color: var(--glass-fill) !important;
+    -webkit-backdrop-filter: blur(18px) saturate(160%);
+    backdrop-filter: blur(18px) saturate(160%);
+    border-color: var(--glass-edge) !important;
+    box-shadow: var(--glass-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+html.dark .isalu-book :is(div, form):is(.rounded-3xl, .rounded-\[2rem\]):is(.bg-white, .dark\:bg-slate-900) {
+    box-shadow: var(--glass-shadow), inset 0 1px 0 rgba(148, 197, 255, 0.08);
+}
+
+/* inputs: soft, clear focus */
+.isalu-book :is(input, textarea, select):not([type="checkbox"]):not([type="radio"]):not([type="file"]) {
+    background-color: rgba(255, 255, 255, 0.85);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+}
+
+html.dark .isalu-book :is(input, textarea, select):not([type="checkbox"]):not([type="radio"]):not([type="file"]) {
+    background-color: rgba(2, 6, 23, 0.55);
+}
+
+.isalu-book :is(input, textarea, select):focus {
+    border-color: var(--brand) !important;
+    box-shadow: 0 0 0 4px rgba(0, 138, 201, 0.15) !important;
+    outline: none;
+}
+
+.isalu-book :is(button, a):focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 2px;
+}
+
+.isalu-book button {
+    transition: transform 0.12s ease, box-shadow 0.2s ease, background-color 0.2s ease, opacity 0.2s ease;
+}
+
+.isalu-book button:not(:disabled):active {
+    transform: translateY(1px);
+}
+
+/* ---------------------------------------------------------------- calendar */
+/* bookable days stand out; off-duty / cancelled / full days recede */
+.isalu-cal>button:not(:disabled) {
+    border-color: rgba(0, 138, 201, 0.35) !important;
+    box-shadow: 0 6px 16px -10px rgba(0, 138, 201, 0.55);
+}
+
+.isalu-cal>button:not(:disabled):hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 22px -12px rgba(0, 138, 201, 0.65);
+    border-color: var(--brand) !important;
+}
+
+.isalu-cal>button:disabled {
+    background-image: repeating-linear-gradient(135deg, rgba(148, 163, 184, 0.10) 0 6px, transparent 6px 12px);
+    opacity: 0.72;
+    box-shadow: none;
+    cursor: not-allowed;
+}
+
+/* larger, readable labels inside the day tiles */
+.isalu-cal>button .text-\[7\.5px\] {
+    font-size: 9px !important;
+}
+
+.isalu-cal>button .text-\[8px\] {
+    font-size: 9.5px !important;
+}
+
+.isalu-cal>button .text-\[11px\] {
+    font-size: 13px !important;
+}
+
+/* ---------------------------------------------------------------- small screens */
+@media (max-width: 640px) {
+    .isalu-roster-pill {
+        font-size: 10px !important;
+        padding: 0.2rem 0.6rem !important;
+    }
+
+    .isalu-cal>button .text-\[7\.5px\] {
+        font-size: 8px !important;
+        white-space: nowrap;
+        letter-spacing: -0.01em;
+    }
+
+    .isalu-cal {
+        gap: 0.4rem !important;
+    }
+}
+
+/* The site-wide scroll buttons are smaller and see-through on this page,
+   so they never hide calendar days or form fields on phones. */
+@media (max-width: 768px) {
+    body:has(.isalu-book) .fixed.bottom-6.right-6.z-50 {
+        transform: scale(0.78);
+        transform-origin: bottom right;
+        opacity: 0.6;
+        transition: opacity 0.2s ease;
+    }
+
+    body:has(.isalu-book) .fixed.bottom-6.right-6.z-50:hover,
+    body:has(.isalu-book) .fixed.bottom-6.right-6.z-50:focus-within {
+        opacity: 1;
+    }
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .isalu-book {
+        --glass-fill: rgba(255, 255, 255, 0.96);
+    }
+
+    html.dark .isalu-book {
+        --glass-fill: rgba(15, 23, 42, 0.96);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+    .isalu-book button,
+    .isalu-cal>button {
+        transition: none;
+    }
+
+    .isalu-cal>button:not(:disabled):hover {
+        transform: none;
+    }
+}
+
+@media print {
+    .isalu-book::before {
+        display: none;
+    }
+}

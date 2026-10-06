@@ -1059,6 +1059,23 @@ export async function deleteScheduleAPI(
 /* =========================================================
    BOOKINGS
 ========================================================= */
+/**
+ * Incremental booking sync for the staff dashboard.
+ *   {}                -> every active booking
+ *   { dateFrom }      -> active bookings from that date (fast first paint)
+ *   { since }         -> only bookings changed since a previous server_time
+ * Returns { server_time, full, results, removed } (or an API error object).
+ */
+export async function getBookingsSyncAPI(
+  options: { since?: string; dateFrom?: string } = {}
+): Promise<any | null> {
+  const params = new URLSearchParams();
+  if (options.since) params.set("since", options.since);
+  if (options.dateFrom) params.set("date_from", options.dateFrom);
+  const query = params.toString();
+  return apiRequest<any>(`/bookings/sync/${query ? `?${query}` : ""}`);
+}
+
 export async function getBookingsAPI(): Promise<Booking[] | null> {
   const response = await apiRequest<any>("/bookings/");
 
@@ -1558,6 +1575,125 @@ export async function updateSystemUserAPI(
       ),
     }
   );
+}
+
+/**
+ * Deactivate a staff account (the backend never hard-deletes users).
+ */
+export async function deleteSystemUserAPI(
+  userId: string | number
+): Promise<boolean> {
+  const response =
+    await apiRequest<any>(
+      `/users/${encodeURIComponent(
+        String(userId)
+      )}/`,
+      {
+        method: "DELETE",
+      }
+    );
+
+  return (
+    response !== null &&
+    !isApiError(response)
+  );
+}
+
+/**
+ * Current staff profile: role, isAdmin and the modules (allowedDesks) the
+ * role may open. Used to refresh permissions without signing out.
+ */
+export async function getStaffProfileAPI(): Promise<any | null> {
+  return apiRequest<any>("/auth/me/");
+}
+
+/**
+ * Booking form pre-check: does this patient (full name + phone) already
+ * have an upcoming appointment in the selected doctor's clinic?
+ */
+export async function checkDuplicateBookingAPI(
+  doctorId: string,
+  patientName: string,
+  patientPhone: string
+): Promise<any | null> {
+  const params = new URLSearchParams({
+    doctor_id: doctorId,
+    patient_name: patientName,
+    patient_phone: patientPhone,
+  });
+  return apiRequest<any>(`/bookings/duplicate-check/?${params.toString()}`);
+}
+
+/** Whether email / SMS are configured to really deliver (admin). */
+export async function getNotificationChannelsAPI(): Promise<any | null> {
+  return apiRequest<any>("/schedule-exceptions/channels/");
+}
+
+/** Send a real test email and/or SMS (admin). */
+export async function sendTestNotificationAPI(
+  email: string,
+  phone: string
+): Promise<any | null> {
+  return apiRequest<any>("/schedule-exceptions/test-notification/", {
+    method: "POST",
+    body: JSON.stringify({ email, phone }),
+  });
+}
+
+/* =========================================================
+   SCHEDULE EXCEPTIONS (cancel / move one clinic date)
+========================================================= */
+
+export async function getScheduleExceptionsAPI(
+  doctorId?: string,
+  upcoming: boolean = true
+): Promise<any[] | null> {
+  const params = new URLSearchParams();
+  if (doctorId) params.set("doctor", doctorId);
+  if (!upcoming) params.set("upcoming", "false");
+  const query = params.toString();
+  return apiRequest<any[]>(`/schedule-exceptions/${query ? `?${query}` : ""}`);
+}
+
+export async function previewScheduleExceptionAPI(
+  doctorId: string,
+  date: string
+): Promise<any | null> {
+  return apiRequest<any>(
+    `/schedule-exceptions/preview/?doctor_id=${encodeURIComponent(doctorId)}&date=${encodeURIComponent(date)}`
+  );
+}
+
+export async function createScheduleExceptionAPI(
+  data: Record<string, unknown>
+): Promise<any | null> {
+  return apiRequest<any>("/schedule-exceptions/", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function getScheduleExceptionAPI(
+  exceptionId: string
+): Promise<any | null> {
+  return apiRequest<any>(`/schedule-exceptions/${encodeURIComponent(exceptionId)}/`);
+}
+
+export async function retryScheduleExceptionNotificationsAPI(
+  exceptionId: string
+): Promise<any | null> {
+  return apiRequest<any>(
+    `/schedule-exceptions/${encodeURIComponent(exceptionId)}/retry-notifications/`,
+    { method: "POST" }
+  );
+}
+
+export async function deleteScheduleExceptionAPI(
+  exceptionId: string
+): Promise<any | null> {
+  return apiRequest<any>(`/schedule-exceptions/${encodeURIComponent(exceptionId)}/`, {
+    method: "DELETE",
+  });
 }
 
 /* =========================================================

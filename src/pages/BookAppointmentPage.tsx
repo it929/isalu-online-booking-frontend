@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import "../styles/booking-glass.css";
 import { useSearchParams, Link } from "react-router-dom";
 import { jsPDF } from "jspdf";
 type Doctor = any;
@@ -54,7 +55,7 @@ import {
 } from "lucide-react";
 import { SpecialistAvatar } from "../components/SpecialistAvatar";
 import { IsaluLogo } from "../components/IsaluLogo";
-import { getDoctorsAPI, getDepartmentsAPI, createBookingAPI, getSchedulesAPI, getBookingsAPI, getDoctorAvailableDatesAPI } from "../api/client";
+import { getDoctorsAPI, getDepartmentsAPI, createBookingAPI, getSchedulesAPI, getDoctorAvailableDatesAPI, checkDuplicateBookingAPI } from "../api/client";
 
 /**
  * Modern High-UX & User-Friendly API Error Modal Component
@@ -154,7 +155,10 @@ export function BookAppointmentPage() {
 
   const [specialistSchedulesList, setSpecialistSchedulesList] = useState<any[]>([]);
   const [activeBookingsList, setActiveBookingsList] = useState<any[]>([]);
-  const [doctorAvailabilityMap, setDoctorAvailabilityMap] = useState<Record<string, any>>({});
+  // Server availability per doctor (knows about cancelled / moved clinic dates,
+  // recurring weeks and full days). Keyed by doctor id, then by YYYY-MM-DD.
+  const [availabilityByDoctor, setAvailabilityByDoctor] = useState<Record<string, Record<string, any>>>({});
+  const [availabilityError, setAvailabilityError] = useState<Record<string, boolean>>({});
 
   const [patientName, setPatientName] = useState<string>("");
   const [patientPhone, setPatientPhone] = useState<string>("");
@@ -264,10 +268,8 @@ export function BookAppointmentPage() {
       } catch (err: any) { }
 
       try {
-        if (getBookingsAPI) {
-          const existing = await getBookingsAPI();
-          if (Array.isArray(existing)) setActiveBookingsList(existing);
-        }
+        // The booking registry is staff-only (patients get a 401); slot counts
+        // come from the public availability endpoint instead.
         const stored = localStorage.getItem("isalu_offline_bookings");
         if (stored) {
           const parsed = JSON.parse(stored);
@@ -289,29 +291,37 @@ export function BookAppointmentPage() {
   }, [selectedDept]);
 
   // Fetch real-time availability map from backend when selectedDoctorId changes
-  useEffect(() => {
-    async function fetchAvailability() {
-      if (!selectedDoctorId) return;
-      const targetDoc = allDoctors.find(
-        (d) => String(d.id) === String(selectedDoctorId) || String(d.doc_id) === String(selectedDoctorId)
-      );
-      const docKey = String(targetDoc?.doc_id || targetDoc?.id || selectedDoctorId);
+  const doctorKeyOf = (doctor: any) => String(doctor?.doc_id || doctor?.id || "");
+  const selectedDoctorKey = (() => {
+    const targetDoc = allDoctors.find(
+      (d) => String(d.id) === String(selectedDoctorId) || String((d as any).doc_id) === String(selectedDoctorId)
+    );
+    return String((targetDoc as any)?.doc_id || targetDoc?.id || selectedDoctorId || "");
+  })();
 
-      try {
-        const data = await getDoctorAvailableDatesAPI(docKey, 90);
-        if (data && Array.isArray(data.availability)) {
-          const map: Record<string, any> = {};
-          data.availability.forEach((item: any) => {
-            map[item.date] = item;
-          });
-          setDoctorAvailabilityMap(map);
-        }
-      } catch (err) {
-        console.warn("Could not fetch remote doctor availability map:", err);
-      }
+  const loadDoctorAvailability = async (docKey: string) => {
+    if (!docKey) return;
+    try {
+      const data: any = await getDoctorAvailableDatesAPI(docKey, 90);
+      if (!data || !Array.isArray(data.availability)) throw new Error("no availability");
+      const map: Record<string, any> = {};
+      data.availability.forEach((item: any) => { map[item.date] = item; });
+      setAvailabilityByDoctor((prev) => ({ ...prev, [docKey]: map }));
+      setAvailabilityError((prev) => ({ ...prev, [docKey]: false }));
+    } catch (err) {
+      console.warn("Could not load doctor availability:", err);
+      setAvailabilityError((prev) => ({ ...prev, [docKey]: true }));
     }
-    fetchAvailability();
-  }, [selectedDoctorId, allDoctors]);
+  };
+
+  useEffect(() => {
+    if (selectedDoctorKey) void loadDoctorAvailability(selectedDoctorKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDoctorKey]);
+
+  // Map for the selected doctor only. Empty while loading, never another doctor's.
+  const doctorAvailabilityMap: Record<string, any> = availabilityByDoctor[selectedDoctorKey] || {};
+  const selectedAvailabilityLoaded = Boolean(availabilityByDoctor[selectedDoctorKey]);
 
   useEffect(() => {
     if (initialDoctor && allDoctors.length > 0) {
@@ -414,6 +424,49 @@ export function BookAppointmentPage() {
   ) || departmentsList.find(
     (d) => d.id === selectedDept || d.name.toLowerCase() === selectedDept.toLowerCase()
   );
+
+  // Double-booking guard: warn as soon as name + phone match an upcoming
+  // appointment in the same clinic (the server enforces the same rule).
+  const [duplicateBooking, setDuplicateBooking] = useState<any | null>(null);
+  const [isCheckingDuplicate, setIsCheckingDuplicate] = useState(false);
+  useEffect(() => {
+    const docKey = String(selectedDoctorId || "");
+    const name = patientName.trim();
+    const phoneDigits = patientPhone.replace(/\D/g, "");
+    if (!docKey || name.split(/\s+/).length < 2 || phoneDigits.length < 10) {
+      setDuplicateBooking(null);
+      return;
+    }
+    let cancelled = false;
+    setIsCheckingDuplicate(true);
+    const timer = window.setTimeout(async () => {
+      try {
+        const doc = allDoctors.find((d) => String(d.id) === docKey || String((d as any).doc_id) === docKey);
+        const res: any = await checkDuplicateBookingAPI(String((doc as any)?.doc_id || doc?.id || docKey), name, patientPhone);
+        if (!cancelled) setDuplicateBooking(res && res.duplicate ? res : null);
+      } catch {
+        if (!cancelled) setDuplicateBooking(null);
+      } finally {
+        if (!cancelled) setIsCheckingDuplicate(false);
+      }
+    }, 500);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [selectedDoctorId, patientName, patientPhone, allDoctors]);
+
+  const duplicateBanner = duplicateBooking ? (
+    <div role="alert" data-testid="duplicate-warning" className="mt-3 p-4 rounded-2xl border-2 border-amber-400 bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 text-xs font-bold space-y-1.5">
+      <p className="font-black text-sm">You already have an appointment in this clinic</p>
+      <p>
+        {patientName.trim()} ({patientPhone.trim()}) is booked in the {duplicateBooking.clinic} clinic on{" "}
+        {new Date(`${duplicateBooking.date}T00:00:00`).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
+        {" "}(ref {duplicateBooking.refCode}). Each patient can hold one upcoming appointment per clinic.
+      </p>
+      <p>
+        To change the date, <Link to="/appointments" className="underline text-[#008ac9]">reschedule your existing appointment</Link>{" "}
+        instead of booking again.
+      </p>
+    </div>
+  ) : null;
 
   const selectedDoctor = allDoctors.find(
     (doc) => String(doc.id) === String(selectedDoctorId) || String(doc.doc_id) === String(selectedDoctorId)
@@ -952,9 +1005,15 @@ export function BookAppointmentPage() {
     const cDay = String(candidateDate.getDate()).padStart(2, "0");
     const candidateDateStr = `${cYear}-${cMonth}-${cDay}`;
 
-    if (doctorAvailabilityMap && doctorAvailabilityMap[candidateDateStr]) {
-      return Boolean(doctorAvailabilityMap[candidateDateStr].onDuty !== false);
+    // The server is the source of truth: it knows about one-off cancellations,
+    // moved clinics and recurring weeks that the weekly pattern cannot show.
+    const serverMap = availabilityByDoctor[doctorKeyOf(doctor)];
+    if (serverMap) {
+      return serverMap[candidateDateStr]?.onDuty === true;
     }
+    // While the selected doctor's calendar is loading, offer nothing rather
+    // than a guess that may include a cancelled date.
+    if (doctorKeyOf(doctor) === selectedDoctorKey) return false;
 
     const dutyDays = getDoctorEffectiveAvailableDays(doctor);
     if (!dutyDays || dutyDays.length === 0) return true;
@@ -1072,7 +1131,9 @@ export function BookAppointmentPage() {
       }
 
       // Check if this date is fully booked
-      const isFullyBooked = selectedDocObj ? isDateFullyBooked(selectedDocObj, dateStr) : false;
+      // Only an on-duty day can be "full"; a cancelled day has capacity 0 and
+      // must be labelled Cancelled, not FULL.
+      const isFullyBooked = selectedDocObj && isAvailable ? isDateFullyBooked(selectedDocObj, dateStr) : false;
 
       let isNextAvailable = false;
       // CRITICAL FIX: Must check that isAvailable is TRUE AND isFullyBooked is FALSE
@@ -1090,6 +1151,7 @@ export function BookAppointmentPage() {
         weekOccurrenceBadge,
         isAvailable,
         isFullyBooked,
+        serverNote: String(doctorAvailabilityMap[dateStr]?.note || ""),
         isPast24HoursNotice: i >= 0,
         isNextAvailable,
       });
@@ -1100,6 +1162,12 @@ export function BookAppointmentPage() {
 
   const getDutyTimeWindow = (doctor: Doctor | undefined, dateStr: string) => {
     if (!doctor || !dateStr) return "08:00 AM – 02:00 PM";
+
+    // The backend's availability map knows about one-off clinic moves
+    // (a moved clinic may run different hours on a different weekday).
+    const isSelected = [doctor.id, (doctor as any).doc_id].map((v) => String(v ?? "")).includes(String(selectedDoctorId ?? ""));
+    const remoteWindow = isSelected ? doctorAvailabilityMap?.[dateStr]?.timeWindow : "";
+    if (remoteWindow) return remoteWindow;
 
     const dateObj = new Date(dateStr + "T00:00:00");
     const dayName = dateObj.toLocaleDateString("en-US", { weekday: "long" });
@@ -1592,6 +1660,11 @@ export function BookAppointmentPage() {
       return;
     }
 
+    if (duplicateBooking) {
+      setApiError(duplicateBooking.message || "You already have an upcoming appointment in this clinic.");
+      return;
+    }
+
     if (patientType === "HMO Insurance" && !hmoPolicyCode) {
       setApiError("Please enter your HMO Enrollee No / Policy ID to verify insurance coverage.");
       return;
@@ -1679,7 +1752,7 @@ export function BookAppointmentPage() {
   };
 
   return (
-    <div className="flex-1 bg-slate-100 dark:bg-slate-950 py-8 sm:py-10 md:py-16 min-h-[calc(100vh-140px)]">
+    <div className="isalu-book flex-1 bg-slate-100 dark:bg-slate-950 py-8 sm:py-10 md:py-16 min-h-[calc(100vh-140px)]">
       <div ref={formTopRef} className="scroll-mt-24" />
       {/* GLOBAL API ERROR MODAL */}
       <ApiErrorModal error={apiError} onClose={() => setApiError(null)} />
@@ -1808,7 +1881,7 @@ export function BookAppointmentPage() {
                                 </span>
 
                                 <span
-                                  className={`px-2 py-1 rounded-lg text-[9px] font-black border ${statusStyles[stats.status] || "bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-400"
+                                  className={`px-2 py-1 rounded-lg text-[9px] font-black border ${statusStyles[stats.status as keyof typeof statusStyles] || "bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-400"
                                     }`}
                                 >
                                   {stats.status}
@@ -1878,7 +1951,7 @@ export function BookAppointmentPage() {
 
                                 <div className="w-full h-2 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
                                   <div
-                                    className={`h-full transition-all duration-500 ${barColors[stats.status] || "bg-slate-400"}`}
+                                    className={`h-full transition-all duration-500 ${barColors[stats.status as keyof typeof barColors] || "bg-slate-400"}`}
                                     style={{ width: `${Math.min(100, stats.occupancy)}%` }}
                                   />
                                 </div>
@@ -2100,7 +2173,7 @@ export function BookAppointmentPage() {
                       Enter patient details and select payment category to filter eligible specialist doctors.
                     </p>
                   </div>
-                  <span className="px-3 py-1 bg-[#008ac9]/10 text-[#008ac9] font-black text-xs rounded-xl border border-[#008ac9]/30">
+                  <span className="whitespace-nowrap px-3 py-1 bg-[#008ac9]/10 text-[#008ac9] font-black text-xs rounded-xl border border-[#008ac9]/30">
                     Step 1 of 4
                   </span>
                 </div>
@@ -2263,6 +2336,10 @@ export function BookAppointmentPage() {
                       onChange={(e) => setPatientPhone(e.target.value)}
                       className="w-full p-4 rounded-2xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-bold text-sm focus:ring-2 focus:ring-[#008ac9] transition-all"
                     />
+                    {duplicateBanner}
+                    {isCheckingDuplicate && !duplicateBooking && (
+                      <p className="mt-2 text-[11px] text-slate-400">Checking for existing appointments…</p>
+                    )}
                   </div>
 
                   <div>
@@ -2478,6 +2555,7 @@ export function BookAppointmentPage() {
                 </div>
               )}
 
+              {duplicateBanner}
               <div className="flex justify-between pt-2">
                 <button
                   type="button"
@@ -2488,7 +2566,7 @@ export function BookAppointmentPage() {
                 </button>
                 <button
                   type="button"
-                  disabled={!selectedDoctorId}
+                  disabled={!selectedDoctorId || Boolean(duplicateBooking)}
                   onClick={() => setStep(3)}
                   className="bg-[#008ac9] hover:bg-[#0072b1] disabled:opacity-50 text-white px-8 py-3 text-sm font-black rounded-2xl flex items-center gap-2 shadow-lg border-2 border-sky-300/40 transition-all"
                 >
@@ -2502,6 +2580,7 @@ export function BookAppointmentPage() {
         {/* STEP 3: Choose Date & Time Slot */}
         {step === 3 && selectedDoctor && (
           <div className="space-y-6">
+            {duplicateBanner}
             <div className="bg-white dark:bg-slate-900 border-2 border-slate-300 dark:border-slate-800 rounded-3xl p-6 md:p-8 shadow-md">
               <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-4 mb-6">
                 <div className="flex items-center gap-3">
@@ -2529,12 +2608,12 @@ export function BookAppointmentPage() {
                     <label className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-2">
                       <Calendar className="h-4 w-4 text-[#008ac9]" /> 1. Select Available Consultation Date <span className="text-red-500 font-black ml-0.5">*</span>
                     </label>
-                    <span className="text-xs font-bold text-[#008ac9] bg-sky-50 dark:bg-slate-800 px-3 py-1 rounded-full border border-[#008ac9]/30 flex items-center gap-1.5">
+                    <span className="isalu-roster-pill text-xs font-bold text-[#008ac9] bg-sky-50 dark:bg-slate-800 px-3 py-1 rounded-full border border-[#008ac9]/30 flex items-center gap-1.5">
                       <Clock className="h-3.5 w-3.5 text-[#008ac9]" /> Next 30 Available Consultation Days Roster
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
+                  <div className="isalu-cal grid grid-cols-4 sm:grid-cols-7 gap-2">
                     {getUpcomingDates(undefined, selectedDoctor).map((d) => {
                       const isSelected = selectedDate === d.dateStr;
                       const isNext = d.isNextAvailable;
@@ -2600,13 +2679,23 @@ export function BookAppointmentPage() {
                                 ? "bg-white/20 text-white"
                                 : "text-[#008ac9]"
                             }`}>
-                            {isFullyBooked ? "FULL" : d.isAvailable ? (isNext ? "★ Next Avail" : "✓ Available") : "Off Duty"}
+                            {isFullyBooked ? "FULL" : d.isAvailable ? (isNext ? "★ Next Avail" : "✓ Available")
+                              : /cancel/i.test((d as any).serverNote || "") ? "Cancelled"
+                                : /moved/i.test((d as any).serverNote || "") ? "Moved" : "Off Duty"}
                           </span>
                         </button>
                       );
                     })}
                   </div>
                 </div>
+
+                {selectedDoctorKey && !selectedAvailabilityLoaded && (
+                  <div data-testid="availability-status" className="text-xs font-bold text-slate-500 flex items-center gap-2">
+                    {availabilityError[selectedDoctorKey] ? (
+                      <>Couldn't load this doctor's calendar. <button type="button" onClick={() => loadDoctorAvailability(selectedDoctorKey)} className="text-[#008ac9] underline">Try again</button></>
+                    ) : "Checking the doctor's calendar…"}
+                  </div>
+                )}
 
                 {/* Consultation Slots & Capacity Status Section */}
                 <div ref={slotsSectionRef} className="scroll-mt-24 space-y-4 pt-2">

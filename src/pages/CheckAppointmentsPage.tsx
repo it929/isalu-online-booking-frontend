@@ -25,7 +25,7 @@ import {
   AlertTriangle,
   Share2,
 } from "lucide-react";
-import { updateBookingAPI, getDoctorsAPI, getSchedulesAPI, lookupBookingAPI, getBookingAvailabilityAPI } from "../api/client";
+import { updateBookingAPI, getDoctorsAPI, getSchedulesAPI, lookupBookingAPI, getBookingAvailabilityAPI, getDoctorAvailableDatesAPI } from "../api/client";
 
 const getDoctorDisplayAcronym = (booking: any) => booking?.doctorName || booking?.doctor_name || booking?.acronym || "Specialist";
 
@@ -45,6 +45,22 @@ export function CheckAppointmentsPage() {
 
   // Reschedule Form States
   const [rescheduleDate, setRescheduleDate] = useState("");
+  // Server calendar for the booking's doctor (null = loading, false = failed).
+  const [rescheduleAvailability, setRescheduleAvailability] = useState<Record<string, any> | null | false>(null);
+
+  const loadRescheduleAvailability = async (booking: any) => {
+    setRescheduleAvailability(null);
+    const docId = String(booking?.doctorId || booking?.doctor_id || "");
+    try {
+      const data: any = await getDoctorAvailableDatesAPI(docId, 60);
+      if (!data || !Array.isArray(data.availability)) throw new Error("no availability");
+      const map: Record<string, any> = {};
+      data.availability.forEach((item: any) => { map[item.date] = item; });
+      setRescheduleAvailability(map);
+    } catch {
+      setRescheduleAvailability(false);
+    }
+  };
   const [rescheduleTime, setRescheduleTime] = useState("");
   const [rescheduleReason, setRescheduleReason] = useState("");
   const [isSubmittingReschedule, setIsSubmittingReschedule] = useState(false);
@@ -234,7 +250,7 @@ export function CheckAppointmentsPage() {
   };
 
   // Helper 4: Get upcoming valid duty dates for doctor
-  const getUpcomingAvailableDutyDatesForDoctor = (dutyDays: string[], maxCount = 25) => {
+  const getUpcomingAvailableDutyDatesForDoctor = (dutyDays: string[], maxCount = 25, serverMap?: Record<string, any>) => {
     const dates: { dateStr: string; displayLabel: string; dayName: string; dayShort: string; isNextAvailable?: boolean; isAvailable?: boolean; isPast24HoursNotice?: boolean }[] = [];
     const now = new Date();
     const minAllowedTime = new Date(now.getTime() + 24 * 60 * 60 * 1000);
@@ -254,7 +270,9 @@ export function CheckAppointmentsPage() {
       const candidateStartTime = new Date(dYear, d.getMonth(), d.getDate(), 8, 0, 0);
       const isPast24HoursNotice = candidateStartTime.getTime() >= minAllowedTime.getTime();
 
-      if (isDateMatchingDoctorDutyDays(dateStr, dutyDays)) {
+      // Prefer the server calendar: it excludes cancelled / moved / full days.
+      const onServerCalendar = serverMap ? serverMap[dateStr]?.available === true : isDateMatchingDoctorDutyDays(dateStr, dutyDays);
+      if (onServerCalendar) {
         const displayLabel = formatDateToOrdinal(dateStr);
         const dayName = d.toLocaleDateString("en-US", { weekday: "long" });
         const dayShort = d.toLocaleDateString("en-US", { weekday: "short" });
@@ -375,6 +393,8 @@ export function CheckAppointmentsPage() {
 
   // Helper 7: Resolve specific clean time slots for doctor based on date
   const getDoctorTimeSlotsForDate = (booking: any, dateStr: string): string[] => {
+    const serverWindow = rescheduleAvailability ? rescheduleAvailability[dateStr]?.timeWindow : "";
+    if (serverWindow) return [serverWindow];
     const defaultSlots = [
       "08:00 AM – 10:00 AM",
       "10:00 AM – 12:00 PM",
@@ -932,6 +952,7 @@ export function CheckAppointmentsPage() {
     }
 
     setSelectedBooking(booking);
+    void loadRescheduleAvailability(booking);
     const isoDate = formatDateToISO(booking.date);
     setRescheduleDate(isoDate);
 
@@ -1216,8 +1237,17 @@ export function CheckAppointmentsPage() {
                     Available Scheduled Dates
                   </label>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto p-1 border border-slate-200 rounded-2xl">
-                    {getUpcomingAvailableDutyDatesForDoctor(
-                      getDoctorEffectiveDutyDays(selectedBooking)
+                    {rescheduleAvailability === null && (
+                      <p data-testid="reschedule-loading" className="text-xs text-slate-500 p-3 sm:col-span-2">Checking the doctor's calendar…</p>
+                    )}
+                    {rescheduleAvailability === false && (
+                      <p className="text-xs text-rose-600 p-3 sm:col-span-2">
+                        Couldn't load the doctor's calendar.{" "}
+                        <button type="button" className="underline font-bold" onClick={() => loadRescheduleAvailability(selectedBooking)}>Try again</button>
+                      </p>
+                    )}
+                    {rescheduleAvailability && getUpcomingAvailableDutyDatesForDoctor(
+                      getDoctorEffectiveDutyDays(selectedBooking), 25, rescheduleAvailability
                     ).map((dItem, idx) => {
                       const stats = getDoctorSlotStatsForDate(selectedBooking, dItem.dateStr);
                       const isSelected = rescheduleDate === dItem.dateStr;

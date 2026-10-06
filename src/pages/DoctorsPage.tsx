@@ -3,7 +3,13 @@ import { Link } from "react-router-dom";
 
 import { Search, Star, Clock, MapPin, ArrowRight, Calendar, Flame, Users, XCircle } from "lucide-react";
 import { SpecialistAvatar } from "../components/SpecialistAvatar";
-import { getDoctorsAPI, getDepartmentsAPI, getSchedulesAPI, getBookingsAPI } from "../api/client";
+import { getDoctorsAPI, getDepartmentsAPI, getSchedulesAPI, getDoctorAvailableDatesAPI } from "../api/client";
+
+// Local calendar date (toISOString() is UTC, which is "yesterday" just after midnight in Lagos).
+const localToday = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
 
 const getDoctorDisplayAcronym = (doctor: any): string => {
   if (!doctor) return "Specialist";
@@ -55,10 +61,9 @@ export function DoctorsPage() {
           setSelectedDept(mapped[0]?.id || "all");
         }
       }
-      const [remoteDoctors, remoteSchedules, remoteBookings] = await Promise.all([
+      const [remoteDoctors, remoteSchedules] = await Promise.all([
         getDoctorsAPI(),
         getSchedulesAPI(),
-        getBookingsAPI().catch(() => [])
       ]);
       if (remoteDoctors && Array.isArray(remoteDoctors)) {
         setAllDoctors(remoteDoctors);
@@ -67,11 +72,11 @@ export function DoctorsPage() {
         remoteDoctors.forEach(async (doc: any) => {
           const docKey = String(doc.doc_id || doc.id);
           try {
-            const res = await fetch(`/api/doctors/${docKey}/available-dates/?days=30`);
-            if (res.ok) {
-              const data = await res.json();
+            // Uses the configured API base URL (a hard-coded "/api" broke when the API is on another domain).
+            const data: any = await getDoctorAvailableDatesAPI(docKey, 30);
+            {
               if (data && Array.isArray(data.availability)) {
-                const todayStr = new Date().toISOString().split("T")[0];
+                const todayStr = localToday();
                 const todayStats = data.availability.find((item: any) => item.date === todayStr) || data.availability[0];
                 if (todayStats) {
                   setDoctorsAvailabilityCache(prev => ({
@@ -89,9 +94,6 @@ export function DoctorsPage() {
       }
       if (remoteSchedules && Array.isArray(remoteSchedules)) {
         setSchedulesList(remoteSchedules);
-      }
-      if (remoteBookings && Array.isArray(remoteBookings)) {
-        setActiveBookingsList(remoteBookings);
       }
 
       // Also check offline bookings cache
@@ -112,7 +114,7 @@ export function DoctorsPage() {
   }, []);
 
   const getDoctorSlotStats = (doctor: any) => {
-    const todayStr = new Date().toISOString().split("T")[0];
+    const todayStr = localToday();
 
     // Priority 1: Check fetched server-side availability cache
     const cachedStats = doctorsAvailabilityCache[doctor.id] || doctorsAvailabilityCache[doctor.doc_id];
