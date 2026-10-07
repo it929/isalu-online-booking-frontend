@@ -189,6 +189,7 @@ const DESK_LABELS: Record<string, string> = {
   all_patients: "All Patients", checked_in_patients: "Checked-in Queue", hmo_enrollees: "HMO Enrollees",
   private_patients: "Private Self-Pay", create_specialist_schedule: "Specialist Roster",
   clinic: "Clinics & Departments", disabled_bookings: "Archive & Trash",
+  hmo_declined: "Declined HMO Approvals",
 };
 
 /** Waiting-room screens are public: show "Ada O." rather than a full name. */
@@ -271,6 +272,8 @@ const getDoctorRealName = (value: any) => { if (!value) return "Specialist"; if 
 import {
   Building2,
   ShieldCheck,
+  ShieldX,
+  CalendarDays,
   CreditCard,
   DollarSign,
   UserCheck,
@@ -345,6 +348,8 @@ import {
   createBookingAPI,
   checkInBookingAPI,
   approveHmoBookingAPI,
+  declineHmoBookingAPI,
+  reopenHmoBookingAPI,
   payCashdeskBookingAPI,
   rerouteHmoBookingToCashdeskAPI,
   createHmoCompanyAPI,
@@ -381,6 +386,7 @@ import {
 } from "../api/client";
 import { useHospitalLiveFeed } from "../hooks/useHospitalLiveFeed";
 import { IsaluLogo } from "../components/IsaluLogo";
+import { DateRangeFilter, bookingInDateRange, ALL_DATES_FROM } from "../components/DateRangeFilter";
 
 export function HospitalDashboardPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -1472,7 +1478,8 @@ export function HospitalDashboardPage() {
     | "private_patients"
     | "create_specialist_schedule"
     | "clinic"
-    | "disabled_bookings";
+    | "disabled_bookings"
+    | "hmo_declined";
 
   const validDesks: DeskType[] = [
     "helpdesk",
@@ -1488,6 +1495,7 @@ export function HospitalDashboardPage() {
     "create_specialist_schedule",
     "clinic",
     "disabled_bookings",
+    "hmo_declined",
   ];
 
   // HMO Provider Modal States
@@ -1512,6 +1520,13 @@ export function HospitalDashboardPage() {
 
   const isDeskAllowed = (desk: DeskType): boolean => {
     if (!currentUser?.role) return false;
+
+    // Declined HMO Approvals belongs to whoever works the HMO desk.
+    if (desk === "hmo_declined") {
+      if (currentUser.isAdmin === true) return true;
+      if (Array.isArray(currentUser.allowedDesks) && currentUser.allowedDesks.includes("hmo_declined")) return true;
+      return isDeskAllowed("hmo");
+    }
 
     // 1. Server-provided profile (login / auth/me): admins see everything,
     //    everyone else exactly the modules configured on their role.
@@ -1736,6 +1751,29 @@ export function HospitalDashboardPage() {
   const [privatePatientsSearch, setPrivatePatientsSearch] = useState("");
   const [privatePatientsStatusFilter, setPrivatePatientsStatusFilter] = useState("all");
   const [privatePatientsClinicFilter, setPrivatePatientsClinicFilter] = useState("all");
+  // Appointment-date filters ("" = no limit) for each booking table
+  // HMO decline flow + Declined HMO Approvals module
+  const [declineTarget, setDeclineTarget] = useState<any | null>(null);
+  const [declineReason, setDeclineReason] = useState("");
+  const [declineError, setDeclineError] = useState("");
+  const [isDecliningHmo, setIsDecliningHmo] = useState(false);
+  const [declinedBusyRef, setDeclinedBusyRef] = useState<string | null>(null);
+  const [declinedSearch, setDeclinedSearch] = useState("");
+  const [declinedProviderFilter, setDeclinedProviderFilter] = useState("all");
+  const [declinedDateFrom, setDeclinedDateFrom] = useState("");
+  const [declinedDateTo, setDeclinedDateTo] = useState("");
+  const [declinedPage, setDeclinedPage] = useState(1);
+  const [declinedPageSize, setDeclinedPageSize] = useState(10);
+  const [hmoDateFrom, setHmoDateFrom] = useState("");
+  const [hmoDateTo, setHmoDateTo] = useState("");
+  const [cashdeskDateFrom, setCashdeskDateFrom] = useState("");
+  const [cashdeskDateTo, setCashdeskDateTo] = useState("");
+  const [archiveDateFrom, setArchiveDateFrom] = useState("");
+  const [archiveDateTo, setArchiveDateTo] = useState("");
+  const [allPatientsDateFrom, setAllPatientsDateFrom] = useState("");
+  const [allPatientsDateTo, setAllPatientsDateTo] = useState("");
+  const [privatePatientsDateFrom, setPrivatePatientsDateFrom] = useState("");
+  const [privatePatientsDateTo, setPrivatePatientsDateTo] = useState("");
   const [currentAllPatientsPage, setCurrentAllPatientsPage] = useState(1);
 
   type DashboardSummary = {
@@ -1792,7 +1830,7 @@ export function HospitalDashboardPage() {
   const pendingHmoCount = activeBookings.filter((b) => {
     const paymentType = String(b?.paymentType ?? b?.payment_type ?? "").toLowerCase();
     const hmoStatus = String(b?.hmoStatus ?? b?.hmo_status ?? "").toLowerCase();
-    return paymentType.includes("hmo") && !["approved", "cleared"].includes(hmoStatus);
+    return paymentType.includes("hmo") && !["approved", "cleared", "declined"].includes(hmoStatus);
   }).length;
   const hmoApprovedCount = activeBookings.filter((b) => {
     const paymentType = String(b?.paymentType ?? b?.payment_type ?? "").toLowerCase();
@@ -1888,6 +1926,74 @@ export function HospitalDashboardPage() {
       throw err;
     } finally {
       setIsApprovingHmo(false);
+    }
+  };
+
+  const DECLINE_REASONS = [
+    "Enrollee not found / not eligible",
+    "Policy inactive or expired",
+    "Service not covered by plan",
+    "Pre-authorization limit exceeded",
+    "Incomplete or invalid referral",
+  ];
+
+  const openDeclineModal = (booking: any) => {
+    setDeclineTarget(booking);
+    setDeclineReason("");
+    setDeclineError("");
+  };
+
+  const handleDeclineHmo = async () => {
+    const refCode = String(declineTarget?.refCode || declineTarget?.ref_code || "");
+    const reason = declineReason.trim();
+    if (!refCode || isDecliningHmo) return;
+    if (!reason) {
+      setDeclineError("Please give a reason for declining.");
+      return;
+    }
+    setIsDecliningHmo(true);
+    setDeclineError("");
+    try {
+      ensureOk(await declineHmoBookingAPI(refCode, reason), "Unable to decline this authorization.");
+      const nowIso = new Date().toISOString();
+      setBookings((prev) => prev.map((b) =>
+        (b.refCode || b.ref_code) === refCode
+          ? {
+            ...b, hmoStatus: "Declined", hmo_status: "Declined",
+            hmoDeclineReason: reason, hmo_decline_reason: reason,
+            hmoDeclinedAt: nowIso, hmo_declined_at: nowIso,
+            hmoDeclinedBy: currentUser?.name || "", hmo_declined_by: currentUser?.name || "",
+          }
+          : b
+      ));
+      setDeclineTarget(null);
+      setToastAlert({ title: "HMO Request Declined", description: `Booking ${refCode} moved to Declined HMO Approvals.`, type: "warning" });
+      void fetchBookings();
+      void fetchDashboardSummary();
+    } catch (err: any) {
+      setDeclineError(err?.message || "Unable to decline this authorization. Please try again.");
+    } finally {
+      setIsDecliningHmo(false);
+    }
+  };
+
+  const handleReopenHmo = async (refCode: string) => {
+    if (!refCode || declinedBusyRef) return;
+    setDeclinedBusyRef(refCode);
+    try {
+      ensureOk(await reopenHmoBookingAPI(refCode), "Unable to re-open this request.");
+      setBookings((prev) => prev.map((b) =>
+        (b.refCode || b.ref_code) === refCode
+          ? { ...b, hmoStatus: "Awaiting Approval", hmo_status: "Awaiting Approval", hmoDeclineReason: "", hmo_decline_reason: "", hmoDeclinedAt: null, hmo_declined_at: null, hmoDeclinedBy: "", hmo_declined_by: "" }
+          : b
+      ));
+      setToastAlert({ title: "Back in HMO queue", description: `Booking ${refCode} returned to HMO approvals.`, type: "success" });
+      void fetchBookings();
+      void fetchDashboardSummary();
+    } catch (err: any) {
+      setToastAlert({ title: "Re-open failed", description: err?.message || "Unable to re-open this request.", type: "danger" });
+    } finally {
+      setDeclinedBusyRef(null);
     }
   };
 
@@ -3106,6 +3212,7 @@ ADMINISTRATIVE VERIFICATION:
     return payment.includes("hmo") || payment.includes("insurance") ||
       (hmo !== "" && hmo !== "n/a" && hmo !== "none" && !hmo.includes("self") && !hmo.includes("private"));
   };
+  const isHmoDeclined = (b: any) => String(b?.hmoStatus ?? b?.hmo_status ?? "").trim().toLowerCase() === "declined";
   const isPendingHmoBooking = (b: any) => {
     const hmoStatus = String(b.hmoStatus ?? b.hmo_status ?? "").trim().toLowerCase();
     const status = String(b.status ?? "").trim().toLowerCase();
@@ -3113,8 +3220,9 @@ ADMINISTRATIVE VERIFICATION:
       ["approved", "cleared", "completed"].includes(hmoStatus) ||
       Boolean(b.hmoAuthCode || b.hmo_auth_code || b.authorizationCode || b.authorization_code) ||
       ["hmo_approved", "approved"].includes(status);
-    return isHmoBooking(b) && !isApproved && !isBookingDisabled(b);
+    return isHmoBooking(b) && !isApproved && !isHmoDeclined(b) && !isBookingDisabled(b);
   };
+  const isDeclinedHmoBooking = (b: any) => isHmoBooking(b) && isHmoDeclined(b) && !isBookingDisabled(b);
   const isPendingCashBooking = (b: any) => {
     const paymentType = String(b.paymentType ?? b.payment_type ?? b.paymentCategory ?? b.payment_category ?? b.patientCategory ?? b.patient_category ?? "").trim().toLowerCase();
     const status = String(b.status ?? "").trim().toLowerCase();
@@ -3129,7 +3237,7 @@ ADMINISTRATIVE VERIFICATION:
   // scoped to the selected period and clinic (previously each card used
   // a different, all-time source).
   // ------------------------------------------------------------------
-  const [analyticsPeriod, setAnalyticsPeriod] = useState<"today" | "7d" | "30d" | "month" | "all">("30d");
+  const [analyticsPeriod, setAnalyticsPeriod] = useState<"today" | "upcoming" | "7d" | "30d" | "live" | "month" | "all">("live");
   const [analyticsClinic, setAnalyticsClinic] = useState("all");
 
   const analytics = useMemo(() => {
@@ -3142,7 +3250,12 @@ ADMINISTRATIVE VERIFICATION:
     const scoped = live.filter((b: any) => analyticsClinic === "all" || clinicOf(b) === analyticsClinic);
 
     let start: Date, end: Date, label: string;
+    // Latest booked date in scope, so future appointments are always counted.
+    const lastBooked = scoped.reduce((m: string, b: any) => (b.date > m ? b.date : m), todayIso);
+    const lastBookedDate = new Date(`${lastBooked}T00:00:00`);
     if (analyticsPeriod === "today") { start = today; end = today; label = "Today"; }
+    else if (analyticsPeriod === "upcoming") { start = today; end = lastBookedDate; label = "Today & upcoming"; }
+    else if (analyticsPeriod === "live") { start = addDays(today, -29); end = lastBookedDate; label = "Last 30 days & upcoming"; }
     else if (analyticsPeriod === "7d") { start = addDays(today, -6); end = today; label = "Last 7 days"; }
     else if (analyticsPeriod === "30d") { start = addDays(today, -29); end = today; label = "Last 30 days"; }
     else if (analyticsPeriod === "month") { start = new Date(today.getFullYear(), today.getMonth(), 1); end = new Date(today.getFullYear(), today.getMonth() + 1, 0); label = today.toLocaleDateString("en-GB", { month: "long", year: "numeric" }); }
@@ -3175,7 +3288,7 @@ ADMINISTRATIVE VERIFICATION:
 
     // Previous period of the same length, for the trend arrow
     let prevTotal: number | null = null;
-    if (analyticsPeriod !== "all") {
+    if (analyticsPeriod !== "all" && analyticsPeriod !== "upcoming" && analyticsPeriod !== "live") {
       const days = Math.round((end.getTime() - start.getTime()) / 86400000) + 1;
       const pStart = iso(addDays(start, -days)), pEnd = iso(addDays(start, -1));
       prevTotal = scoped.filter((b: any) => b.date >= pStart && b.date <= pEnd).length;
@@ -3183,7 +3296,7 @@ ADMINISTRATIVE VERIFICATION:
 
     // Actionable queues: only live, upcoming, not cancelled
     const actionable = scoped.filter((b: any) => !isCancelled(b) && !isCompleted(b) && b.date >= todayIso);
-    const pendingHmo = actionable.filter((b: any) => isHmoBooking(b) && !["approved", "cleared"].includes(String(b.hmoStatus ?? b.hmo_status ?? "").toLowerCase())).length;
+    const pendingHmo = actionable.filter((b: any) => isHmoBooking(b) && !["approved", "cleared", "declined"].includes(String(b.hmoStatus ?? b.hmo_status ?? "").toLowerCase())).length;
     const pendingPay = actionable.filter((b: any) => !isHmoBooking(b) && String(b.paymentStatus ?? b.payment_status ?? "").toLowerCase() !== "cleared").length;
 
     // Funding mix
@@ -3311,7 +3424,7 @@ ADMINISTRATIVE VERIFICATION:
     const q = archiveSearch.trim().toLowerCase();
     const clinic = String(b.doctorSpecialty ?? b.doctor_specialty ?? "").toLowerCase();
     const matchesClinic = archiveClinicFilter === "all" || clinic.includes(archiveClinicFilter.toLowerCase());
-    return matchesClinic && (!q || [b.refCode, b.ref_code, b.patientName, b.patient_name, b.doctorSpecialty, b.doctor_specialty].some((v) => String(v ?? "").toLowerCase().includes(q)));
+    return matchesClinic && bookingInDateRange(b, archiveDateFrom, archiveDateTo) && (!q || [b.refCode, b.ref_code, b.patientName, b.patient_name, b.doctorSpecialty, b.doctor_specialty].some((v) => String(v ?? "").toLowerCase().includes(q)));
   });
   const cashdeskQueue = bookings.filter(isPendingCashBooking);
   const checkedInList = activeBookings.filter((b) => String(b?.status || "").toLowerCase() === "checked in");
@@ -3995,7 +4108,7 @@ ADMINISTRATIVE VERIFICATION:
     const totalBookings = bookings.length;
     const checkedInCount = bookings.filter((b) => b.status === "Checked In").length;
     const completedCount = bookings.filter((b) => b.status === "Completed").length;
-    const pendingHmoCount = bookings.filter((b) => b.paymentType === "HMO Insurance" && b.hmoStatus !== "Approved").length;
+    const pendingHmoCount = bookings.filter((b) => b.paymentType === "HMO Insurance" && b.hmoStatus !== "Approved" && b.hmoStatus !== "Declined").length;
     const hmoApprovedCount = bookings.filter((b) => b.paymentType === "HMO Insurance" && b.hmoStatus === "Approved").length;
     const pendingCashCount = bookings.filter((b) => b.paymentType === "Private Self-Pay" && b.paymentStatus !== "Cleared").length;
     const clearedPaymentCount = bookings.filter((b) => b.paymentStatus === "Cleared").length;
@@ -4704,6 +4817,17 @@ ADMINISTRATIVE VERIFICATION:
     return true;
   };
 
+  // Helpdesk queue date rule: no start date = today only (the default view).
+  const helpdeskDateMatches = (b: any) => {
+    const bDate = b.date || b.appointment_date || (b.createdAt ? String(b.createdAt).split("T")[0] : "");
+    let ok = startDateFilter ? bDate >= startDateFilter : bDate === todayDateStr;
+    if (endDateFilter && bDate) ok = ok && bDate <= endDateFilter;
+    return ok;
+  };
+  const helpdeskRangeLabel = !startDateFilter && !endDateFilter
+    ? "All Today's Clinics"
+    : startDateFilter === ALL_DATES_FROM && !endDateFilter ? "All Clinics (all dates)" : "All Clinics (selected dates)";
+
   const filteredBookings = bookings.filter((b) => {
     // If the user is viewing the All Patients Directory, show all records regardless of date or disabled status
     const isAllPatientsDesk = activeDesk === "all_patients";
@@ -4748,16 +4872,7 @@ ADMINISTRATIVE VERIFICATION:
       return matchesSearch && matchesStatus && matchesClinic && matchesCategory && matchesDateRange;
     }
 
-    const bDate = b.date || b.appointment_date || (b.createdAt ? b.createdAt.split("T")[0] : "");
-    let matchesDateRange = true;
-    if (startDateFilter) {
-      matchesDateRange = matchesDateRange && bDate >= startDateFilter;
-    } else {
-      matchesDateRange = matchesDateRange && bDate === todayDateStr;
-    }
-    if (endDateFilter && bDate) {
-      matchesDateRange = matchesDateRange && bDate <= endDateFilter;
-    }
+    const matchesDateRange = helpdeskDateMatches(b);
 
     return matchesSearch && matchesStatus && matchesClinic && matchesCategory && matchesDateRange;
   });
@@ -4784,7 +4899,7 @@ ADMINISTRATIVE VERIFICATION:
     const searchable = [b.patientName, b.patient_name, b.patientPhone, b.patient_phone, b.email, b.patientEmail, b.patient_email, b.refCode, b.ref_code, b.doctorName, b.doctor_name, b.doctorSpecialty, b.doctor_specialty, b.department, b.clinic, b.mrn, b.medicalRecordNumber, b.medical_record_number].map((v) => String(v ?? "").toLowerCase()).join(" ");
     const status = String(b.status ?? "confirmed").toLowerCase();
     const clinic = String(b.doctorSpecialty ?? b.doctor_specialty ?? b.department ?? b.deptName ?? b.clinic ?? "").toLowerCase();
-    return (!q || searchable.includes(q)) && (allPatientsStatusFilter === "all" || status === allPatientsStatusFilter.toLowerCase()) && (allPatientsClinicFilter === "all" || clinic.includes(allPatientsClinicFilter.toLowerCase()));
+    return (!q || searchable.includes(q)) && (allPatientsStatusFilter === "all" || status === allPatientsStatusFilter.toLowerCase()) && (allPatientsClinicFilter === "all" || clinic.includes(allPatientsClinicFilter.toLowerCase())) && bookingInDateRange(b, allPatientsDateFrom, allPatientsDateTo);
   });
 
   const totalAllPatientsPages = Math.ceil(filteredAllPatientsBookings.length / allPatientsItemsPerPage) || 1;
@@ -4807,7 +4922,7 @@ ADMINISTRATIVE VERIFICATION:
     const searchable = [b.patientName, b.patient_name, b.patientPhone, b.patient_phone, b.refCode, b.ref_code, b.doctorName, b.doctor_name, b.doctorSpecialty, b.doctor_specialty, b.department, b.clinic, b.invoiceRef, b.invoice_ref].map((v) => String(v ?? "").toLowerCase()).join(" ");
     const status = String(b.status ?? "confirmed").toLowerCase();
     const clinic = String(b.doctorSpecialty ?? b.doctor_specialty ?? b.department ?? b.deptName ?? b.clinic ?? "").toLowerCase();
-    return (!q || searchable.includes(q)) && (privatePatientsStatusFilter === "all" || status === privatePatientsStatusFilter.toLowerCase()) && (privatePatientsClinicFilter === "all" || clinic.includes(privatePatientsClinicFilter.toLowerCase()));
+    return (!q || searchable.includes(q)) && (privatePatientsStatusFilter === "all" || status === privatePatientsStatusFilter.toLowerCase()) && (privatePatientsClinicFilter === "all" || clinic.includes(privatePatientsClinicFilter.toLowerCase())) && bookingInDateRange(b, privatePatientsDateFrom, privatePatientsDateTo);
   });
   const totalPrivatePatientsPages = Math.ceil(privatePatientsList.length / privatePatientsItemsPerPage) || 1;
   const currentPrivatePatientsPage = Math.min(privatePatientsCurrentPage, totalPrivatePatientsPages);
@@ -4949,6 +5064,7 @@ ADMINISTRATIVE VERIFICATION:
       items: [
         { id: "helpdesk", label: "Helpdesk Reception", icon: UserCheck, badge: null },
         { id: "hmo", label: "HMO Insurance Desk", icon: ShieldCheck, badge: null },
+        { id: "hmo_declined", label: "Declined HMO Approvals", icon: ShieldX, badge: bookings.filter(isDeclinedHmoBooking).length || null },
         { id: "cashdesk", label: "Cashdesk & Billing", icon: DollarSign, badge: null },
       ],
     },
@@ -5218,8 +5334,7 @@ ADMINISTRATIVE VERIFICATION:
               {(() => {
                 const todayBookingsList = bookings.filter(b => {
                   const isActive = b.isActive === true || b.is_active === true || (b.isActive !== false && b.is_active !== false && b.status !== "disabled" && !b.disabled);
-                  const bDate = b.date || b.appointment_date || b.createdAt?.split("T")[0];
-                  return isActive && bDate === todayDateStr;
+                  return isActive && helpdeskDateMatches(b);
                 });
                 return (
                   <div className={`${isDarkMode ? 'bg-slate-900/80 border-sky-500/20' : 'bg-white/80 border-sky-100 shadow-md'} backdrop-blur-xl border rounded-2xl p-4 flex items-center gap-2 relative`}>
@@ -5241,7 +5356,7 @@ ADMINISTRATIVE VERIFICATION:
                         <span className="w-5 h-5 rounded-full bg-cyan-500 text-white flex items-center justify-center text-[10px] font-black shadow-sm">
                           {todayBookingsList.length}
                         </span>
-                        <span>All Today's Clinics</span>
+                        <span>{helpdeskRangeLabel}</span>
                       </button>
                       {clinics
                         .map((c) => {
@@ -5294,9 +5409,8 @@ ADMINISTRATIVE VERIFICATION:
               {(() => {
                 const todayInClinic = bookings.filter((b) => {
                   const isActive = b.isActive === true || b.is_active === true || (b.isActive !== false && b.is_active !== false && b.status !== "disabled" && !b.disabled);
-                  const bDate = b.date || b.appointment_date || b.createdAt?.split("T")[0];
                   const bClinic = String(b.doctorSpecialty || b.doctor_specialty || b.department || b.deptName || b.clinic || "").toLowerCase();
-                  return isActive && bDate === todayDateStr && (clinicFilter === "all" || bClinic.includes(clinicFilter.toLowerCase()));
+                  return isActive && helpdeskDateMatches(b) && (clinicFilter === "all" || bClinic.includes(clinicFilter.toLowerCase()));
                 });
                 const providers = Array.from(new Set(todayInClinic.filter(isHmoBooking).map(bookingHmoProvider).filter((p) => p && p.toLowerCase() !== "n/a"))).sort();
                 const chip = (key: string, label: string, count: number, color: string) => {
@@ -5330,7 +5444,7 @@ ADMINISTRATIVE VERIFICATION:
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
                   <div>
                     <h3 className={`text-base font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Helpdesk Patient Bookings Queue (Active Records Only)</h3>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">Manage patient check-ins, verify appointments, and dispatch notifications for today.</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">Manage patient check-ins, verify appointments, and dispatch notifications{!startDateFilter && !endDateFilter ? " for today" : " for the selected dates"}.</p>
                   </div>
                   <div className="flex items-center gap-3 w-full sm:w-auto">
                     <div className="relative flex-1 sm:w-72">
@@ -5352,6 +5466,41 @@ ADMINISTRATIVE VERIFICATION:
                     </button>
                   </div>
                 </div>
+
+                <DateRangeFilter
+                  testId="helpdesk-dates"
+                  className="mb-5"
+                  emptyMeans="today"
+                  isDarkMode={isDarkMode}
+                  from={startDateFilter}
+                  to={endDateFilter}
+                  count={filteredBookings.length}
+                  onChange={(f: string, t: string) => { setStartDateFilter(!f && t ? ALL_DATES_FROM : f); setEndDateFilter(t); setBookingCurrentPage(1); }}
+                />
+                {!startDateFilter && !endDateFilter && (() => {
+                  // Bookings made for later days are not in today's queue; say so, with a one-tap view.
+                  const later = bookings.filter((b: any) => {
+                    const d = String(b.date || b.appointment_date || "");
+                    const active = b.isActive === true || b.is_active === true || (b.isActive !== false && b.is_active !== false && b.status !== "disabled" && !b.disabled);
+                    const bClinic = String(b.doctorSpecialty || b.doctor_specialty || b.department || b.deptName || b.clinic || "").toLowerCase();
+                    return active && d > todayDateStr && (clinicFilter === "all" || bClinic.includes(clinicFilter.toLowerCase()));
+                  });
+                  if (later.length === 0) return null;
+                  const byClinic: Record<string, number> = {};
+                  later.forEach((b: any) => { const c = String(b.doctorSpecialty || b.doctor_specialty || "Other"); byClinic[c] = (byClinic[c] || 0) + 1; });
+                  const summary = Object.entries(byClinic).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([c, n]) => `${c} ${n}`).join(" · ");
+                  return (
+                    <div data-testid="helpdesk-upcoming-hint" className={`-mt-2 mb-5 px-4 py-2.5 rounded-xl border text-xs flex flex-wrap items-center gap-2 ${isDarkMode ? "bg-sky-950/30 border-sky-800/50 text-sky-200" : "bg-sky-50 border-sky-200 text-sky-900"}`}>
+                      <CalendarDays className="w-4 h-4 text-sky-500 shrink-0" />
+                      <span className="font-bold">{later.length} upcoming booking{later.length === 1 ? "" : "s"} on later days</span>
+                      <span className="text-slate-500 dark:text-slate-400">({summary})</span>
+                      <button type="button" onClick={() => { setStartDateFilter(todayDateStr); setEndDateFilter(""); setBookingCurrentPage(1); }}
+                        className="ml-auto px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-black">
+                        View upcoming
+                      </button>
+                    </div>
+                  );
+                })()}
 
                 <div className="overflow-x-auto">
                   <table className="w-full text-left border-collapse">
@@ -5709,7 +5858,7 @@ ADMINISTRATIVE VERIFICATION:
                   const hmoBookingsList = bookings.filter(isPendingHmoBooking).filter((b: any) => {
                     const q = hmoTableSearch.trim().toLowerCase();
                     const provider = String(b.hmoName ?? b.hmo_name ?? b.hmoCompany ?? b.hmo_company ?? "").trim();
-                    return (hmoApprovalProviderFilter === "all" || provider === hmoApprovalProviderFilter) && (!q || [b.refCode, b.ref_code, b.patientName, b.patient_name, b.patientPhone, b.patient_phone, b.hmoName, b.hmo_name, b.hmoCompany, b.enrolleeNumber, b.enrollee_number, b.hmoNumber, b.hmo_number, b.date].some((v) => String(v ?? "").toLowerCase().includes(q)));
+                    return (hmoApprovalProviderFilter === "all" || provider === hmoApprovalProviderFilter) && bookingInDateRange(b, hmoDateFrom, hmoDateTo) && (!q || [b.refCode, b.ref_code, b.patientName, b.patient_name, b.patientPhone, b.patient_phone, b.hmoName, b.hmo_name, b.hmoCompany, b.enrolleeNumber, b.enrollee_number, b.hmoNumber, b.hmo_number, b.date].some((v) => String(v ?? "").toLowerCase().includes(q)));
                   });
                   const totalHmoPages = Math.max(1, Math.ceil(hmoBookingsList.length / hmoItemsPerPage));
                   const currentHmoPage = Math.min(hmoCurrentPage, totalHmoPages);
@@ -5724,6 +5873,8 @@ ADMINISTRATIVE VERIFICATION:
                         </div>
                         <select value={hmoApprovalProviderFilter} onChange={(e) => { setHmoApprovalProviderFilter(e.target.value); setHmoCurrentPage(1); }} className={`px-3 py-2.5 rounded-xl border text-xs font-bold outline-none ${isDarkMode ? "bg-slate-950 border-slate-800 text-white" : "bg-white border-slate-200 text-slate-800"}`}><option value="all">All HMO Providers</option>{Array.from(new Set(hmoBookingsList.map((b: any) => String(b.hmoName ?? b.hmo_name ?? b.hmoCompany ?? b.hmo_company ?? "").trim()).filter(Boolean))).sort().map((provider) => <option key={provider} value={provider}>{provider}</option>)}</select><span className="text-xs text-slate-400">{hmoBookingsList.length} pending record(s)</span>
                       </div>
+                      <DateRangeFilter testId="hmo-dates" className="mb-4" isDarkMode={isDarkMode} from={hmoDateFrom} to={hmoDateTo} count={hmoBookingsList.length}
+                        onChange={(f: string, t: string) => { setHmoDateFrom(f); setHmoDateTo(t); setHmoCurrentPage(1); }} />
                       <div className="overflow-x-auto rounded-2xl border border-slate-200/50 dark:border-slate-800">
                         <table className="w-full text-left border-collapse min-w-[950px]">
                           <thead>
@@ -5854,6 +6005,18 @@ ADMINISTRATIVE VERIFICATION:
                                           >
                                             <ShieldCheck className="w-3.5 h-3.5" />
                                             Grant Auth
+                                          </button>
+                                        )}
+
+                                        {!isApproved && (
+                                          <button
+                                            type="button"
+                                            data-testid={`decline-hmo-${refCode}`}
+                                            onClick={() => openDeclineModal(b)}
+                                            className="px-3 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold shadow-lg shadow-rose-500/20 transition-all text-xs inline-flex items-center gap-1.5"
+                                          >
+                                            <XCircle className="w-3.5 h-3.5" />
+                                            Decline
                                           </button>
                                         )}
 
@@ -6130,11 +6293,135 @@ ADMINISTRATIVE VERIFICATION:
             </div>
           )}
 
+          {activeDesk === "hmo_declined" && (() => {
+            const declinedAll = bookings.filter(isDeclinedHmoBooking);
+            const declinedList = declinedAll.filter((b: any) => {
+              const q = declinedSearch.trim().toLowerCase();
+              const provider = String(b.hmoName ?? b.hmo_name ?? b.hmoCompany ?? b.hmo_company ?? "").trim();
+              return (declinedProviderFilter === "all" || provider === declinedProviderFilter) &&
+                bookingInDateRange(b, declinedDateFrom, declinedDateTo) &&
+                (!q || [b.refCode, b.ref_code, b.patientName, b.patient_name, b.patientPhone, b.patient_phone, b.hmoName, b.hmo_name, b.hmoPolicyCode, b.hmo_policy_code, b.hmoDeclineReason, b.hmo_decline_reason, b.doctorSpecialty, b.doctor_specialty, b.date].some((v) => String(v ?? "").toLowerCase().includes(q)));
+            }).sort((a: any, b: any) => String(b.hmoDeclinedAt ?? b.hmo_declined_at ?? "").localeCompare(String(a.hmoDeclinedAt ?? a.hmo_declined_at ?? "")));
+            const pageSafe = Math.min(declinedPage, Math.max(1, Math.ceil(declinedList.length / declinedPageSize)));
+            const pageRows = declinedList.slice((pageSafe - 1) * declinedPageSize, pageSafe * declinedPageSize);
+            const field = `px-3 py-2.5 rounded-xl border text-xs font-bold outline-none ${isDarkMode ? "bg-slate-950 border-slate-800 text-white" : "bg-white border-slate-200 text-slate-800"}`;
+            return (
+              <div className="space-y-6" data-testid="declined-hmo-desk">
+                <div className={`${isDarkMode ? "bg-slate-900/80 border-sky-500/20" : "bg-white/80 border-sky-100 shadow-xl"} backdrop-blur-xl border rounded-3xl p-6 transition-all duration-300`}>
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
+                    <div>
+                      <h3 className={`text-base font-bold ${isDarkMode ? "text-white" : "text-slate-900"}`}>Declined HMO Approvals</h3>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                        HMO bookings whose pre-authorization was declined. Send one back to the HMO queue, or route the patient to the Cashdesk as Private Self-Pay.
+                      </p>
+                    </div>
+                    <span className="px-3 py-1 rounded-xl text-xs font-bold bg-rose-500/15 text-rose-500 border border-rose-500/30 whitespace-nowrap">
+                      {declinedAll.length} declined
+                    </span>
+                  </div>
+
+                  <div className="mb-4 flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
+                    <div className="relative w-full sm:max-w-md">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                      <input type="search" value={declinedSearch} onChange={(e) => { setDeclinedSearch(e.target.value); setDeclinedPage(1); }} placeholder="Search patient, reference, provider, enrollee or reason..." className={`w-full pl-10 pr-4 py-2.5 rounded-xl border text-xs outline-none focus:ring-2 focus:ring-rose-500 ${isDarkMode ? "bg-slate-950 border-slate-800 text-white" : "bg-white border-slate-200 text-slate-800"}`} />
+                    </div>
+                    <select value={declinedProviderFilter} onChange={(e) => { setDeclinedProviderFilter(e.target.value); setDeclinedPage(1); }} className={field}>
+                      <option value="all">All HMO Providers</option>
+                      {Array.from(new Set(declinedAll.map((b: any) => String(b.hmoName ?? b.hmo_name ?? b.hmoCompany ?? b.hmo_company ?? "").trim()).filter(Boolean))).sort().map((provider) => <option key={provider} value={provider}>{provider}</option>)}
+                    </select>
+                  </div>
+                  <DateRangeFilter testId="declined-dates" className="mb-4" isDarkMode={isDarkMode} from={declinedDateFrom} to={declinedDateTo} count={declinedList.length}
+                    onChange={(f: string, t: string) => { setDeclinedDateFrom(f); setDeclinedDateTo(t); setDeclinedPage(1); }} />
+
+                  <div className="overflow-x-auto rounded-2xl border border-slate-200/50 dark:border-slate-800">
+                    <table className="w-full text-left border-collapse min-w-[1000px]">
+                      <thead>
+                        <tr className={`border-b ${isDarkMode ? "border-slate-800 bg-slate-950/40 text-slate-400" : "border-slate-200 bg-slate-50 text-slate-600"} text-[10px] font-black uppercase tracking-wider`}>
+                          <th className="py-3 px-4">Ref Code & Date</th>
+                          <th className="py-3 px-4">Full Patient Details</th>
+                          <th className="py-3 px-4">Clinic & Doctor</th>
+                          <th className="py-3 px-4">HMO Provider & Enrollee</th>
+                          <th className="py-3 px-4">Decline Reason</th>
+                          <th className="py-3 px-4">Declined</th>
+                          <th className="py-3 px-4 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className={`divide-y ${isDarkMode ? "divide-slate-800/60" : "divide-slate-100"} text-xs`}>
+                        {pageRows.length === 0 ? (
+                          <tr>
+                            <td colSpan={7} className="py-12 text-center text-slate-400 font-medium">
+                              {declinedAll.length === 0 ? "No declined HMO requests." : "No declined requests match these filters."}
+                            </td>
+                          </tr>
+                        ) : pageRows.map((b: any) => {
+                          const refCode = String(b.refCode || b.ref_code || "");
+                          const declinedAt = b.hmoDeclinedAt || b.hmo_declined_at;
+                          const busy = declinedBusyRef === refCode;
+                          return (
+                            <tr key={refCode} data-testid={`declined-row-${refCode}`} className={`${isDarkMode ? "hover:bg-slate-800/30" : "hover:bg-rose-500/5"} transition-colors`}>
+                              <td className="py-4 px-4">
+                                <div className="font-mono font-bold text-rose-500">{refCode}</div>
+                                <div className="text-[10px] text-slate-400 mt-1">{b.date || "Date unavailable"}</div>
+                                <div className="text-[10px] text-slate-400">{b.time || ""}</div>
+                              </td>
+                              <td className="py-4 px-4">
+                                <div className={`font-bold ${isDarkMode ? "text-white" : "text-slate-900"}`}>{b.patientName || b.patient_name || "Patient"}</div>
+                                <div className="text-[11px] text-slate-400 mt-1">{b.patientPhone || b.patient_phone || "N/A"}</div>
+                                {(b.patientEmail || b.patient_email) && <div className="text-[10px] text-slate-400 break-all">{b.patientEmail || b.patient_email}</div>}
+                              </td>
+                              <td className="py-4 px-4">
+                                <div className={`font-semibold ${isDarkMode ? "text-slate-200" : "text-slate-800"}`}>{b.doctorSpecialty || b.doctor_specialty || "General Outpatient"}</div>
+                                <div className="text-[10px] text-sky-400">{getDoctorRealName(b)}</div>
+                              </td>
+                              <td className="py-4 px-4">
+                                <div className="font-semibold text-purple-400">{b.hmoName || b.hmo_name || b.hmoCompany || "HMO Partner"}</div>
+                                <div className={`font-mono text-[11px] mt-1 ${isDarkMode ? "text-slate-300" : "text-slate-700"}`}>{b.hmoPolicyCode || b.hmo_policy_code || b.enrolleeNumber || b.enrollee_number || "N/A"}</div>
+                              </td>
+                              <td className="py-4 px-4 max-w-[240px]">
+                                <span className="inline-flex items-start gap-1.5 px-2.5 py-1.5 rounded-xl text-[11px] font-semibold bg-rose-500/10 text-rose-600 dark:text-rose-300 border border-rose-500/30">
+                                  <XCircle className="w-3.5 h-3.5 mt-px shrink-0" />
+                                  <span className="break-words">{b.hmoDeclineReason || b.hmo_decline_reason || "Declined by HMO desk"}</span>
+                                </span>
+                              </td>
+                              <td className="py-4 px-4">
+                                <div className={`font-semibold ${isDarkMode ? "text-slate-200" : "text-slate-800"}`}>
+                                  {declinedAt ? new Date(declinedAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—"}
+                                </div>
+                                {(b.hmoDeclinedBy || b.hmo_declined_by) && <div className="text-[10px] text-slate-400 mt-0.5">by {b.hmoDeclinedBy || b.hmo_declined_by}</div>}
+                              </td>
+                              <td className="py-4 px-4 text-right">
+                                <div className="flex items-center justify-end gap-2 flex-wrap">
+                                  <button type="button" disabled={busy} onClick={() => handleReopenHmo(refCode)} data-testid={`reopen-hmo-${refCode}`}
+                                    className="px-3 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white font-bold text-xs inline-flex items-center gap-1.5 shadow-lg shadow-sky-500/20">
+                                    {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
+                                    Re-open for approval
+                                  </button>
+                                  <button type="button" disabled={busy} onClick={() => handleRerouteCashdesk(refCode, `HMO declined: ${b.hmoDeclineReason || b.hmo_decline_reason || "pre-authorization refused"}`)}
+                                    className="px-3 py-2 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 disabled:opacity-50 text-amber-500 border border-amber-500/30 font-bold text-xs">
+                                    Route to Cashdesk
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  {declinedList.length > 0 && (
+                    <TablePager testId="declined-pager" page={pageSafe} pageSize={declinedPageSize} total={declinedList.length}
+                      onPage={setDeclinedPage} onPageSize={(n) => { setDeclinedPageSize(n); setDeclinedPage(1); }} isDarkMode={isDarkMode} />
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+
           {activeDesk === "cashdesk" && (() => {
             const privateSelfPayBookings = bookings.filter(isPendingCashBooking).filter((b: any) => {
               const q = cashdeskSearch.trim().toLowerCase();
               const clinic = String(b.doctorSpecialty ?? b.doctor_specialty ?? b.department ?? b.deptName ?? b.clinic ?? "").trim();
-              return (cashdeskClinicFilter === "all" || clinic.toLowerCase().includes(cashdeskClinicFilter.toLowerCase())) && (!q || [b.refCode, b.ref_code, b.patientName, b.patient_name, b.patientPhone, b.patient_phone, b.doctorName, b.doctor_name, b.doctorSpecialty, b.doctor_specialty, b.department, b.date].some((v) => String(v ?? "").toLowerCase().includes(q)));
+              return (cashdeskClinicFilter === "all" || clinic.toLowerCase().includes(cashdeskClinicFilter.toLowerCase())) && bookingInDateRange(b, cashdeskDateFrom, cashdeskDateTo) && (!q || [b.refCode, b.ref_code, b.patientName, b.patient_name, b.patientPhone, b.patient_phone, b.doctorName, b.doctor_name, b.doctorSpecialty, b.doctor_specialty, b.department, b.date].some((v) => String(v ?? "").toLowerCase().includes(q)));
             });
             const totalCashdeskPages = Math.max(1, Math.ceil(privateSelfPayBookings.length / cashdeskItemsPerPage));
             const currentCashdeskPage = Math.min(cashdeskCurrentPage, totalCashdeskPages);
@@ -6156,6 +6443,8 @@ ADMINISTRATIVE VERIFICATION:
                     </div>
                     <select value={cashdeskClinicFilter} onChange={(e) => { setCashdeskClinicFilter(e.target.value); setCashdeskCurrentPage(1); }} className={`px-3 py-2.5 rounded-xl border text-xs font-bold outline-none ${isDarkMode ? "bg-slate-950 border-slate-800 text-white" : "bg-white border-slate-200 text-slate-800"}`}><option value="all">All Clinics / Specialties</option>{Array.from(new Set(privateSelfPayBookings.map((b: any) => String(b.doctorSpecialty ?? b.doctor_specialty ?? b.department ?? b.deptName ?? b.clinic ?? "").trim()).filter(Boolean))).sort().map((clinic) => <option key={clinic} value={clinic}>{clinic}</option>)}</select><span className="text-xs text-slate-400">{privateSelfPayBookings.length} pending record(s)</span>
                   </div>
+                  <DateRangeFilter testId="cashdesk-dates" className="mb-4" isDarkMode={isDarkMode} from={cashdeskDateFrom} to={cashdeskDateTo} count={privateSelfPayBookings.length}
+                    onChange={(f: string, t: string) => { setCashdeskDateFrom(f); setCashdeskDateTo(t); setCashdeskCurrentPage(1); }} />
                   <div className="overflow-x-auto rounded-2xl border border-slate-200/50 dark:border-slate-800">
                     <table className="w-full text-left border-collapse min-w-[950px]">
                       <thead><tr className={`border-b ${isDarkMode ? 'border-slate-800 bg-slate-950/40 text-slate-400' : 'border-slate-200 bg-slate-50 text-slate-600'} text-[10px] font-black uppercase tracking-wider`}>
@@ -6249,6 +6538,8 @@ ADMINISTRATIVE VERIFICATION:
                 </div>
 
                 <div className="flex flex-col lg:flex-row gap-3 mb-4"><div className="relative flex-1 min-w-0"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" /><input type="search" value={allPatientsSearch} onChange={(e) => { setAllPatientsSearch(e.target.value); setCurrentAllPatientsPage(1); }} placeholder="Search patient, phone, email, MRN, ticket, doctor or clinic..." className={`w-full pl-10 pr-4 py-2.5 rounded-xl border text-xs outline-none focus:ring-2 focus:ring-sky-500 ${isDarkMode ? "bg-slate-950 border-slate-800 text-white" : "bg-white border-slate-200 text-slate-800"}`} /></div><select value={allPatientsStatusFilter} onChange={(e) => { setAllPatientsStatusFilter(e.target.value); setCurrentAllPatientsPage(1); }} className={`px-3 py-2.5 rounded-xl border text-xs font-bold ${isDarkMode ? "bg-slate-950 border-slate-800 text-white" : "bg-white border-slate-200 text-slate-800"}`}><option value="all">All Statuses</option><option value="confirmed">Confirmed</option><option value="checked in">Checked In</option><option value="consulting">Consulting</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option><option value="disabled">Disabled</option></select><select value={allPatientsClinicFilter} onChange={(e) => { setAllPatientsClinicFilter(e.target.value); setCurrentAllPatientsPage(1); }} className={`px-3 py-2.5 rounded-xl border text-xs font-bold ${isDarkMode ? "bg-slate-950 border-slate-800 text-white" : "bg-white border-slate-200 text-slate-800"}`}><option value="all">All Clinics / Specialties</option>{Array.from(new Set(bookings.map((b: any) => String(b.doctorSpecialty ?? b.doctor_specialty ?? b.department ?? b.deptName ?? b.clinic ?? "").trim()).filter(Boolean))).sort().map((clinic) => <option key={clinic} value={clinic}>{clinic}</option>)}</select></div>
+                <DateRangeFilter testId="allpatients-dates" className="mb-4" isDarkMode={isDarkMode} from={allPatientsDateFrom} to={allPatientsDateTo} count={filteredAllPatientsBookings.length}
+                  onChange={(f: string, t: string) => { setAllPatientsDateFrom(f); setAllPatientsDateTo(t); setAllPatientsCurrentPage(1); setCurrentAllPatientsPage(1); }} />
 
                 {filteredAllPatientsBookings.length === 0 ? (
                   <div className="text-center py-12 space-y-2 text-slate-500">
@@ -7303,6 +7594,8 @@ ADMINISTRATIVE VERIFICATION:
 
               <div className="bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
                 <div className="flex flex-col lg:flex-row gap-3 mb-4"><div className="relative flex-1 min-w-0"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" /><input type="search" value={privatePatientsSearch} onChange={(e) => { setPrivatePatientsSearch(e.target.value); setPrivatePatientsCurrentPage(1); }} placeholder="Search private patient, phone, ticket, doctor, invoice or clinic..." className={`w-full pl-10 pr-4 py-2.5 rounded-xl border text-xs outline-none focus:ring-2 focus:ring-purple-500 ${isDarkMode ? "bg-slate-950 border-slate-800 text-white" : "bg-white border-slate-200 text-slate-800"}`} /></div><select value={privatePatientsStatusFilter} onChange={(e) => { setPrivatePatientsStatusFilter(e.target.value); setPrivatePatientsCurrentPage(1); }} className={`px-3 py-2.5 rounded-xl border text-xs font-bold ${isDarkMode ? "bg-slate-950 border-slate-800 text-white" : "bg-white border-slate-200 text-slate-800"}`}><option value="all">All Statuses</option><option value="confirmed">Confirmed</option><option value="checked in">Checked In</option><option value="consulting">Consulting</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option></select><select value={privatePatientsClinicFilter} onChange={(e) => { setPrivatePatientsClinicFilter(e.target.value); setPrivatePatientsCurrentPage(1); }} className={`px-3 py-2.5 rounded-xl border text-xs font-bold ${isDarkMode ? "bg-slate-950 border-slate-800 text-white" : "bg-white border-slate-200 text-slate-800"}`}><option value="all">All Clinics / Specialties</option>{Array.from(new Set(bookings.map((b: any) => String(b.doctorSpecialty ?? b.doctor_specialty ?? b.department ?? b.deptName ?? b.clinic ?? "").trim()).filter(Boolean))).sort().map((clinic) => <option key={clinic} value={clinic}>{clinic}</option>)}</select></div>
+                <DateRangeFilter testId="private-dates" className="mb-4" isDarkMode={isDarkMode} from={privatePatientsDateFrom} to={privatePatientsDateTo} count={privatePatientsList.length}
+                  onChange={(f: string, t: string) => { setPrivatePatientsDateFrom(f); setPrivatePatientsDateTo(t); setPrivatePatientsCurrentPage(1); }} />
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-xs font-bold">
                     <thead>
@@ -8303,7 +8596,7 @@ ADMINISTRATIVE VERIFICATION:
               {/* PERIOD + CLINIC FILTER */}
               <div data-testid="analytics-filters" className={`${isDarkMode ? "bg-slate-900/80 border-slate-800" : "bg-white border-slate-200 shadow-sm"} border rounded-2xl p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3`}>
                 <div className="flex flex-wrap gap-2">
-                  {([["today", "Today"], ["7d", "7 days"], ["30d", "30 days"], ["month", "This month"], ["all", "All time"]] as const).map(([key, lab]) => (
+                  {([["live", "30 days + upcoming"], ["today", "Today"], ["upcoming", "Upcoming"], ["7d", "Last 7 days"], ["30d", "Last 30 days"], ["month", "This month"], ["all", "All time"]] as const).map(([key, lab]) => (
                     <button key={key} type="button" data-period={key} onClick={() => setAnalyticsPeriod(key)}
                       className={`px-3.5 py-2 rounded-xl text-xs font-black transition-all ${analyticsPeriod === key ? "bg-sky-600 text-white shadow-md shadow-sky-500/20" : isDarkMode ? "bg-slate-800 text-slate-300 hover:bg-slate-700" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}>{lab}</button>
                   ))}
@@ -8604,6 +8897,8 @@ ADMINISTRATIVE VERIFICATION:
                 </div>
 
                 <div className="flex flex-col sm:flex-row gap-3 mb-4"><select value={archiveClinicFilter} onChange={(e) => setArchiveClinicFilter(e.target.value)} className={`px-3 py-2.5 rounded-xl border text-xs font-bold sm:max-w-xs ${isDarkMode ? "bg-slate-950 border-slate-800 text-white" : "bg-white border-slate-200 text-slate-800"}`}><option value="all">All Clinics / Specialties</option>{Array.from(new Set(bookings.filter((b: any) => b.isActive === false || b.is_active === false || b.status === "disabled" || b.disabled).map((b: any) => String(b.doctorSpecialty ?? b.doctor_specialty ?? b.department ?? b.deptName ?? b.clinic ?? "").trim()).filter(Boolean))).sort().map((clinic) => <option key={clinic} value={clinic}>{clinic}</option>)}</select></div>
+                <DateRangeFilter testId="archive-dates" className="mb-4" isDarkMode={isDarkMode} from={archiveDateFrom} to={archiveDateTo} count={filteredArchiveBookings.length}
+                  onChange={(f: string, t: string) => { setArchiveDateFrom(f); setArchiveDateTo(t); setArchivePage(1); }} />
                 <div className="overflow-x-auto">
                   <table className="w-full text-left border-collapse">
                     <thead>
@@ -8901,6 +9196,49 @@ ADMINISTRATIVE VERIFICATION:
       {/* CREATE ROLE MODAL */}
       {showCreateRoleModal && (
         <div className="fixed inset-0 z-[125] flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4"><div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 shadow-2xl"><div className="flex justify-between items-center mb-5"><h3 className="text-xl font-black text-slate-900 dark:text-white">Create Custom Role</h3><button type="button" onClick={() => setShowCreateRoleModal(false)} className="p-2 text-slate-400"><X /></button></div>{roleFormError && <div className="mb-4 p-3 rounded-xl bg-red-500/10 text-red-500 text-xs font-bold">{roleFormError}</div>}<form onSubmit={handleCreateRole} className="space-y-4"><input value={newRoleName} onChange={e => setNewRoleName(e.target.value)} placeholder="Role name" className="w-full px-4 py-3 rounded-xl border bg-transparent text-xs" required /><textarea value={newRoleDescription} onChange={e => setNewRoleDescription(e.target.value)} placeholder="Role description" className="w-full px-4 py-3 rounded-xl border bg-transparent text-xs" rows={3} /><select value={newRolePrimaryDesk} onChange={e => setNewRolePrimaryDesk(e.target.value)} className="w-full px-4 py-3 rounded-xl border bg-transparent text-xs"><option value="helpdesk">Helpdesk</option><option value="hmo">HMO Approval</option><option value="cashdesk">Cashdesk</option><option value="monitor">Monitor Room</option><option value="analytics">Analytics</option><option value="users">Users</option></select><div><p className="text-xs font-bold text-slate-400 mb-2">Allowed Desks</p><div className="flex flex-wrap gap-2">{["helpdesk", "hmo", "cashdesk", "monitor", "analytics", "users", "all_patients"].map(d => <button type="button" key={d} onClick={() => setNewRoleAllowedDesks(p => p.includes(d) ? p.filter(x => x !== d) : [...p, d])} className={`px-2.5 py-1.5 rounded-lg border text-[10px] font-bold ${newRoleAllowedDesks.includes(d) ? "bg-sky-600 text-white border-sky-600" : "border-slate-200 dark:border-slate-800 text-slate-500"}`}>{d}</button>)}</div></div><div className="flex justify-end gap-3"><button type="button" onClick={() => setShowCreateRoleModal(false)} className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-bold">Cancel</button><button type="submit" className="px-5 py-2 rounded-xl bg-sky-600 text-white text-xs font-black">Create Role</button></div></form></div></div>
+      )}
+
+      {/* DECLINE HMO PRE-AUTHORIZATION */}
+      {declineTarget && (
+        <div className="fixed inset-0 z-[130] flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-labelledby="decline-hmo-title">
+          <div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 shadow-2xl" data-testid="decline-hmo-modal">
+            <div className="flex justify-between items-start mb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-2xl bg-rose-500/15 text-rose-500"><ShieldX className="w-5 h-5" /></div>
+                <div>
+                  <h3 id="decline-hmo-title" className="text-lg font-black text-slate-900 dark:text-white">Decline HMO pre-authorization</h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    {declineTarget.patientName || declineTarget.patient_name} · {declineTarget.refCode || declineTarget.ref_code} · {declineTarget.hmoName || declineTarget.hmo_name || "HMO"}
+                  </p>
+                </div>
+              </div>
+              <button type="button" onClick={() => setDeclineTarget(null)} className="p-2 text-slate-400" aria-label="Close"><X /></button>
+            </div>
+            <p className="text-xs text-slate-600 dark:text-slate-300 mb-3">
+              The booking will move to <strong>Declined HMO Approvals</strong>. It stays booked, but the patient cannot be checked in until it is approved or routed to the Cashdesk.
+            </p>
+            <div className="flex flex-wrap gap-2 mb-3">
+              {DECLINE_REASONS.map((r) => (
+                <button key={r} type="button" onClick={() => { setDeclineReason(r); setDeclineError(""); }}
+                  className={`px-2.5 py-1.5 rounded-xl text-[11px] font-bold border transition-all ${declineReason === r ? "bg-rose-600 text-white border-rose-600" : "bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:border-rose-400"}`}>
+                  {r}
+                </button>
+              ))}
+            </div>
+            <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 mb-1" htmlFor="decline-reason">Reason</label>
+            <textarea id="decline-reason" data-testid="decline-reason" value={declineReason} onChange={(e) => { setDeclineReason(e.target.value); setDeclineError(""); }} rows={3} maxLength={1000}
+              placeholder="Why is this request being declined?"
+              className="w-full px-4 py-3 rounded-xl border bg-transparent text-xs border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-rose-500" />
+            {declineError && <div className="mt-2 p-2.5 rounded-xl bg-rose-500/10 text-rose-500 text-xs font-bold">{declineError}</div>}
+            <div className="flex justify-end gap-3 mt-5">
+              <button type="button" onClick={() => setDeclineTarget(null)} className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200">Cancel</button>
+              <button type="button" data-testid="confirm-decline-hmo" disabled={isDecliningHmo} onClick={handleDeclineHmo}
+                className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 disabled:opacity-60 text-white text-xs font-black flex items-center gap-2">
+                {isDecliningHmo && <Loader2 className="w-4 h-4 animate-spin" />}Decline request
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* EDIT STAFF MODAL */}

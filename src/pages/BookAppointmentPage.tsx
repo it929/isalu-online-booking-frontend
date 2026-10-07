@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import "../styles/booking-glass.css";
+import "../styles/booking-design.css";
 import { useSearchParams, Link } from "react-router-dom";
 import { jsPDF } from "jspdf";
 type Doctor = any;
@@ -159,6 +160,9 @@ export function BookAppointmentPage() {
   // recurring weeks and full days). Keyed by doctor id, then by YYYY-MM-DD.
   const [availabilityByDoctor, setAvailabilityByDoctor] = useState<Record<string, Record<string, any>>>({});
   const [availabilityError, setAvailabilityError] = useState<Record<string, boolean>>({});
+  const [analyticsUpdatedAt, setAnalyticsUpdatedAt] = useState<Date | null>(null);
+  const [analyticsDate, setAnalyticsDate] = useState<string>("");
+  const [analyticsWeek, setAnalyticsWeek] = useState<number>(0); // 0 = next 7 days, 1 = the 7 after, …
 
   const [patientName, setPatientName] = useState<string>("");
   const [patientPhone, setPatientPhone] = useState<string>("");
@@ -537,9 +541,14 @@ export function BookAppointmentPage() {
       }
     }
 
+    // Each doctor's own server calendar (capacity, bookings, cancellations).
+    // Never borrow the selected doctor's figures for another doctor.
     let remoteBooked = 0;
-    if (doctorAvailabilityMap && doctorAvailabilityMap[dateStr]) {
-      const info = doctorAvailabilityMap[dateStr];
+    const ownMap: Record<string, any> | undefined = docObj
+      ? availabilityByDoctor[doctorKeyOf(docObj)]
+      : availabilityByDoctor[String(doctorId)];
+    if (ownMap && ownMap[dateStr]) {
+      const info = ownMap[dateStr];
       remoteBooked = Number(info.booked || 0);
       if (info.capacity !== undefined && info.capacity !== null && !isNaN(Number(info.capacity))) {
         maxCapacity = Number(info.capacity);
@@ -551,18 +560,19 @@ export function BookAppointmentPage() {
     return { bookedOnDate, maxCapacity, remaining };
   };
 
+  // A clinic is a department: the selected doctor's department, or the
+  // department chosen on the page before a doctor has been picked.
+  const analyticsDeptId = String(
+    (selectedDoctor as any)?.departmentId || (selectedDoctor as any)?.department_id || selectedDept || ""
+  );
+  const analyticsDeptObj = departmentsList.find(
+    (d: any) => String(d.id) === analyticsDeptId || String(d.dept_id) === analyticsDeptId ||
+      String(d.name || "").toLowerCase() === analyticsDeptId.toLowerCase()
+  );
+  const analyticsClinicName: string = analyticsDeptObj?.name || (selectedDoctor as any)?.specialty || "";
+
   const getClinicAnalyticsDoctors = (): Doctor[] => {
-    if (!selectedDoctor) return [];
-
-    const clinicName = String(
-      selectedDoctor.hospital ||
-      selectedDoctor.clinic ||
-      selectedDoctor.clinic_name ||
-      selectedDoctor.clinicName ||
-      ""
-    ).trim().toLowerCase();
-
-    if (!clinicName) return [];
+    if (!analyticsDeptId) return [];
 
     return allDoctors.filter((doctor: any) => {
       const isDisabled =
@@ -575,17 +585,40 @@ export function BookAppointmentPage() {
 
       if (isDisabled) return false;
 
-      const doctorClinic = String(
-        doctor.hospital ||
-        doctor.clinic ||
-        doctor.clinic_name ||
-        doctor.clinicName ||
-        ""
-      ).trim().toLowerCase();
-
-      return doctorClinic === clinicName;
+      return matchesDept(doctor, analyticsDeptId);
     });
   };
+
+  const clinicDoctorKeys = getClinicAnalyticsDoctors().map(doctorKeyOf).filter(Boolean);
+  const clinicKeysSignature = clinicDoctorKeys.slice().sort().join("|");
+  const clinicAvailabilityLoading = clinicDoctorKeys.some(
+    (k) => !availabilityByDoctor[k] && !availabilityError[k]
+  );
+
+  // Live capacity: load every clinic doctor's server calendar, then refresh
+  // every minute (and when the tab regains focus) while the page is open.
+  useEffect(() => {
+    if (!clinicKeysSignature) return;
+    const keys = clinicKeysSignature.split("|");
+    let stopped = false;
+    const refresh = async () => {
+      if (stopped || document.visibilityState === "hidden") return;
+      await Promise.all(keys.map((k) => loadDoctorAvailability(k)));
+      if (!stopped) setAnalyticsUpdatedAt(new Date());
+    };
+    void refresh();
+    const timer = window.setInterval(refresh, 30000);
+    const onVisible = () => { if (document.visibilityState === "visible") void refresh(); };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clinicKeysSignature, bookingConfirmed]);
 
   /**
    * Returns aggregate clinic capacity/bookings for one date.
@@ -613,25 +646,26 @@ export function BookAppointmentPage() {
     let totalCapacity = 0;
     let totalBooked = 0;
 
-    doctorsOnDuty.forEach((doctor: any) => {
+    let onDutyBooked = 0;
+    // Capacity comes from the doctors working that day; bookings are counted
+    // for every doctor in the clinic, so none are hidden if a schedule changed.
+    clinicDoctors.forEach((doctor: any) => {
       const doctorId = doctor.id || doctor.doc_id;
-
-      const doctorStats = getDoctorSlotStatsForDate(
-        String(doctorId),
-        dateStr
-      );
-
-      totalCapacity += Number(doctorStats?.maxCapacity || 0);
+      const doctorStats = getDoctorSlotStatsForDate(String(doctorId), dateStr);
+      if (doctorsOnDuty.includes(doctor)) {
+        totalCapacity += Number(doctorStats?.maxCapacity || 0);
+        onDutyBooked += Number(doctorStats?.bookedOnDate || 0);
+      }
       totalBooked += Number(doctorStats?.bookedOnDate || 0);
     });
 
-    const available = Math.max(0, totalCapacity - totalBooked);
+    const available = Math.max(0, totalCapacity - onDutyBooked);
 
     const occupancy =
       totalCapacity > 0
         ? Math.min(
           100,
-          Math.round((totalBooked / totalCapacity) * 100)
+          Math.round((onDutyBooked / totalCapacity) * 100)
         )
         : 0;
 
@@ -664,53 +698,50 @@ export function BookAppointmentPage() {
    * displaying fake "Open/Off" values.
    */
   const getClinicWeeklyAnalytics = () => {
-    if (!selectedDoctor) return [];
+    if (!analyticsDeptId) return [];
 
+    // The next seven calendar days, in order, starting today.
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const weekdayOrder = [
-      "Monday",
-      "Tuesday",
-      "Wednesday",
-      "Thursday",
-      "Friday",
-      "Saturday",
-      "Sunday",
-    ];
-
-    return weekdayOrder.map((dayName) => {
-      const targetIndex = weekdayOrder.indexOf(dayName);
-
+    return Array.from({ length: 7 }, (_, i) => {
+      const offset = analyticsWeek * 7 + i;
       const date = new Date(today);
-
-      // JS: Sunday = 0, Monday = 1 ... Saturday = 6
-      const currentJsDay = date.getDay();
-      const targetJsDay = targetIndex === 6 ? 0 : targetIndex + 1;
-
-      let daysUntil = targetJsDay - currentJsDay;
-
-      if (daysUntil < 0) {
-        daysUntil += 7;
-      }
-
-      date.setDate(date.getDate() + daysUntil);
-
+      date.setDate(today.getDate() + offset);
       const year = date.getFullYear();
       const month = String(date.getMonth() + 1).padStart(2, "0");
       const day = String(date.getDate()).padStart(2, "0");
-
       const dateStr = `${year}-${month}-${day}`;
-
+      const dayName = date.toLocaleDateString("en-US", { weekday: "long" });
       const stats = getClinicSlotStatsForDate(dateStr);
 
       return {
         day: dayName,
         shortDay: dayName.substring(0, 3),
         date: dateStr,
+        label: offset === 0 ? "Today" : offset === 1 ? "Tomorrow" : date.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
         ...stats,
       };
     });
+  };
+
+  // The day shown in "Selected Day Analysis": the day the patient tapped,
+  // else their chosen consultation date, else the clinic's next open day.
+
+  useEffect(() => { setAnalyticsDate(""); setAnalyticsWeek(0); }, [analyticsDeptId]);
+  useEffect(() => { if (selectedDate) setAnalyticsDate(selectedDate); }, [selectedDate]);
+
+  const focusAnalyticsDay = (dateStr: string) => {
+    setAnalyticsDate(dateStr);
+    // Only carry the day over to the booking when the chosen doctor can see
+    // patients that day, so a tap never selects a closed or full date.
+    if (selectedDoctor) {
+      const info = availabilityByDoctor[doctorKeyOf(selectedDoctor)]?.[dateStr];
+      if (info?.onDuty === true && !info?.isFull && !info?.is_full) {
+        setSelectedDate(dateStr);
+        setSelectedTime(getDutyTimeWindow(selectedDoctor, dateStr));
+      }
+    }
   };
 
   const getClinicWeeklyStats = () => {
@@ -1751,6 +1782,37 @@ export function BookAppointmentPage() {
     setStep(4);
   };
 
+
+  // Computed here, after every helper it relies on is defined.
+  const clinicWeek = getClinicWeeklyAnalytics();
+  // Every booking the server knows for this clinic's doctors (next 90 days).
+  const clinicUpcoming = (() => {
+    const perDate: Record<string, number> = {};
+    clinicDoctorKeys.forEach((k) => {
+      const map = availabilityByDoctor[k] || {};
+      Object.values(map).forEach((info: any) => {
+        const n = Number(info?.booked || 0);
+        if (n > 0 && info?.date) perDate[info.date] = (perDate[info.date] || 0) + n;
+      });
+    });
+    const dates = Object.keys(perDate).sort();
+    const booked = dates.reduce((sum, d) => sum + perDate[d], 0);
+    const nextDate = dates[0] || "";
+    let nextWeek: number | null = null;
+    let nextLabel = "";
+    if (nextDate) {
+      const t = new Date(); t.setHours(0, 0, 0, 0);
+      const days = Math.round((new Date(`${nextDate}T00:00:00`).getTime() - t.getTime()) / 86400000);
+      nextWeek = Math.max(0, Math.min(11, Math.floor(days / 7)));
+      nextLabel = new Date(`${nextDate}T00:00:00`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+    }
+    return { booked, nextDate, nextWeek, nextLabel };
+  })();
+  const focusedAnalyticsDate: string =
+    analyticsDate ||
+    (selectedDate && clinicWeek.some((d) => d.date === selectedDate) ? selectedDate : "") ||
+    (clinicWeek.find((d) => d.status !== "Closed")?.date ?? "");
+
   return (
     <div className="isalu-book flex-1 bg-slate-100 dark:bg-slate-950 py-8 sm:py-10 md:py-16 min-h-[calc(100vh-140px)]">
       <div ref={formTopRef} className="scroll-mt-24" />
@@ -1760,19 +1822,19 @@ export function BookAppointmentPage() {
       <div className="container mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
         {/* Page Title */}
         <div className="text-center mb-10 space-y-3 max-w-xl mx-auto">
-          <div className="inline-flex items-center gap-2 rounded-full bg-[#008ac9]/10 px-4 py-1.5 text-xs font-black text-[#008ac9] dark:text-sky-400 border-2 border-[#008ac9]/20">
+          <div className="bk-eyebrow inline-flex items-center gap-2 rounded-full bg-[#008ac9]/10 px-4 py-1.5 text-xs font-black text-[#008ac9] dark:text-sky-400 border-2 border-[#008ac9]/20">
             <ShieldCheck className="h-4 w-4" /> Instant Online Appointment Ticket
           </div>
-          <h1 className="text-3xl font-black text-slate-900 dark:text-white sm:text-4xl tracking-tight">
+          <h1 className="bk-title text-3xl font-black text-slate-900 dark:text-white sm:text-4xl tracking-tight">
             Book Doctor Consultation
           </h1>
-          <p className="text-slate-800 dark:text-slate-200 text-sm font-semibold leading-relaxed">
+          <p className="bk-subtitle text-slate-800 dark:text-slate-200 text-sm font-semibold leading-relaxed">
             Enter patient details first, select your payment category (Private vs HMO), and pick an eligible specialist doctor.
           </p>
         </div>
 
         {/* Progress Steps */}
-        <div className="mb-10 flex items-center justify-center gap-2 sm:gap-4">
+        <div className="bk-stepper mb-10 flex items-center justify-center gap-2 sm:gap-4">
           {[
             { num: 1, label: "Patient Details & Category" },
             { num: 2, label: "Select Specialist Doctor" },
@@ -1781,7 +1843,7 @@ export function BookAppointmentPage() {
           ].map((s) => (
             <div key={s.num} className="flex items-center gap-2">
               <div
-                className={`h-10 w-10 rounded-2xl flex items-center justify-center text-sm font-black transition-all ${step === s.num
+                className={`bk-step-dot h-10 w-10 rounded-2xl flex items-center justify-center text-sm font-black transition-all ${step === s.num
                   ? "bg-[#008ac9] text-white shadow-lg ring-4 ring-[#008ac9]/30"
                   : step > s.num
                     ? "bg-[#0072b1] text-white font-bold"
@@ -1790,10 +1852,10 @@ export function BookAppointmentPage() {
               >
                 {step > s.num ? "✓" : s.num}
               </div>
-              <span className={`text-xs font-black hidden sm:inline ${step === s.num ? "text-[#008ac9] dark:text-sky-400 font-black" : "text-slate-700 dark:text-slate-300"}`}>
+              <span className={`bk-step-label text-xs font-black hidden sm:inline ${step === s.num ? "text-[#008ac9] dark:text-sky-400 font-black" : "text-slate-700 dark:text-slate-300"}`}>
                 {s.label}
               </span>
-              {s.num < 4 && <div className="h-1 w-6 sm:w-10 bg-slate-300 dark:bg-slate-800 rounded-full" />}
+              {s.num < 4 && <div className={`bk-step-line h-1 w-6 sm:w-10 bg-slate-300 dark:bg-slate-800 rounded-full ${step > s.num ? "is-done" : ""}`} />}
             </div>
           ))}
         </div>
@@ -1804,7 +1866,7 @@ export function BookAppointmentPage() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
 
               {/* LEFT COLUMN: CLINIC-LEVEL SCHEDULE ANALYTICS */}
-              <div className="md:col-span-1 bg-sky-50/80 dark:bg-slate-900 border-2 border-[#008ac9]/30 rounded-3xl p-5 md:p-6 shadow-sm space-y-5 md:sticky md:top-6">
+              <div className="bk-side md:col-span-1 bg-sky-50/80 dark:bg-slate-900 border-2 border-[#008ac9]/30 rounded-3xl p-5 md:p-6 shadow-sm space-y-5 md:sticky md:top-6">
                 {/* Header */}
                 <div className="border-b border-[#008ac9]/20 pb-3 flex items-center justify-between">
                   <h3 className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-2">
@@ -1812,12 +1874,13 @@ export function BookAppointmentPage() {
                     Clinic Schedule Analytics
                   </h3>
 
-                  <span className="text-[10px] font-bold px-2 py-0.5 bg-[#008ac9]/10 text-[#008ac9] rounded-lg">
-                    Live Capacity
+                  <span className="bk-live-pill text-[10px] font-bold px-2 py-0.5 bg-[#008ac9]/10 text-[#008ac9] rounded-lg flex items-center gap-1.5" data-testid="live-capacity-pill">
+                    <span className={`inline-block h-1.5 w-1.5 rounded-full ${clinicAvailabilityLoading ? "bg-amber-500" : "bg-emerald-500 animate-pulse"}`} />
+                    {clinicAvailabilityLoading ? "Loading…" : "Live Capacity"}
                   </span>
                 </div>
 
-                {selectedDoctor ? (
+                {analyticsDeptId ? (
                   <div className="space-y-4">
                     {/* 1. SELECTED CLINIC */}
                     <div className="bg-white dark:bg-slate-800 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xs">
@@ -1827,7 +1890,7 @@ export function BookAppointmentPage() {
 
                       <div className="space-y-1">
                         <p className="text-xs font-black text-slate-800 dark:text-slate-100 flex items-center gap-1">
-                          📍 {selectedDoctor.hospital ?? selectedDoctor.clinic ?? selectedDoctor.clinic_name ?? selectedDoctor.clinicName ?? "Selected Clinic"}
+                          📍 <span data-testid="analytics-clinic-name">{analyticsClinicName || "Selected Clinic"}</span>
                         </p>
 
                         <p className="text-[10px] font-bold text-[#008ac9]">
@@ -1836,7 +1899,10 @@ export function BookAppointmentPage() {
                         </p>
 
                         <p className="text-[9px] font-semibold text-slate-500 dark:text-slate-400">
-                          Analytics combines the schedules and bookings of all doctors assigned to this clinic.
+                          Combines the schedules and bookings of all doctors in this clinic.
+                          {analyticsUpdatedAt && !clinicAvailabilityLoading && (
+                            <> Updated {analyticsUpdatedAt.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}.</>
+                          )}
                         </p>
                       </div>
                     </div>
@@ -1847,13 +1913,13 @@ export function BookAppointmentPage() {
                         Selected Day Analysis
                       </span>
 
-                      {selectedDate ? (
+                      {focusedAnalyticsDate ? (
                         (() => {
-                          const stats = getClinicSlotStatsForDate(selectedDate);
-                          const dateParts = selectedDate.split("-");
+                          const stats = getClinicSlotStatsForDate(focusedAnalyticsDate);
+                          const dateParts = focusedAnalyticsDate.split("-");
                           const parsedDate = dateParts.length === 3
                             ? new Date(Number(dateParts[0]), Number(dateParts[1]) - 1, Number(dateParts[2]))
-                            : new Date(selectedDate);
+                            : new Date(focusedAnalyticsDate);
 
                           const formattedDay = parsedDate.toLocaleDateString("en-US", {
                             weekday: "long",
@@ -1917,11 +1983,17 @@ export function BookAppointmentPage() {
                                   <span className="text-[9px] font-black text-emerald-600 dark:text-emerald-400 uppercase block">
                                     Available
                                   </span>
-                                  <span className="text-xl font-black text-emerald-700 dark:text-emerald-300">
-                                    {stats.available}
-                                  </span>
+                                  {stats.status === "Full" ? (
+                                    <span data-testid="analytics-day-full" className="inline-block my-0.5 px-2.5 py-0.5 rounded-lg bg-rose-600 text-white text-lg font-black tracking-wider shadow-md animate-pulse">
+                                      FULL
+                                    </span>
+                                  ) : (
+                                    <span className="text-xl font-black text-emerald-700 dark:text-emerald-300">
+                                      {stats.available}
+                                    </span>
+                                  )}
                                   <span className="text-[8px] font-bold text-emerald-600/80 dark:text-emerald-400/80 block">
-                                    Slots Open
+                                    {stats.status === "Full" ? "No slots left" : stats.status === "Closed" ? "No clinic" : "Slots Open"}
                                   </span>
                                 </div>
 
@@ -1961,7 +2033,7 @@ export function BookAppointmentPage() {
                         })()
                       ) : (
                         <p className="text-xs font-semibold text-slate-400 italic">
-                          Select a consultation date to view the clinic's live capacity for that day.
+                          {clinicAvailabilityLoading ? "Loading this clinic's live capacity…" : "No clinic days in the next week. Choose a specialist to see later dates."}
                         </p>
                       )}
                     </div>
@@ -1973,18 +2045,46 @@ export function BookAppointmentPage() {
                           Weekly Clinic Capacity
                         </span>
                         <p className="text-[9px] font-semibold text-slate-500 dark:text-slate-400 mt-0.5">
-                          Aggregate schedule across all doctors in this clinic
+                          All doctors in this clinic. Tap a day for details.
                         </p>
+                        <div className="flex items-center justify-between gap-2 mt-2">
+                          <button type="button" data-testid="analytics-prev-week" disabled={analyticsWeek === 0}
+                            onClick={() => { setAnalyticsWeek((w) => Math.max(0, w - 1)); setAnalyticsDate(""); }}
+                            className="px-2.5 py-1 rounded-lg text-[11px] font-black border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 disabled:opacity-40 hover:border-[#008ac9]">
+                            ‹ Prev
+                          </button>
+                          <span data-testid="analytics-week-label" className="text-[11px] font-black text-slate-700 dark:text-slate-200">
+                            {analyticsWeek === 0 ? "Next 7 days" : `${clinicWeek[0]?.label} – ${clinicWeek[6]?.label}`}
+                          </span>
+                          <button type="button" data-testid="analytics-next-week" disabled={analyticsWeek >= 11}
+                            onClick={() => { setAnalyticsWeek((w) => Math.min(11, w + 1)); setAnalyticsDate(""); }}
+                            className="px-2.5 py-1 rounded-lg text-[11px] font-black border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 disabled:opacity-40 hover:border-[#008ac9]">
+                            Next ›
+                          </button>
+                        </div>
+                        {clinicUpcoming.booked > 0 && (
+                          <p data-testid="analytics-upcoming-total" className="mt-2 text-[11px] font-bold text-[#008ac9]">
+                            {clinicUpcoming.booked} booked in the next 90 days{clinicUpcoming.nextDate ? ` · next clinic with bookings: ${clinicUpcoming.nextLabel}` : ""}
+                            {clinicUpcoming.nextWeek !== null && clinicUpcoming.nextWeek !== analyticsWeek && (
+                              <button type="button" onClick={() => { setAnalyticsWeek(clinicUpcoming.nextWeek as number); setAnalyticsDate(clinicUpcoming.nextDate); }}
+                                className="ml-1 underline underline-offset-2">show</button>
+                            )}
+                          </p>
+                        )}
                       </div>
 
                       <div className="space-y-1.5">
-                        {getClinicWeeklyAnalytics().map((item) => {
-                          const isSelected = selectedDate === item.date;
+                        {clinicWeek.map((item) => {
+                          const isSelected = focusedAnalyticsDate === item.date;
 
                           return (
                             <div
-                              key={item.day}
-                              onClick={() => setSelectedDate(item.date)}
+                              key={item.date}
+                              data-testid={`analytics-day-${item.date}`}
+                              role="button"
+                              tabIndex={0}
+                              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); focusAnalyticsDay(item.date); } }}
+                              onClick={() => focusAnalyticsDay(item.date)}
                               className={`rounded-xl border p-2 transition-all cursor-pointer ${isSelected
                                 ? "bg-[#008ac9]/10 border-[#008ac9] ring-1 ring-[#008ac9]/30"
                                 : "bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700 hover:border-[#008ac9]/50"
@@ -2007,14 +2107,14 @@ export function BookAppointmentPage() {
                                       {item.day}
                                     </p>
                                     <p className="text-[8px] font-semibold text-slate-400">
-                                      {item.date}
+                                      {item.label}
                                     </p>
                                   </div>
                                 </div>
 
                                 <span
-                                  className={`px-2 py-0.5 rounded-md text-[8px] font-black ${item.status === "Full"
-                                    ? "bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300"
+                                  className={`px-2 py-0.5 rounded-md text-[9px] font-black ${item.status === "Full"
+                                    ? "bg-rose-600 text-white uppercase tracking-wider"
                                     : item.status === "Limited"
                                       ? "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300"
                                       : item.status === "Open"
@@ -2079,12 +2179,22 @@ export function BookAppointmentPage() {
                                   />
                                 </div>
 
-                                <div className="flex justify-between mt-0.5">
-                                  <span className="text-[7px] font-bold text-slate-400">
+                                <div className="flex justify-between items-center mt-1.5 gap-2">
+                                  <span className="text-[9px] font-bold text-slate-500 dark:text-slate-400">
                                     {item.occupancy}% occupied
                                   </span>
-                                  <span className="text-[7px] font-black text-slate-500 dark:text-slate-400">
-                                    {item.available} slots remaining
+                                  <span
+                                    data-testid={`analytics-left-${item.date}`}
+                                    className={`bk-day-left px-2 py-0.5 rounded-lg text-[11px] font-black whitespace-nowrap ${item.status === "Full"
+                                      ? "bg-rose-600 text-white shadow-sm tracking-wider"
+                                      : item.status === "Closed"
+                                        ? "bg-slate-200 text-slate-600 dark:bg-slate-800 dark:text-slate-400"
+                                        : item.status === "Limited"
+                                          ? "bg-amber-400 text-amber-950 shadow-sm"
+                                          : "bg-emerald-600 text-white shadow-sm"
+                                      }`}
+                                  >
+                                    {item.status === "Full" ? "FULL" : item.status === "Closed" ? (item.booked > 0 ? `${item.booked} booked · no clinic` : "No clinic") : `${item.available} slot${item.available === 1 ? "" : "s"} left`}
                                   </span>
                                 </div>
                               </div>
@@ -2096,7 +2206,7 @@ export function BookAppointmentPage() {
 
                     {/* 4. CLINIC SUMMARY */}
                     {(() => {
-                      const weeklyAnalytics = getClinicWeeklyAnalytics();
+                      const weeklyAnalytics = clinicWeek;
                       const totalDoctors = getClinicAnalyticsDoctors().length;
                       const weeklyCapacity = weeklyAnalytics.reduce((sum, item) => sum + item.capacity, 0);
                       const weeklyBooked = weeklyAnalytics.reduce((sum, item) => sum + item.booked, 0);
@@ -2105,7 +2215,7 @@ export function BookAppointmentPage() {
                       return (
                         <div className="bg-slate-900 dark:bg-slate-950 p-3.5 rounded-2xl border border-slate-700 shadow-sm">
                           <span className="text-[9px] font-black uppercase tracking-wider text-slate-400 block mb-2">
-                            Clinic Weekly Summary
+                            {analyticsWeek === 0 ? "Next 7 Days Summary" : `${clinicWeek[0]?.label} – ${clinicWeek[6]?.label} Summary`}
                           </span>
 
                           <div className="grid grid-cols-3 gap-2 text-center">
@@ -2139,7 +2249,7 @@ export function BookAppointmentPage() {
 
                           <div className="mt-2 pt-2 border-t border-slate-700 text-center">
                             <span className="text-[8px] font-bold text-slate-400">
-                              Weekly scheduled capacity:
+                              {analyticsWeek === 0 ? "Capacity over the next 7 days:" : "Capacity for these 7 days:"}
                             </span>
                             <span className="text-[9px] font-black text-white ml-1">
                               {weeklyCapacity} appointments
@@ -2156,14 +2266,14 @@ export function BookAppointmentPage() {
                       Clinic Analytics
                     </p>
                     <p className="text-[10px] font-semibold text-slate-400 mt-1 leading-relaxed">
-                      Select a specialist to identify the clinic. Analytics will then combine the schedules and bookings of every active doctor assigned to that clinic.
+                      Choose a clinic to see its live capacity across all of its doctors.
                     </p>
                   </div>
                 )}
               </div>
 
               {/* RIGHT COLUMN: Step 1 Form Controls */}
-              <div className="md:col-span-2 bg-white dark:bg-slate-900 border-2 border-slate-300 dark:border-slate-800 rounded-3xl p-6 md:p-8 shadow-md space-y-6">
+              <div className="bk-card md:col-span-2 bg-white dark:bg-slate-900 border-2 border-slate-300 dark:border-slate-800 rounded-3xl p-6 md:p-8 shadow-md space-y-6">
                 <div className="border-b-2 border-slate-200 dark:border-slate-800 pb-4 flex items-center justify-between">
                   <div>
                     <h2 className="text-2xl font-black text-slate-900 dark:text-white flex items-center gap-2">
@@ -2181,11 +2291,11 @@ export function BookAppointmentPage() {
                 {/* Patient Category Type Selector */}
                 <div className="bg-sky-50/70 dark:bg-slate-800/60 p-5 rounded-2xl border-2 border-[#008ac9]/30 space-y-4">
                   <div>
-                    <label className="text-xs font-black text-slate-900 dark:text-white mb-2 flex items-center justify-between">
+                    <label className="bk-paylabel text-xs font-black text-slate-900 dark:text-white mb-2 flex items-center justify-between">
                       <span className="flex items-center gap-1.5">
                         <CreditCard className="h-4 w-4 text-[#008ac9]" /> Patient Payment Category <span className="text-red-500 font-black ml-0.5">*</span>
                       </span>
-                      <span className="text-[10px] font-bold text-[#008ac9] uppercase">Determines Doctor Availability</span>
+                      <span className="bk-hint text-[10px] font-bold text-[#008ac9] uppercase">Determines Doctor Availability</span>
                     </label>
 
                     <div className="grid grid-cols-2 gap-3">
@@ -2198,7 +2308,7 @@ export function BookAppointmentPage() {
                             if (!accepted.includes("Private Self-Pay")) setSelectedDoctorId("");
                           }
                         }}
-                        className={`p-4 rounded-2xl border-2 text-xs font-black transition-all flex flex-col items-center justify-center gap-1.5 ${patientType === "Private Self-Pay"
+                        className={`bk-choice p-4 rounded-2xl border-2 text-xs font-black transition-all flex flex-col items-center justify-center gap-1.5 ${patientType === "Private Self-Pay"
                           ? "bg-[#008ac9] text-white border-[#008ac9] shadow-lg ring-2 ring-[#008ac9]/30 scale-[1.02]"
                           : "bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white hover:border-[#008ac9]"
                           }`}
@@ -2216,7 +2326,7 @@ export function BookAppointmentPage() {
                             if (!accepted.includes("HMO Insurance")) setSelectedDoctorId("");
                           }
                         }}
-                        className={`p-4 rounded-2xl border-2 text-xs font-black transition-all flex flex-col items-center justify-center gap-1.5 ${patientType === "HMO Insurance"
+                        className={`bk-choice p-4 rounded-2xl border-2 text-xs font-black transition-all flex flex-col items-center justify-center gap-1.5 ${patientType === "HMO Insurance"
                           ? "bg-[#008ac9] text-white border-[#008ac9] shadow-lg ring-2 ring-[#008ac9]/30 scale-[1.02]"
                           : "bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white hover:border-[#008ac9]"
                           }`}
@@ -2421,7 +2531,7 @@ export function BookAppointmentPage() {
                     type="button"
                     disabled={!patientName.trim() || !patientPhone.trim() || (patientType === "HMO Insurance" && !hmoPolicyCode.trim())}
                     onClick={() => setStep(2)}
-                    className="bg-[#008ac9] hover:bg-[#0072b1] disabled:opacity-50 text-white px-8 py-3.5 text-sm font-black rounded-2xl flex items-center gap-2 shadow-lg border-2 border-sky-300/40 transition-all transform hover:-translate-y-0.5"
+                    className="bk-next bg-[#008ac9] hover:bg-[#0072b1] disabled:opacity-50 text-white px-8 py-3.5 text-sm font-black rounded-2xl flex items-center gap-2 shadow-lg border-2 border-sky-300/40 transition-all transform hover:-translate-y-0.5"
                   >
                     Continue to Doctor Selection <ArrowRight className="h-5 w-5" />
                   </button>
@@ -2474,7 +2584,7 @@ export function BookAppointmentPage() {
               </div>
 
               {filteredDoctors.length === 0 ? (
-                <div className="p-8 text-center bg-white dark:bg-slate-900 rounded-3xl border-2 border-dashed border-slate-300 dark:border-slate-800">
+                <div className="bk-empty p-8 text-center bg-white dark:bg-slate-900 rounded-3xl border-2 border-dashed border-slate-300 dark:border-slate-800">
                   <Stethoscope className="h-10 w-10 text-slate-400 mx-auto mb-2" />
                   <h4 className="text-base font-black text-slate-800 dark:text-slate-200">No Doctors Available for {patientType}</h4>
                   <p className="text-xs font-semibold text-slate-500 max-w-sm mx-auto mt-1">
@@ -2498,7 +2608,7 @@ export function BookAppointmentPage() {
                       <div
                         key={doctor.id || doctor.doc_id}
                         onClick={() => setSelectedDoctorId(doctor.id || doctor.doc_id)}
-                        className={`transition-all rounded-3xl border-2 p-4 flex flex-col justify-between cursor-pointer ${isSelected
+                        className={`bk-doc-card transition-all rounded-3xl border-2 p-4 flex flex-col justify-between cursor-pointer ${isSelected
                           ? "border-[#008ac9] ring-2 ring-[#008ac9]/30 bg-sky-50 dark:bg-slate-800 shadow-md scale-[1.01]"
                           : "border-slate-300 dark:border-slate-700 hover:border-[#008ac9] hover:shadow-sm bg-white dark:bg-slate-900"
                           }`}
@@ -2541,7 +2651,7 @@ export function BookAppointmentPage() {
 
                         <div className="mt-3 pt-2 border-t border-slate-200 dark:border-slate-800 flex items-center justify-end">
                           <span
-                            className={`px-3 py-1.5 text-[11px] font-black rounded-xl transition-all ${isSelected
+                            className={`bk-doc-cta px-3 py-1.5 text-[11px] font-black rounded-xl transition-all ${isSelected
                               ? "bg-[#008ac9] text-white shadow-sm"
                               : "bg-slate-900 text-white hover:bg-[#008ac9]"
                               }`}
@@ -2560,7 +2670,7 @@ export function BookAppointmentPage() {
                 <button
                   type="button"
                   onClick={() => setStep(1)}
-                  className="px-5 py-2.5 rounded-xl border-2 border-slate-300 dark:border-slate-700 font-extrabold text-xs text-slate-900 dark:text-white hover:bg-slate-200 dark:hover:bg-slate-800 transition-all"
+                  className="bk-back px-5 py-2.5 rounded-xl border-2 border-slate-300 dark:border-slate-700 font-extrabold text-xs text-slate-900 dark:text-white hover:bg-slate-200 dark:hover:bg-slate-800 transition-all"
                 >
                   Back to Patient Info
                 </button>
@@ -2568,7 +2678,7 @@ export function BookAppointmentPage() {
                   type="button"
                   disabled={!selectedDoctorId || Boolean(duplicateBooking)}
                   onClick={() => setStep(3)}
-                  className="bg-[#008ac9] hover:bg-[#0072b1] disabled:opacity-50 text-white px-8 py-3 text-sm font-black rounded-2xl flex items-center gap-2 shadow-lg border-2 border-sky-300/40 transition-all"
+                  className="bk-next bg-[#008ac9] hover:bg-[#0072b1] disabled:opacity-50 text-white px-8 py-3 text-sm font-black rounded-2xl flex items-center gap-2 shadow-lg border-2 border-sky-300/40 transition-all"
                 >
                   Continue to Consultation Schedule <ArrowRight className="h-5 w-5" />
                 </button>
@@ -2581,7 +2691,7 @@ export function BookAppointmentPage() {
         {step === 3 && selectedDoctor && (
           <div className="space-y-6">
             {duplicateBanner}
-            <div className="bg-white dark:bg-slate-900 border-2 border-slate-300 dark:border-slate-800 rounded-3xl p-6 md:p-8 shadow-md">
+            <div className="bk-card bg-white dark:bg-slate-900 border-2 border-slate-300 dark:border-slate-800 rounded-3xl p-6 md:p-8 shadow-md">
               <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-4 mb-6">
                 <div className="flex items-center gap-3">
                   <SpecialistAvatar name={getDoctorDisplayAcronym(selectedDoctor)} imageUrl={selectedDoctor.image} size="sm" />
@@ -2683,6 +2793,17 @@ export function BookAppointmentPage() {
                               : /cancel/i.test((d as any).serverNote || "") ? "Cancelled"
                                 : /moved/i.test((d as any).serverNote || "") ? "Moved" : "Off Duty"}
                           </span>
+                          {isSelected && isClickable && (() => {
+                            const left = getDoctorSlotStatsForDate(String(selectedDoctor.id || (selectedDoctor as any).doc_id), d.dateStr).remaining;
+                            return (
+                              <span
+                                data-testid="selected-day-left"
+                                className={`bk-left-badge absolute -bottom-2.5 left-1/2 -translate-x-1/2 whitespace-nowrap px-2 py-0.5 rounded-full text-[10px] font-black shadow-lg border-2 border-white dark:border-slate-900 ${left <= 3 ? "bg-amber-400 text-amber-950" : "bg-emerald-500 text-white"}`}
+                              >
+                                {left} left
+                              </span>
+                            );
+                          })()}
                         </button>
                       );
                     })}
@@ -2768,8 +2889,17 @@ export function BookAppointmentPage() {
                                 </span>
                               </div>
                             </div>
-                            <span className="text-[11px] font-black text-emerald-800 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/80 px-3 py-1 rounded-xl border border-emerald-300/80 shrink-0">
-                              {slotStats.remaining} Slots Left
+                            <span
+                              data-testid="slots-left-counter"
+                              className={`bk-slots-left shrink-0 self-stretch sm:self-auto flex items-center justify-center gap-2 px-4 py-2 rounded-2xl border-2 shadow-md ${slotStats.remaining <= 3
+                                ? "bg-amber-400 text-amber-950 border-amber-500 ring-4 ring-amber-400/30"
+                                : "bg-emerald-600 text-white border-emerald-700 ring-4 ring-emerald-500/25"
+                                }`}
+                            >
+                              <span className="text-3xl font-black leading-none tabular-nums">{slotStats.remaining}</span>
+                              <span className="text-[11px] font-black uppercase leading-tight text-left">
+                                {slotStats.remaining === 1 ? "Slot" : "Slots"}<br />Left
+                              </span>
                             </span>
                           </div>
                         );
@@ -2876,7 +3006,7 @@ export function BookAppointmentPage() {
                 type="button"
                 disabled={isSubmittingBooking}
                 onClick={() => setStep(2)}
-                className="px-5 py-2.5 rounded-xl border-2 border-slate-300 dark:border-slate-700 font-extrabold text-xs text-slate-900 dark:text-white hover:bg-slate-200 dark:hover:bg-slate-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                className="bk-back px-5 py-2.5 rounded-xl border-2 border-slate-300 dark:border-slate-700 font-extrabold text-xs text-slate-900 dark:text-white hover:bg-slate-200 dark:hover:bg-slate-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Back
               </button>
@@ -2889,7 +3019,7 @@ export function BookAppointmentPage() {
                     type="button"
                     disabled={!selectedDate || !selectedTime || isSubmittingBooking || isFull || isSameDayBookingWithin30MinCutoff(selectedDate, selectedTime)}
                     onClick={handleBookingSubmit}
-                    className="bg-[#008ac9] hover:bg-[#0072b1] disabled:opacity-50 disabled:cursor-not-allowed text-white px-8 py-3.5 text-sm font-black rounded-2xl flex items-center gap-2 shadow-lg border-2 border-sky-300/40 transition-all"
+                    className="bk-next bg-[#008ac9] hover:bg-[#0072b1] disabled:opacity-50 disabled:cursor-not-allowed text-white px-8 py-3.5 text-sm font-black rounded-2xl flex items-center gap-2 shadow-lg border-2 border-sky-300/40 transition-all"
                   >
                     {isSubmittingBooking ? (
                       <>
@@ -2911,8 +3041,8 @@ export function BookAppointmentPage() {
         {/* STEP 4: Official Appointment Ticket Receipt */}
         {step === 4 && bookingConfirmed && (
           <div className="max-w-xl mx-auto space-y-6">
-            <div className="bg-white dark:bg-slate-900 border-2 border-[#008ac9] rounded-3xl overflow-hidden shadow-2xl">
-              <div className="bg-[#008ac9] text-white p-7 text-center relative overflow-hidden">
+            <div className="bk-ticket bg-white dark:bg-slate-900 border-2 border-[#008ac9] rounded-3xl overflow-hidden shadow-2xl">
+              <div className="bk-ticket-head bg-[#008ac9] text-white p-7 text-center relative overflow-hidden">
                 <div className="inline-flex items-center gap-2 bg-white/20 px-4 py-1 rounded-full text-xs font-black mb-3 border border-white/30">
                   <CheckCircle className="h-4 w-4 text-sky-200" /> OFFICIAL APPOINTMENT TICKET
                 </div>
@@ -2990,11 +3120,11 @@ export function BookAppointmentPage() {
               </div>
             </div>
 
-            <div className="flex flex-col sm:flex-row gap-3">
+            <div className="bk-ticket-actions flex flex-col sm:flex-row gap-3">
               <button
                 type="button"
                 onClick={() => downloadTicketAsImage(bookingConfirmed)}
-                className="flex-1 py-3.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs sm:text-sm rounded-2xl text-center shadow-lg transition-all flex items-center justify-center gap-2 border border-emerald-500"
+                className="bk-btn bk-btn-soft flex-1 py-3.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs sm:text-sm rounded-2xl text-center shadow-lg transition-all flex items-center justify-center gap-2 border border-emerald-500"
               >
                 <Download className="h-4 w-4" /> Save Image (PNG)
               </button>
@@ -3002,7 +3132,7 @@ export function BookAppointmentPage() {
               <button
                 type="button"
                 onClick={() => downloadTicketAsPdf(bookingConfirmed)}
-                className="flex-1 py-3.5 px-4 bg-slate-900 hover:bg-slate-800 text-white font-black text-xs sm:text-sm rounded-2xl text-center shadow-lg transition-all flex items-center justify-center gap-2 border border-slate-700"
+                className="bk-btn bk-btn-primary flex-1 py-3.5 px-4 bg-slate-900 hover:bg-slate-800 text-white font-black text-xs sm:text-sm rounded-2xl text-center shadow-lg transition-all flex items-center justify-center gap-2 border border-slate-700"
               >
                 <FileText className="h-4 w-4 text-sky-400" /> Download PDF
               </button>
@@ -3010,14 +3140,14 @@ export function BookAppointmentPage() {
               <button
                 type="button"
                 onClick={() => shareTicketAsPdf(bookingConfirmed)}
-                className="flex-1 py-3.5 px-4 bg-sky-600 hover:bg-sky-700 text-white font-black text-xs sm:text-sm rounded-2xl text-center shadow-lg transition-all flex items-center justify-center gap-2 border border-sky-500"
+                className="bk-btn bk-btn-soft flex-1 py-3.5 px-4 bg-sky-600 hover:bg-sky-700 text-white font-black text-xs sm:text-sm rounded-2xl text-center shadow-lg transition-all flex items-center justify-center gap-2 border border-sky-500"
               >
                 <Share2 className="h-4 w-4" /> {copiedShare ? "PDF Generated!" : "Share PDF"}
               </button>
 
               <Link
                 to={`/appointments?ref=${bookingConfirmed.refCode}`}
-                className="py-3.5 px-4 bg-amber-500 hover:bg-amber-600 text-white font-black text-xs sm:text-sm rounded-2xl text-center shadow-lg transition-all flex items-center justify-center gap-1.5 border border-amber-600"
+                className="bk-btn bk-btn-ghost py-3.5 px-4 bg-amber-500 hover:bg-amber-600 text-white font-black text-xs sm:text-sm rounded-2xl text-center shadow-lg transition-all flex items-center justify-center gap-1.5 border border-amber-600"
               >
                 🗓️ Reschedule / Lookup Ticket →
               </Link>

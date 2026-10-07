@@ -1327,6 +1327,27 @@ export async function approveHmoBookingAPI(
   );
 }
 
+/** HMO desk refuses pre-authorization; the booking moves to Declined HMO Approvals. */
+export async function declineHmoBookingAPI(
+  refCode: string,
+  reason: string
+): Promise<Booking | null> {
+  return apiRequest<Booking>(
+    `/bookings/${encodeURIComponent(refCode)}/decline-hmo/`,
+    { method: "POST", body: JSON.stringify({ reason }) }
+  );
+}
+
+/** Return a declined HMO booking to the approval queue. */
+export async function reopenHmoBookingAPI(
+  refCode: string
+): Promise<Booking | null> {
+  return apiRequest<Booking>(
+    `/bookings/${encodeURIComponent(refCode)}/reopen-hmo/`,
+    { method: "POST", body: JSON.stringify({}) }
+  );
+}
+
 export async function payCashdeskBookingAPI(
   refCode: string,
   paymentMethod: string
@@ -2431,6 +2452,8 @@ export const api = {
   checkInBookingAPI,
 
   approveHmoBookingAPI,
+  declineHmoBookingAPI,
+  reopenHmoBookingAPI,
   payCashdeskBookingAPI,
   rerouteHmoBookingToCashdeskAPI,
 

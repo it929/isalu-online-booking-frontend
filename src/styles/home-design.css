@@ -1,0 +1,420 @@
+/* =====================================================================
+   ISALU HOSPITALS – HOMEPAGE DESIGN
+   Scoped to the homepage root (.isalu-home). Visual only.
+   ===================================================================== */
+
+.isalu-home {
+    --brand: #008ac9;
+    --brand-2: #06b6d4;
+    font-family: "Inter", "Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+}
+
+.isalu-home :is(h1, h2, h3) {
+    font-family: "Plus Jakarta Sans", "Inter", system-ui, sans-serif;
+    letter-spacing: -0.02em;
+}
+
+/* ---------------------------------------------------------------- hero
+   The hero keeps its original layout, photo and cards. These rules only
+   give the text more room so it reads less crowded. */
+.isalu-home .hp-hero-copy>*+* {
+    margin-top: 1.35rem !important;
+}
+
+.isalu-home .hp-help {
+    gap: 0.45rem !important;
+    padding: 0.35rem 0.9rem !important;
+}
+
+.isalu-home .hp-help-icon {
+    display: none;
+}
+
+.isalu-home .hp-help-phone {
+    animation: none !important;
+    width: 0.95rem;
+    height: 0.95rem;
+}
+
+.isalu-home .hp-hero h1>span:first-child {
+    margin-bottom: 0.35rem !important;
+}
+
+.isalu-home .hp-hero h1 {
+    line-height: 1.12 !important;
+}
+
+.isalu-home .hp-stats {
+    border-top-color: rgba(148, 197, 255, 0.10) !important;
+    padding-top: 1rem !important;
+}
+
+.isalu-home .hp-stats>div {
+    padding: 0.65rem 0.75rem !important;
+}
+
+.isalu-home .hp-stats p {
+    margin-top: 0.1rem;
+    line-height: 1.3;
+}
+
+@media (max-width: 639px) {
+    .isalu-home .hp-hero-copy>*+* {
+        margin-top: 1.1rem !important;
+    }
+
+    /* the two hero buttons side by side instead of two stacked full-width bars */
+    .isalu-home .hp-ctas {
+        flex-direction: row !important;
+        gap: 0.6rem !important;
+    }
+
+    .isalu-home .hp-ctas>button {
+        width: auto !important;
+        flex: 1 1 0;
+        padding: 0.7rem 0.6rem !important;
+        font-size: 0.78rem !important;
+        gap: 0.4rem !important;
+    }
+
+    .isalu-home .hp-ctas>button svg {
+        width: 0.9rem;
+        height: 0.9rem;
+    }
+}
+
+/* ---------------------------------------------------------------- section headings */
+.isalu-home .hp-h2 {
+    font-size: clamp(1.6rem, 3vw, 2.4rem);
+    font-weight: 800;
+    line-height: 1.15;
+    color: #0b1b2e;
+    margin-top: 0.75rem;
+}
+
+html.dark .isalu-home .hp-h2 {
+    color: #f1f5f9;
+}
+
+.isalu-home .hp-h2-sub {
+    color: #5b6b80;
+    font-size: 1rem;
+    margin-top: 0.5rem;
+}
+
+html.dark .isalu-home .hp-h2-sub {
+    color: #94a3b8;
+}
+
+/* ---------------------------------------------------------------- clinics doodle background
+   A crisp, tiled line-drawing of medical icons across the whole clinics
+   section, fading out towards the cards, plus the original photo doodle
+   made sharper and blended in softly. */
+.isalu-home .hp-clinics {
+    isolation: isolate;
+}
+
+.isalu-home .hp-doodle-pattern {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background-image: url('data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="240" height="240" viewBox="0 0 240 240" fill="none" stroke="%230a84c6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"%3E %3Cpath d="M28 18h10v10h10v10H38v10H28V38H18V28h10z"/%3E %3Cpath d="M150 30c-6-8-20-6-20 5 0 9 20 21 20 21s20-12 20-21c0-11-14-13-20-5z"/%3E %3Cpath d="M120 120h14l6-12 8 24 6-12h16"/%3E %3Crect x="40" y="150" width="34" height="14" rx="7" transform="rotate(-35 57 157)"/%3E%3Cpath d="M50 166l13-18" transform="rotate(0)"/%3E %3Ccircle cx="200" cy="190" r="9"/%3E%3Cpath d="M200 181v-20a14 14 0 0 0-28 0v14"/%3E%3Cpath d="M172 175a8 8 0 0 0 16 0"/%3E %3Cpath d="M88 64l18 18M94 70l-8 8M100 76l-8 8M106 82l6 6M82 58l4 4"/%3E %3Ccircle cx="208" cy="86" r="4"/%3E%3Ccircle cx="222" cy="104" r="4"/%3E%3Ccircle cx="196" cy="106" r="4"/%3E%3Cpath d="M211 89l8 12M205 89l-6 13M200 106h18"/%3E %3Cpath d="M100 200c0-8 6-12 10-12s10 4 10 12-4 16-6 16-2-6-4-6-2 6-4 6-6-8-6-16z"/%3E %3Cpath d="M20 100h8M24 96v8"/%3E%3Cpath d="M226 228h8M230 224v8"/%3E%3Cpath d="M168 236h6M171 233v6"/%3E %3C/svg%3E');
+    background-size: 240px 240px;
+    background-position: 0 0;
+    opacity: 0.11;
+    -webkit-mask-image: radial-gradient(ellipse 85% 70% at 50% 35%, #000 25%, transparent 85%);
+    mask-image: radial-gradient(ellipse 85% 70% at 50% 35%, #000 25%, transparent 85%);
+    animation: hp-doodle-drift 90s linear infinite;
+}
+
+html.dark .isalu-home .hp-doodle-pattern {
+    background-image: url('data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="240" height="240" viewBox="0 0 240 240" fill="none" stroke="%237dd3fc" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"%3E %3Cpath d="M28 18h10v10h10v10H38v10H28V38H18V28h10z"/%3E %3Cpath d="M150 30c-6-8-20-6-20 5 0 9 20 21 20 21s20-12 20-21c0-11-14-13-20-5z"/%3E %3Cpath d="M120 120h14l6-12 8 24 6-12h16"/%3E %3Crect x="40" y="150" width="34" height="14" rx="7" transform="rotate(-35 57 157)"/%3E%3Cpath d="M50 166l13-18" transform="rotate(0)"/%3E %3Ccircle cx="200" cy="190" r="9"/%3E%3Cpath d="M200 181v-20a14 14 0 0 0-28 0v14"/%3E%3Cpath d="M172 175a8 8 0 0 0 16 0"/%3E %3Cpath d="M88 64l18 18M94 70l-8 8M100 76l-8 8M106 82l6 6M82 58l4 4"/%3E %3Ccircle cx="208" cy="86" r="4"/%3E%3Ccircle cx="222" cy="104" r="4"/%3E%3Ccircle cx="196" cy="106" r="4"/%3E%3Cpath d="M211 89l8 12M205 89l-6 13M200 106h18"/%3E %3Cpath d="M100 200c0-8 6-12 10-12s10 4 10 12-4 16-6 16-2-6-4-6-2 6-4 6-6-8-6-16z"/%3E %3Cpath d="M20 100h8M24 96v8"/%3E%3Cpath d="M226 228h8M230 224v8"/%3E%3Cpath d="M168 236h6M171 233v6"/%3E %3C/svg%3E');
+    opacity: 0.07;
+}
+
+@keyframes hp-doodle-drift {
+    from {
+        background-position: 0 0;
+    }
+
+    to {
+        background-position: 240px 240px;
+    }
+}
+
+.isalu-home .hp-doodle {
+    opacity: 0.22 !important;
+    height: 28rem !important;
+}
+
+.isalu-home .hp-doodle img {
+    filter: saturate(1.2) contrast(1.05) !important;
+    mix-blend-mode: multiply;
+}
+
+html.dark .isalu-home .hp-doodle {
+    opacity: 0.08 !important;
+}
+
+html.dark .isalu-home .hp-doodle img {
+    mix-blend-mode: screen;
+}
+
+@media (max-width: 639px) {
+    .isalu-home .hp-doodle-pattern {
+        background-size: 180px 180px;
+        opacity: 0.09;
+    }
+}
+
+/* ---------------------------------------------------------------- HMO partners */
+/* centred, self-adjusting grid: an incomplete last row is centred, not orphaned */
+@media (min-width: 640px) {
+    .isalu-home .hp-hmo-grid {
+        display: flex !important;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 1rem !important;
+    }
+
+    .isalu-home .hp-hmo-grid>* {
+        flex: 0 1 210px;
+        min-width: 190px;
+    }
+}
+
+/* ---------------------------------------------------------------- motion & a11y */
+.isalu-home :is(button, a):focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .isalu-home .hp-doodle-pattern {
+        animation: none;
+    }
+
+    .isalu-home .hp-step,
+    .isalu-home .hp-step:hover {
+        transform: none;
+        transition: none;
+    }
+}
+
+/* ---------------------------------------------------------------- how it works */
+.isalu-home .hp-how {
+    padding: clamp(3rem, 6vw, 5rem) 0;
+    background:
+        radial-gradient(40rem 22rem at 15% 0%, rgba(0, 138, 201, 0.10), transparent 70%),
+        radial-gradient(36rem 20rem at 90% 100%, rgba(6, 182, 212, 0.10), transparent 70%);
+    border-top: 1px solid rgba(15, 76, 129, 0.08);
+}
+
+.isalu-home .hp-eyebrow {
+    display: inline-block;
+    padding: 0.3rem 0.9rem;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #0077b0;
+    background: rgba(0, 138, 201, 0.10);
+    border: 1px solid rgba(0, 138, 201, 0.25);
+}
+
+.isalu-home .hp-steps {
+    list-style: none;
+    padding: 0;
+    margin: 2.5rem 0 0;
+    display: grid;
+    gap: 1.25rem;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    counter-reset: none;
+    position: relative;
+}
+
+.isalu-home .hp-step {
+    position: relative;
+    padding: 1.6rem 1.4rem 1.5rem;
+    border-radius: 1.5rem;
+    background: rgba(255, 255, 255, 0.72);
+    -webkit-backdrop-filter: blur(14px);
+    backdrop-filter: blur(14px);
+    border: 1px solid rgba(255, 255, 255, 0.85);
+    box-shadow: 0 18px 40px -24px rgba(15, 60, 110, 0.35);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.isalu-home .hp-step:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 24px 46px -24px rgba(0, 138, 201, 0.45);
+}
+
+.isalu-home .hp-step-num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 0.9rem;
+    margin-bottom: 0.9rem;
+    font-weight: 800;
+    color: #fff;
+    font-family: "Plus Jakarta Sans", "Inter", sans-serif;
+    background: linear-gradient(135deg, #008ac9, #06b6d4);
+    box-shadow: 0 8px 18px -8px rgba(0, 138, 201, 0.7);
+}
+
+.isalu-home .hp-step h3 {
+    font-size: 1.05rem;
+    font-weight: 800;
+    color: #0b1b2e;
+    margin-bottom: 0.35rem;
+}
+
+.isalu-home .hp-step p {
+    font-size: 0.9rem;
+    line-height: 1.55;
+    color: #51627a;
+}
+
+.isalu-home .hp-how-cta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    justify-content: center;
+    margin-top: 2.25rem;
+}
+
+.isalu-home .hp-btn-primary,
+.isalu-home .hp-btn-ghost {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.85rem 1.6rem;
+    border-radius: 1rem;
+    font-weight: 800;
+    font-size: 0.95rem;
+    transition: transform 0.12s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+}
+
+.isalu-home .hp-btn-primary {
+    color: #fff;
+    background: linear-gradient(135deg, #008ac9, #06b6d4);
+    box-shadow: 0 14px 28px -14px rgba(0, 138, 201, 0.75);
+}
+
+.isalu-home .hp-btn-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 18px 32px -14px rgba(0, 138, 201, 0.85);
+}
+
+.isalu-home .hp-btn-ghost {
+    color: #0077b0;
+    background: rgba(255, 255, 255, 0.7);
+    border: 1px solid rgba(0, 138, 201, 0.3);
+}
+
+.isalu-home .hp-btn-ghost:hover {
+    background: #fff;
+}
+
+html.dark .isalu-home .hp-step {
+    background: rgba(15, 23, 42, 0.6);
+    border-color: rgba(148, 197, 255, 0.12);
+}
+
+html.dark .isalu-home .hp-step h3 {
+    color: #f1f5f9;
+}
+
+html.dark .isalu-home .hp-step p {
+    color: #a9bbcf;
+}
+
+html.dark .isalu-home .hp-btn-ghost {
+    background: rgba(15, 23, 42, 0.6);
+    color: #7dd3fc;
+}
+
+@media (max-width: 1023px) {
+    .isalu-home .hp-steps {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 520px) {
+    .isalu-home .hp-steps {
+        grid-template-columns: 1fr;
+        gap: 0.75rem;
+    }
+
+    .isalu-home .hp-step {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        column-gap: 0.9rem;
+        padding: 1.1rem;
+    }
+
+    .isalu-home .hp-step-num {
+        grid-row: span 2;
+        margin-bottom: 0;
+    }
+
+    .isalu-home .hp-how-cta>a {
+        width: 100%;
+    }
+}
+
+/* ---------------------------------------------------------------- phones */
+@media (max-width: 639px) {
+
+    /* HMO partners: two per row instead of five tall cards stacked */
+    .isalu-home .hp-hmo-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        gap: 0.75rem !important;
+    }
+
+    .isalu-home .hp-hmo-grid>* {
+        padding: 0.9rem !important;
+    }
+}
+
+/* The homepage's own "back to top" button duplicated the site-wide scroll
+   buttons in the same corner. Keep only the emergency call button here,
+   moved to the bottom-left so the two never overlap. */
+.isalu-home .hp-quick {
+    right: auto !important;
+    left: 1rem !important;
+    bottom: 1rem !important;
+    align-items: flex-start !important;
+}
+
+.isalu-home .hp-quick-top {
+    display: none !important;
+}
+
+.isalu-home .hp-quick>a {
+    padding: 0.7rem !important;
+}
+
+.isalu-home .hp-quick>a svg {
+    width: 1.05rem;
+    height: 1.05rem;
+}
+
+@media (min-width: 640px) {
+    .isalu-home .hp-quick {
+        left: 1.5rem !important;
+        bottom: 1.5rem !important;
+    }
+}
+
+/* The floating section navigator sat on top of the site header (covering the
+   menu button on phones and the nav links on desktop). Keep it just below it. */
+.hp-floatnav {
+    top: 92px !important;
+}

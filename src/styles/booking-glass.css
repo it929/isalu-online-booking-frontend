@@ -140,22 +140,7 @@ html.dark .isalu-book :is(input, textarea, select):not([type="checkbox"]):not([t
 
     .isalu-cal {
         gap: 0.4rem !important;
-    }
-}
-
-/* The site-wide scroll buttons are smaller and see-through on this page,
-   so they never hide calendar days or form fields on phones. */
-@media (max-width: 768px) {
-    body:has(.isalu-book) .fixed.bottom-6.right-6.z-50 {
-        transform: scale(0.78);
-        transform-origin: bottom right;
-        opacity: 0.6;
-        transition: opacity 0.2s ease;
-    }
-
-    body:has(.isalu-book) .fixed.bottom-6.right-6.z-50:hover,
-    body:has(.isalu-book) .fixed.bottom-6.right-6.z-50:focus-within {
-        opacity: 1;
+        row-gap: 0.9rem !important;
     }
 }
 
@@ -184,5 +169,33 @@ html.dark .isalu-book :is(input, textarea, select):not([type="checkbox"]):not([t
 @media print {
     .isalu-book::before {
         display: none;
+    }
+}
+
+/* ---------------------------------------------------------------- slots left
+   The selected day's "N left" badge hangs below its tile, so rows get room. */
+.isalu-cal {
+    row-gap: 0.9rem !important;
+}
+
+.isalu-cal>button .bk-left-badge {
+    animation: bk-left-pop 0.35s ease-out;
+}
+
+@keyframes bk-left-pop {
+    from {
+        transform: translate(-50%, 4px) scale(0.8);
+        opacity: 0;
+    }
+
+    to {
+        transform: translate(-50%, 0) scale(1);
+        opacity: 1;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .isalu-cal>button .bk-left-badge {
+        animation: none;
     }
 }

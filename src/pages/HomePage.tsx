@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import "../styles/home-design.css";
 import { Link, useLocation } from "react-router-dom";
 
 import { getDepartmentsAPI, getDoctorsAPI, getHmoCompaniesAPI, getSchedulesAPI } from "../api/client";
@@ -277,7 +278,7 @@ export function HmoCarousel({ partners }: { partners: any[] }) {
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Try searching with a different provider name or code.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+        <div className="hp-hmo-grid grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
           {paginatedGridItems.map((hmo) => (
             <div
               key={hmo.id}
@@ -836,11 +837,11 @@ export function HomePage() {
   ];
 
   return (
-    <div className="flex-1 bg-slate-50 dark:bg-slate-950 font-sans tracking-normal animate-fadeIn text-slate-900 dark:text-slate-100 relative">
+    <div className="isalu-home flex-1 bg-slate-50 dark:bg-slate-950 font-sans tracking-normal animate-fadeIn text-slate-900 dark:text-slate-100 relative">
 
       {/* 1. FLOATING MODERN SCROLLSPY NAVIGATION DOCK WITH INTERACTIVE MODAL BUTTON */}
       <div
-        className={`fixed top-4 left-1/2 -translate-x-1/2 z-50 transition-all duration-500 max-w-2xl w-[94%] sm:w-auto ${isScrolled ? "opacity-100 translate-y-0 pointer-events-auto" : "opacity-0 -translate-y-8 pointer-events-none"
+        className={`hp-floatnav fixed top-4 left-1/2 -translate-x-1/2 z-50 transition-all duration-500 max-w-2xl w-[94%] sm:w-auto ${isScrolled ? "opacity-100 translate-y-0 pointer-events-auto" : "opacity-0 -translate-y-8 pointer-events-none"
           }`}
       >
         <div className="bg-slate-900/85 dark:bg-slate-950/90 text-white backdrop-blur-2xl border border-slate-700/80 px-3 py-2 rounded-full shadow-2xl flex items-center justify-between gap-1 sm:gap-2 text-xs font-bold ring-1 ring-white/10">
@@ -896,7 +897,7 @@ export function HomePage() {
 
       {/* 2. FLOATING QUICK ACTION ASSISTANT & BACK TO TOP (BOTTOM RIGHT) */}
       <div
-        className={`fixed bottom-6 right-6 z-50 flex flex-col items-end gap-3 transition-all duration-300 ${showBackToTop ? "opacity-100 translate-y-0" : "opacity-0 translate-y-6 pointer-events-none"
+        className={`hp-quick fixed bottom-6 right-6 z-50 flex flex-col items-end gap-3 transition-all duration-300 ${showBackToTop ? "opacity-100 translate-y-0" : "opacity-0 translate-y-6 pointer-events-none"
           }`}
       >
         <a
@@ -912,7 +913,7 @@ export function HomePage() {
 
         <button
           onClick={() => scrollToSection("hero-section")}
-          className="p-3.5 bg-slate-900/90 hover:bg-[#008ac9] text-white rounded-full shadow-2xl backdrop-blur-md border border-slate-700/80 hover:border-sky-300 hover:scale-110 transition-all flex items-center justify-center"
+          className="hp-quick-top p-3.5 bg-slate-900/90 hover:bg-[#008ac9] text-white rounded-full shadow-2xl backdrop-blur-md border border-slate-700/80 hover:border-sky-300 hover:scale-110 transition-all flex items-center justify-center"
           title="Back to Top"
         >
           <ArrowUp className="h-5 w-5" />
@@ -997,7 +998,7 @@ export function HomePage() {
       )}
 
       {/* HERO SECTION */}
-      <section id="hero-section" className="relative overflow-hidden bg-slate-950 text-white py-4 lg:py-1">
+      <section id="hero-section" className="hp-hero relative overflow-hidden bg-slate-950 text-white py-4 lg:py-1">
         {/* Ambient Mesh Glows */}
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-sky-500/20 via-slate-950 to-slate-950 opacity-90 pointer-events-none" />
         <div className="absolute -top-24 -right-24 w-80 h-80 bg-sky-500/15 rounded-full blur-3xl pointer-events-none" />
@@ -1006,32 +1007,31 @@ export function HomePage() {
           <div className="grid lg:grid-cols-12 gap-6 lg:gap-10 items-center min-h-[340px]">
 
             {/* Left Hero Content */}
-            <div className="lg:col-span-7 space-y-4 text-center lg:text-left">
+            <div className="hp-hero-copy lg:col-span-7 space-y-4 text-center lg:text-left">
 
               {/* Dynamic Assistance Pill with Thumbs Right/Point Icon */}
-              <div className="inline-flex items-center gap-2 rounded-full bg-slate-900/90 px-3.5 py-1 text-xs font-semibold text-sky-300 border border-slate-800/80 backdrop-blur-xl shadow-md">
-                <PhoneCall className="h-5.5 w-5.5 text-white animate-bounce" />
-                <span>Need help?</span>
-                <ThumbsUp className="h-3.5 w-3.5 text-amber-400 transform rotate-90" />
-                <span>Call</span>
-                <a
-                  href="tel:+2348062287502"
-                  className="text-white hover:text-sky-300 transition-colors font-bold underline decoration-sky-400/50 underline-offset-2"
-                >
-                  08062287502
-                </a>
+              <div className="hp-help inline-flex items-center gap-2 rounded-full bg-slate-900/90 px-3.5 py-1 text-xs font-semibold text-sky-300 border border-slate-800/80 backdrop-blur-xl shadow-md">
+                <ShieldCheck className="hp-help-phone h-4 w-4 text-emerald-300" />
+                <span>Quality Healthcare You Can Trust.</span>
               </div>
 
               {/* Headline */}
               <h1 className="text-2xl sm:text-3xl lg:text-4xl font-black tracking-tight text-white leading-tight">
-                <span className="block mb-2 sm:mb-3">Quality Healthcare</span>
-                <span className="bg-gradient-to-r from-sky-400 via-teal-300 to-sky-200 bg-clip-text text-transparent drop-shadow-sm block">
-                  You Can Trust.
+                <span className="block mb-2 sm:mb-3">
+                  Need help?{" "}
+                  <ThumbsUp className="hp-h1-thumb inline-block align-middle h-6 w-6 sm:h-7 sm:w-7 text-amber-400 transform rotate-90" />{" "}
+                  Call
                 </span>
+                <a
+                  href="tel:+2348062287502"
+                  className="bg-gradient-to-r from-sky-400 via-teal-300 to-sky-200 bg-clip-text text-transparent drop-shadow-sm inline-block hover:opacity-90 transition-opacity"
+                >
+                  08062287502
+                </a>
               </h1>
 
               {/* Beautified & Animated Action Buttons */}
-              <div className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-3.5 pt-1">
+              <div className="hp-ctas flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-3.5 pt-1">
                 {/* Primary CTA */}
                 <button
                   onClick={() => scrollToSection("specialized-medical-centers")}
@@ -1053,7 +1053,7 @@ export function HomePage() {
               </div>
 
               {/* Sleek Metrics Bar */}
-              <div className="grid grid-cols-3 gap-3 pt-3 border-t border-slate-900/80">
+              <div className="hp-stats grid grid-cols-3 gap-3 pt-3 border-t border-slate-900/80">
                 <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800/60">
                   <h3 className="text-base sm:text-lg font-black text-[#008ac9]">24/7</h3>
                   <p className="text-[10px] font-medium text-slate-400">Emergency Care</p>
@@ -1101,9 +1101,10 @@ export function HomePage() {
       </section>
 
       {/* SPECIALIZED CLINICAL DEPARTMENTS SECTION WITH SUBTLE BACKGROUND ACCENT & GLASS CARDS */}
-      <section id="specialized-medical-centers" className="relative py-10 md:py-8 scroll-mt-20 overflow-hidden bg-slate-50/50 dark:bg-slate-950/50">
+      <section id="specialized-medical-centers" className="hp-clinics relative py-10 md:py-8 scroll-mt-20 overflow-hidden bg-slate-50/50 dark:bg-slate-950/50">
         {/* Subtle, Scaled-Down Background Image Accent */}
-        <div className="absolute top-0 right-0 w-full md:w-2/3 h-96 opacity-15 dark:opacity-10 pointer-events-none overflow-hidden select-none">
+        <div aria-hidden="true" className="hp-doodle-pattern" />
+        <div className="hp-doodle absolute top-0 right-0 w-full md:w-2/3 h-96 opacity-15 dark:opacity-10 pointer-events-none overflow-hidden select-none">
           <img
             src="/health_icons_doodle_bg.jpg"
             alt=""
@@ -1332,6 +1333,43 @@ export function HomePage() {
               })}
             </div>
           )}
+        </div>
+      </section>
+
+      {/* HOW ONLINE BOOKING WORKS (static guide) */}
+      <section id="how-booking-works" className="hp-how scroll-mt-20" aria-labelledby="how-booking-title">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6">
+          <div className="text-center">
+            <span className="hp-eyebrow">How it works</span>
+            <h2 id="how-booking-title" className="hp-h2">Book your visit in four simple steps</h2>
+            <p className="hp-h2-sub">No account or registration needed. You receive a ticket with a reference code to show at reception.</p>
+          </div>
+          <ol className="hp-steps">
+            <li className="hp-step">
+              <span className="hp-step-num">1</span>
+              <h3>Your details</h3>
+              <p>Enter your name and phone number, and choose Private or HMO.</p>
+            </li>
+            <li className="hp-step">
+              <span className="hp-step-num">2</span>
+              <h3>Choose a specialist</h3>
+              <p>Pick the clinic you need and a specialist who accepts your payment type.</p>
+            </li>
+            <li className="hp-step">
+              <span className="hp-step-num">3</span>
+              <h3>Pick a date</h3>
+              <p>Only the doctor's real clinic days are shown, with live space left for each day.</p>
+            </li>
+            <li className="hp-step">
+              <span className="hp-step-num">4</span>
+              <h3>Get your ticket</h3>
+              <p>Save or download your ticket. We send a reminder by text before your visit, and by email if you give one.</p>
+            </li>
+          </ol>
+          <div className="hp-how-cta">
+            <Link to="/book" className="hp-btn-primary">Book an appointment</Link>
+            <Link to="/appointments" className="hp-btn-ghost">Check or reschedule a booking</Link>
+          </div>
         </div>
       </section>
 
