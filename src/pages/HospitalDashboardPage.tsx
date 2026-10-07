@@ -1725,7 +1725,14 @@ export function HospitalDashboardPage() {
     type?: "success" | "info" | "warning" | "danger";
   } | null>(null);
 
-  const [bookings, setBookings] = useState<any[]>([]);
+  const [bookingRecords, setBookings] = useState<any[]>([]);
+  // Disabled (trashed) bookings never count or show anywhere except Archive & Trash,
+  // which has its own list. Everything on the dashboard reads this filtered list.
+  const bookings = useMemo(
+    () => bookingRecords.filter((b: any) =>
+      !(b?.isActive === false || b?.is_active === false || b?.disabled === true || String(b?.status ?? "").trim().toLowerCase() === "disabled")),
+    [bookingRecords]
+  );
 
   const [isLoadingBookings, setIsLoadingBookings] = useState<boolean>(true);
 
@@ -6537,7 +6544,7 @@ ADMINISTRATIVE VERIFICATION:
                   </h3>
                 </div>
 
-                <div className="flex flex-col lg:flex-row gap-3 mb-4"><div className="relative flex-1 min-w-0"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" /><input type="search" value={allPatientsSearch} onChange={(e) => { setAllPatientsSearch(e.target.value); setCurrentAllPatientsPage(1); }} placeholder="Search patient, phone, email, MRN, ticket, doctor or clinic..." className={`w-full pl-10 pr-4 py-2.5 rounded-xl border text-xs outline-none focus:ring-2 focus:ring-sky-500 ${isDarkMode ? "bg-slate-950 border-slate-800 text-white" : "bg-white border-slate-200 text-slate-800"}`} /></div><select value={allPatientsStatusFilter} onChange={(e) => { setAllPatientsStatusFilter(e.target.value); setCurrentAllPatientsPage(1); }} className={`px-3 py-2.5 rounded-xl border text-xs font-bold ${isDarkMode ? "bg-slate-950 border-slate-800 text-white" : "bg-white border-slate-200 text-slate-800"}`}><option value="all">All Statuses</option><option value="confirmed">Confirmed</option><option value="checked in">Checked In</option><option value="consulting">Consulting</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option><option value="disabled">Disabled</option></select><select value={allPatientsClinicFilter} onChange={(e) => { setAllPatientsClinicFilter(e.target.value); setCurrentAllPatientsPage(1); }} className={`px-3 py-2.5 rounded-xl border text-xs font-bold ${isDarkMode ? "bg-slate-950 border-slate-800 text-white" : "bg-white border-slate-200 text-slate-800"}`}><option value="all">All Clinics / Specialties</option>{Array.from(new Set(bookings.map((b: any) => String(b.doctorSpecialty ?? b.doctor_specialty ?? b.department ?? b.deptName ?? b.clinic ?? "").trim()).filter(Boolean))).sort().map((clinic) => <option key={clinic} value={clinic}>{clinic}</option>)}</select></div>
+                <div className="flex flex-col lg:flex-row gap-3 mb-4"><div className="relative flex-1 min-w-0"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" /><input type="search" value={allPatientsSearch} onChange={(e) => { setAllPatientsSearch(e.target.value); setCurrentAllPatientsPage(1); }} placeholder="Search patient, phone, email, MRN, ticket, doctor or clinic..." className={`w-full pl-10 pr-4 py-2.5 rounded-xl border text-xs outline-none focus:ring-2 focus:ring-sky-500 ${isDarkMode ? "bg-slate-950 border-slate-800 text-white" : "bg-white border-slate-200 text-slate-800"}`} /></div><select value={allPatientsStatusFilter} onChange={(e) => { setAllPatientsStatusFilter(e.target.value); setCurrentAllPatientsPage(1); }} className={`px-3 py-2.5 rounded-xl border text-xs font-bold ${isDarkMode ? "bg-slate-950 border-slate-800 text-white" : "bg-white border-slate-200 text-slate-800"}`}><option value="all">All Statuses</option><option value="confirmed">Confirmed</option><option value="checked in">Checked In</option><option value="consulting">Consulting</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option></select><select value={allPatientsClinicFilter} onChange={(e) => { setAllPatientsClinicFilter(e.target.value); setCurrentAllPatientsPage(1); }} className={`px-3 py-2.5 rounded-xl border text-xs font-bold ${isDarkMode ? "bg-slate-950 border-slate-800 text-white" : "bg-white border-slate-200 text-slate-800"}`}><option value="all">All Clinics / Specialties</option>{Array.from(new Set(bookings.map((b: any) => String(b.doctorSpecialty ?? b.doctor_specialty ?? b.department ?? b.deptName ?? b.clinic ?? "").trim()).filter(Boolean))).sort().map((clinic) => <option key={clinic} value={clinic}>{clinic}</option>)}</select></div>
                 <DateRangeFilter testId="allpatients-dates" className="mb-4" isDarkMode={isDarkMode} from={allPatientsDateFrom} to={allPatientsDateTo} count={filteredAllPatientsBookings.length}
                   onChange={(f: string, t: string) => { setAllPatientsDateFrom(f); setAllPatientsDateTo(t); setAllPatientsCurrentPage(1); setCurrentAllPatientsPage(1); }} />
 
