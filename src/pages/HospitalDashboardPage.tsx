@@ -269,6 +269,30 @@ const describeDutyKey = (key: string, cfg?: any): string => {
 };
 
 const getDoctorRealName = (value: any) => { if (!value) return "Specialist"; if (typeof value === "string") return value; return value.doctorName || value.doctor_name || value.fullName || value.full_name || value.name || "Specialist"; };
+
+/** The HMO enrollee (policy) ID of a booking, or "". */
+const enrolleeIdOf = (b: any): string =>
+  String(b?.hmoPolicyCode || b?.hmo_policy_code || b?.enrolleeNumber || b?.enrollee_number || b?.hmoNumber || b?.hmo_number || "").trim();
+const isHmoRecord = (b: any): boolean => {
+  const pay = String(b?.paymentType ?? b?.payment_type ?? "").toLowerCase();
+  return pay.includes("hmo") || pay.includes("insurance");
+};
+/** Small "Enrollee ID: …" line shown on every HMO patient record. */
+/** Payment label for exports, e.g. "HMO Insurance · Hygeia HMO · Enrollee ID HYG-123". */
+const paymentWithEnrollee = (b: any): string => {
+  const pay = String(b?.paymentType || b?.payment_type || "Private Self-Pay");
+  if (!isHmoRecord(b)) return pay;
+  return `${pay} · ${b?.hmoName || b?.hmo_name || "HMO"} · Enrollee ID ${enrolleeIdOf(b) || "not provided"}`;
+};
+const EnrolleeId = ({ booking, className = "" }: { booking: any; className?: string }) => {
+  const id = enrolleeIdOf(booking);
+  return (
+    <span data-testid="enrollee-id" className={`inline-flex flex-wrap items-baseline gap-x-1 text-[10.5px] font-semibold text-slate-500 dark:text-slate-400 ${className}`}>
+      <span className="whitespace-nowrap">Enrollee ID:</span>
+      <span className={`font-mono font-black whitespace-nowrap ${id ? "text-purple-600 dark:text-purple-300" : "text-amber-600 dark:text-amber-400"}`}>{id || "Not provided"}</span>
+    </span>
+  );
+};
 import {
   Building2,
   ShieldCheck,
@@ -1578,7 +1602,7 @@ export function HospitalDashboardPage() {
       roleStr.includes("monitor") ||
       roleStr.includes("controller")
     ) {
-      return desk === "monitor";
+      return desk === "monitor" || desk === "all_patients";
     }
 
     if (
@@ -1865,7 +1889,9 @@ export function HospitalDashboardPage() {
   const [archivePage, setArchivePage] = useState(1);
   const [archivePageSize, setArchivePageSize] = useState(10);
   const [monitorClinic, setMonitorClinic] = useState("all");
-  const [monitorShowNames, setMonitorShowNames] = useState(false);
+  const [monitorSearch, setMonitorSearch] = useState("");
+  // Full patient names and details are shown by default; "Privacy mode" masks them for a public TV.
+  const [monitorShowNames, setMonitorShowNames] = useState(true);
   const [monitorStaffControls, setMonitorStaffControls] = useState(true);
   const [monitorBusyRef, setMonitorBusyRef] = useState<string | null>(null);
   const [monitorUndo, setMonitorUndo] = useState<{ refCode: string; name: string } | null>(null);
@@ -3849,7 +3875,7 @@ ADMINISTRATIVE VERIFICATION:
     try {
       ensureOk(await updateBookingAPI(refCode, { status: "Completed" }), "Unable to mark this consultation as completed.");
       if (monitorUndoTimer.current) clearTimeout(monitorUndoTimer.current);
-      setMonitorUndo({ refCode, name: maskPatientName(b.patientName || b.patient_name) });
+      setMonitorUndo({ refCode, name: monitorShowNames ? String(b.patientName || b.patient_name || "Patient") : maskPatientName(b.patientName || b.patient_name) });
       monitorUndoTimer.current = setTimeout(() => setMonitorUndo(null), 8000);
       void fetchDashboardSummary();
     } catch (err: any) {
@@ -4459,7 +4485,7 @@ ADMINISTRATIVE VERIFICATION:
         b.doctorName || b.doctor_name || "-",
         b.doctorSpecialty || b.doctor_specialty || "-",
         `${b.date} ${b.time}`,
-        b.paymentType || b.payment_type || "Private Self-Pay",
+        paymentWithEnrollee(b),
         b.status || "Confirmed",
       ]),
     });
@@ -4470,7 +4496,7 @@ ADMINISTRATIVE VERIFICATION:
       title: "HMO Insurance Pre-Authorization Report",
       subtitle: "Official Verification & HMO Pre-Auth Desk Approval Register",
       filename: "Isalu_HMO_PreAuth_Desk_Queue.pdf",
-      headers: ["Ticket Ref", "Enrollee Name", "Phone", "HMO Provider", "Policy ID", "Auth Code", "Status"],
+      headers: ["Ticket Ref", "Enrollee Name", "Phone", "HMO Provider", "Enrollee ID", "Auth Code", "Status"],
       summaryItems: [
         { label: "Total HMO", value: `${hmoDeskQueue.length}` },
         { label: "Approved", value: `${hmoDeskQueue.filter(b => b.hmoStatus === "Approved" || b.hmo_status === "Approved").length}` },
@@ -4523,7 +4549,7 @@ ADMINISTRATIVE VERIFICATION:
         b.patientPhone || b.patient_phone || "-",
         b.patientEmail || b.patient_email || "-",
         b.doctorName || b.doctor_name || "-",
-        b.paymentType || b.payment_type || "Private Self-Pay",
+        paymentWithEnrollee(b),
         `${b.date} ${b.time}`,
         b.status || "Confirmed",
       ]),
@@ -4541,7 +4567,7 @@ ADMINISTRATIVE VERIFICATION:
         b.patientName || b.patient_name || "-",
         b.patientPhone || b.patient_phone || "-",
         b.doctorName || b.doctor_name || "-",
-        b.paymentType || b.payment_type || "Private Self-Pay",
+        paymentWithEnrollee(b),
         "Checked In ✓",
       ]),
     });
@@ -4552,7 +4578,7 @@ ADMINISTRATIVE VERIFICATION:
       title: "HMO Insurance Enrollees Register Report",
       subtitle: "Directory of Patients Registered Under HMO Insurance Plans",
       filename: "Isalu_HMO_Enrollees_Register.pdf",
-      headers: ["Ticket Ref", "Enrollee Name", "Phone", "HMO Provider", "Policy ID", "Auth Code", "Pre-Auth Status"],
+      headers: ["Ticket Ref", "Enrollee Name", "Phone", "HMO Provider", "Enrollee ID", "Auth Code", "Pre-Auth Status"],
       data: filteredHmoEnrollees.map((b) => [
         b.refCode || b.ref_code || "-",
         b.patientName || b.patient_name || "-",
@@ -4591,7 +4617,7 @@ ADMINISTRATIVE VERIFICATION:
       headers: ["Ticket Ref", "Patient Name", "Phone", "Doctor", "Scheduled Date", "Reason for Disabling"],
       data: disabledBookings.map((b: any) => [
         b.refCode || b.ref_code || "-",
-        b.patientName || b.patient_name || "-",
+        isHmoRecord(b) ? `${b.patientName || b.patient_name || "-"} (Enrollee ID ${enrolleeIdOf(b) || "not provided"})` : (b.patientName || b.patient_name || "-"),
         b.patientPhone || b.patient_phone || "-",
         b.doctorName || b.doctor_name || "-",
         `${b.date} ${b.time}`,
@@ -5700,6 +5726,7 @@ ADMINISTRATIVE VERIFICATION:
                                     <span className={`text-xs font-semibold ${isDarkMode ? 'text-slate-200' : 'text-slate-800'} truncate max-w-[180px]`}>
                                       {hasValidHmo ? hmoProviderName : "HMO Partner Not Specified"}
                                     </span>
+                                    <EnrolleeId booking={b} />
                                   </div>
                                 ) : isPrivate ? (
                                   <div className="flex flex-col gap-1">
@@ -5890,7 +5917,7 @@ ADMINISTRATIVE VERIFICATION:
                               <th className="py-3 px-4">Full Patient Details</th>
                               <th className="py-3 px-4">Clinic & Doctor</th>
                               <th className="py-3 px-4">HMO Provider</th>
-                              <th className="py-3 px-4">Enrollee / Eligibility Code</th>
+                              <th className="py-3 px-4">Enrollee ID</th>
                               <th className="py-3 px-4">Pre-Auth Status</th>
                               <th className="py-3 px-4 text-right">Actions & Management</th>
                             </tr>
@@ -5922,7 +5949,7 @@ ADMINISTRATIVE VERIFICATION:
                                   b.enrollee_number ||
                                   b.hmoNumber ||
                                   b.hmo_number ||
-                                  "N/A";
+                                  "Not provided";
 
                                 const savedAuthCode =
                                   b.hmoAuthCode ||
@@ -6382,7 +6409,7 @@ ADMINISTRATIVE VERIFICATION:
                               </td>
                               <td className="py-4 px-4">
                                 <div className="font-semibold text-purple-400">{b.hmoName || b.hmo_name || b.hmoCompany || "HMO Partner"}</div>
-                                <div className={`font-mono text-[11px] mt-1 ${isDarkMode ? "text-slate-300" : "text-slate-700"}`}>{b.hmoPolicyCode || b.hmo_policy_code || b.enrolleeNumber || b.enrollee_number || "N/A"}</div>
+                                <EnrolleeId booking={b} className="mt-1" />
                               </td>
                               <td className="py-4 px-4 max-w-[240px]">
                                 <span className="inline-flex items-start gap-1.5 px-2.5 py-1.5 rounded-xl text-[11px] font-semibold bg-rose-500/10 text-rose-600 dark:text-rose-300 border border-rose-500/30">
@@ -6592,6 +6619,12 @@ ADMINISTRATIVE VERIFICATION:
                                 }`}>
                                 {b.paymentType || "Private Self-Pay"}
                               </span>
+                              {isHmoRecord(b) && (
+                                <span className="block mt-1 text-[11px] font-semibold text-slate-500">
+                                  {b.hmoName || b.hmo_name || "HMO"}
+                                  <EnrolleeId booking={b} className="block mt-0.5" />
+                                </span>
+                              )}
                             </td>
                             <td className="py-4 px-3 text-slate-700 dark:text-slate-300 font-bold">
                               📅 {b.date}
@@ -7006,7 +7039,7 @@ ADMINISTRATIVE VERIFICATION:
                             b.hmo_policy_code ||
                             b.enrolleeNumber ||
                             b.enrollee_number ||
-                            "POL-PENDING";
+                            "Not provided";
 
                           const authCode =
                             b.hmoAuthCode ||
@@ -8454,10 +8487,46 @@ ADMINISTRATIVE VERIFICATION:
             const clinics = Array.from(new Set(todays.map(clinicOf))).sort();
             const inClinic = todays.filter((b: any) => monitorClinic === "all" || clinicOf(b) === monitorClinic);
             const byTime = (a: any, b: any) => timeToMinutes(a.time) - timeToMinutes(b.time);
-            const consulting = inClinic.filter((b: any) => String(b.status).toLowerCase() === "checked in").sort(byTime);
-            const waiting = inClinic.filter((b: any) => String(b.status).toLowerCase() !== "checked in").sort(byTime);
+            const mq = monitorSearch.trim().toLowerCase();
+            const mqDigits = mq.replace(/\D/g, "");
+            const matchesSearch = (b: any) => {
+              if (!mq) return true;
+              const hay = [b.patientName, b.patient_name, b.refCode, b.ref_code, b.doctorName, b.doctor_name, b.doctorSpecialty, b.doctor_specialty,
+              b.hmoName, b.hmo_name, b.hmoPolicyCode, b.hmo_policy_code, b.paymentType, b.payment_type, b.status, b.time]
+                .map((v) => String(v ?? "").toLowerCase()).join(" ");
+              const phone = String(b.patientPhone || b.patient_phone || "").replace(/\D/g, "");
+              return hay.includes(mq) || (mqDigits.length >= 3 && phone.includes(mqDigits));
+            };
+            const shown = inClinic.filter(matchesSearch);
+            const consulting = shown.filter((b: any) => String(b.status).toLowerCase() === "checked in").sort(byTime);
+            const waiting = shown.filter((b: any) => String(b.status).toLowerCase() !== "checked in").sort(byTime);
+            const consultingLimit = mq ? consulting.length : 6;
+            const waitingLimit = mq ? waiting.length : 8;
             const showName = (b: any) => monitorShowNames ? (b.patientName || b.patient_name || "Patient") : maskPatientName(b.patientName || b.patient_name);
             const ticket = (b: any) => String(b.refCode || b.ref_code || "").slice(-4);
+            const fullRef = (b: any) => String(b.refCode || b.ref_code || "");
+            const startTime = (b: any) => String(b.time || "").split(/[–-]/)[0].trim();
+            const phoneOf = (b: any) => String(b.patientPhone || b.patient_phone || "").trim();
+            const payOf = (b: any) => {
+              if (isHmoRecord(b)) return `HMO · ${b.hmoName || b.hmo_name || "HMO"}`;
+              return "Private Self-Pay";
+            };
+            const payStatusOf = (b: any) => isHmoRecord(b)
+              ? (String(b.hmoStatus || b.hmo_status || "Pending Pre-Auth"))
+              : (String(b.paymentStatus || b.payment_status || "Pending"));
+            const statusLabel = (b: any) => {
+              const st = String(b.status || "Confirmed").toLowerCase();
+              if (st === "checked in") return "Checked in";
+              if (st === "consulting") return "Consulting";
+              return "Booked";
+            };
+            // One detail line: label + value, wraps instead of cutting text off.
+            const detail = (label: string, value: React.ReactNode, cls = "") => (
+              <div className={`min-w-0 ${cls}`}>
+                <div className="text-[10px] uppercase tracking-wider font-black text-slate-400">{label}</div>
+                <div className="text-sm font-bold text-white break-words">{value}</div>
+              </div>
+            );
             return (
               <div ref={monitorRef} data-testid="waiting-monitor" className="rounded-3xl bg-slate-950 text-white p-6 sm:p-8 border border-sky-500/30 shadow-2xl overflow-auto">
                 <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6 pb-5 border-b border-slate-800">
@@ -8477,8 +8546,8 @@ ADMINISTRATIVE VERIFICATION:
                     <button type="button" onClick={() => setMonitorStaffControls((v) => !v)} className="px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs font-bold" title="Hide the buttons on a public TV screen">
                       {monitorStaffControls ? "Hide staff controls" : "Show staff controls"}
                     </button>
-                    <button type="button" onClick={() => setMonitorShowNames((v) => !v)} className="px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs font-bold" title="Full names are hidden on public screens by default">
-                      {monitorShowNames ? "Hide full names" : "Show full names"}
+                    <button type="button" data-testid="monitor-privacy" onClick={() => setMonitorShowNames((v) => !v)} className={`px-3 py-2 rounded-xl border text-xs font-bold ${monitorShowNames ? "bg-slate-900 border-slate-700" : "bg-amber-500/20 border-amber-500/50 text-amber-200"}`} title="Privacy mode shortens names and hides phone numbers and enrollee IDs, for a TV in a public area">
+                      {monitorShowNames ? "Privacy mode: off" : "Privacy mode: on"}
                     </button>
                     <button type="button" onClick={() => { const el: any = monitorRef.current; if (document.fullscreenElement) document.exitFullscreen?.(); else el?.requestFullscreen?.(); }} className="px-3 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-xs font-black">
                       Fullscreen
@@ -8486,10 +8555,32 @@ ADMINISTRATIVE VERIFICATION:
                   </div>
                 </div>
 
+                {monitorStaffControls && (
+                  <div className="mb-5 flex flex-col sm:flex-row sm:items-center gap-3">
+                    <div className="relative flex-1">
+                      <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                      <input
+                        type="search"
+                        data-testid="monitor-search"
+                        value={monitorSearch}
+                        onChange={(e) => setMonitorSearch(e.target.value)}
+                        placeholder="Search today's patients: name, phone, ticket, doctor, clinic, HMO or enrollee ID…"
+                        className="w-full pl-10 pr-4 py-3 rounded-xl bg-slate-900 border border-slate-700 text-sm text-white placeholder:text-slate-500 outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-500/30"
+                      />
+                    </div>
+                    {mq && (
+                      <div className="flex items-center gap-3 text-sm">
+                        <span data-testid="monitor-search-count" className="font-bold text-sky-300 whitespace-nowrap">{shown.length} of {inClinic.length} match{shown.length === 1 ? "" : "es"}</span>
+                        <button type="button" onClick={() => setMonitorSearch("")} className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold">Clear</button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <div className="grid grid-cols-3 gap-3 mb-6 text-center">
                   <div className="rounded-2xl bg-slate-900 border border-slate-800 p-3"><div className="text-3xl font-black text-emerald-400">{consulting.length}</div><div className="text-xs uppercase tracking-wider text-slate-400 font-bold">Now being seen</div></div>
                   <div className="rounded-2xl bg-slate-900 border border-slate-800 p-3"><div className="text-3xl font-black text-amber-400">{waiting.length}</div><div className="text-xs uppercase tracking-wider text-slate-400 font-bold">Waiting</div></div>
-                  <div className="rounded-2xl bg-slate-900 border border-slate-800 p-3"><div className="text-3xl font-black text-sky-400">{inClinic.length}</div><div className="text-xs uppercase tracking-wider text-slate-400 font-bold">Today</div></div>
+                  <div className="rounded-2xl bg-slate-900 border border-slate-800 p-3"><div className="text-3xl font-black text-sky-400">{shown.length}</div><div className="text-xs uppercase tracking-wider text-slate-400 font-bold">Today</div></div>
                 </div>
 
                 {monitorUndo && monitorStaffControls && (
@@ -8503,17 +8594,26 @@ ADMINISTRATIVE VERIFICATION:
                   <div className="lg:col-span-3 space-y-3">
                     <h3 className="text-sm font-black uppercase tracking-wider text-emerald-400">Please proceed to your consultation</h3>
                     {consulting.length === 0 ? (
-                      <div className="p-8 rounded-2xl bg-slate-900 border border-slate-800 text-center text-slate-400">No patient has been called yet.</div>
-                    ) : consulting.slice(0, 6).map((b: any) => (
-                      <div key={b.refCode || b.ref_code} data-testid="monitor-consulting" className="p-5 rounded-2xl bg-gradient-to-r from-emerald-950 to-slate-900 border border-emerald-500/40 flex items-center justify-between gap-4">
-                        <div className="flex items-center gap-4 min-w-0">
-                          <div className="px-3 py-2 rounded-xl bg-emerald-500/20 text-emerald-300 font-black text-lg tabular-nums">#{ticket(b)}</div>
-                          <div className="min-w-0">
-                            <div className="text-2xl font-black truncate">{showName(b)}</div>
-                            <div className="text-sm text-emerald-200 font-semibold truncate">{clinicOf(b)} · {getDoctorRealName(b)}</div>
+                      <div className="p-8 rounded-2xl bg-slate-900 border border-slate-800 text-center text-slate-400">{mq ? "No patient being seen matches your search." : "No patient has been called yet."}</div>
+                    ) : consulting.slice(0, consultingLimit).map((b: any) => (
+                      <div key={b.refCode || b.ref_code} data-testid="monitor-consulting" className="p-5 rounded-2xl bg-gradient-to-r from-emerald-950 to-slate-900 border border-emerald-500/40 flex flex-col gap-4">
+                        <div className="flex items-start gap-4 min-w-0 flex-1">
+                          <div className="px-3 py-2 rounded-xl bg-emerald-500/20 text-emerald-300 font-black text-lg tabular-nums flex-shrink-0">#{ticket(b)}</div>
+                          <div className="min-w-0 flex-1">
+                            <div data-testid="monitor-name" className="text-2xl font-black leading-tight break-words">{showName(b)}</div>
+                            <div className="text-sm text-emerald-200 font-semibold break-words mt-0.5">{clinicOf(b)} · {getDoctorRealName(b)}</div>
+                            <div data-testid="monitor-details" className="mt-3 grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-x-5 gap-y-2.5">
+                              {detail("Ticket", <span className="font-mono">{fullRef(b)}</span>)}
+                              {detail("Time", b.time || "—")}
+                              {monitorShowNames && detail("Phone", phoneOf(b) || "—")}
+                              {detail("Payment", payOf(b))}
+                              {isHmoRecord(b) && monitorShowNames && detail("Enrollee ID", <span className="font-mono">{enrolleeIdOf(b) || "Not provided"}</span>)}
+                              {detail(isHmoRecord(b) ? "HMO status" : "Payment status", payStatusOf(b))}
+                              {detail("Status", statusLabel(b))}
+                            </div>
                           </div>
                         </div>
-                        <div className="flex items-center gap-3 flex-shrink-0">
+                        <div className="flex items-center justify-end gap-3 pt-3 border-t border-emerald-500/20">
                           <span className="text-xs font-black text-emerald-300 whitespace-nowrap">PROCEED</span>
                           {monitorStaffControls && (
                             <button
@@ -8533,18 +8633,32 @@ ADMINISTRATIVE VERIFICATION:
                   <div className="lg:col-span-2 space-y-3">
                     <h3 className="text-sm font-black uppercase tracking-wider text-amber-400">Up next</h3>
                     {waiting.length === 0 ? (
-                      <div className="p-6 rounded-2xl bg-slate-900 border border-slate-800 text-center text-slate-400 text-sm">No one else is waiting.</div>
-                    ) : waiting.slice(0, 8).map((b: any, idx: number) => (
-                      <div key={b.refCode || b.ref_code} data-testid="monitor-waiting" className="p-4 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-3 min-w-0">
-                          <span className="w-7 text-center text-sm font-black text-slate-500">{idx + 1}</span>
-                          <span className="font-mono text-sm font-bold text-amber-300">#{ticket(b)}</span>
-                          <span className="text-base font-bold truncate">{showName(b)}</span>
+                      <div className="p-6 rounded-2xl bg-slate-900 border border-slate-800 text-center text-slate-400 text-sm">{mq ? "No waiting patient matches your search." : "No one else is waiting."}</div>
+                    ) : waiting.slice(0, waitingLimit).map((b: any, idx: number) => (
+                      <div key={b.refCode || b.ref_code} data-testid="monitor-waiting" className="p-4 rounded-xl bg-slate-900 border border-slate-800">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-start gap-3 min-w-0 flex-1">
+                            <span className="w-7 text-center text-sm font-black text-slate-500 flex-shrink-0 pt-0.5">{idx + 1}</span>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-baseline gap-x-2">
+                                <span className="font-mono text-sm font-bold text-amber-300">#{ticket(b)}</span>
+                                <span data-testid="monitor-name" className="text-base font-black break-words">{showName(b)}</span>
+                              </div>
+                              <div className="text-xs text-slate-300 font-semibold break-words mt-0.5">{clinicOf(b)} · {getDoctorRealName(b)}</div>
+                              <div className="text-[11px] text-slate-400 font-semibold mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
+                                <span className="font-mono">{fullRef(b)}</span>
+                                {monitorShowNames && phoneOf(b) && <span>{phoneOf(b)}</span>}
+                                <span>{payOf(b)}</span>
+                                {isHmoRecord(b) && monitorShowNames && <span>Enrollee ID <span className="font-mono text-purple-300">{enrolleeIdOf(b) || "Not provided"}</span></span>}
+                                <span>{isHmoRecord(b) ? "HMO" : "Payment"}: {payStatusOf(b)}</span>
+                              </div>
+                            </div>
+                          </div>
+                          <span className="text-xs text-sky-300 font-semibold whitespace-nowrap flex-shrink-0">{startTime(b)}</span>
                         </div>
-                        <span className="text-xs text-sky-300 font-semibold whitespace-nowrap">{String(b.time || "").split(/[–-]/)[0].trim()}</span>
                       </div>
                     ))}
-                    {waiting.length > 8 && <p className="text-xs text-slate-500 text-center">+ {waiting.length - 8} more today</p>}
+                    {waiting.length > waitingLimit && <p className="text-xs text-slate-500 text-center">+ {waiting.length - waitingLimit} more today · search to find anyone</p>}
                   </div>
                 </div>
               </div>
@@ -8930,7 +9044,7 @@ ADMINISTRATIVE VERIFICATION:
                           return (
                             <tr key={refCode} className={`${isDarkMode ? 'hover:bg-slate-800/30' : 'hover:bg-red-500/5'} transition-colors`}>
                               <td className="py-4 px-4 font-mono font-bold text-red-400">{refCode}</td>
-                              <td className="py-4 px-4 font-bold text-slate-700">{b.patientName || b.patient_name || "Patient"}</td>
+                              <td className="py-4 px-4 font-bold text-slate-700">{b.patientName || b.patient_name || "Patient"}{isHmoRecord(b) && <span className="block text-[10.5px] font-semibold text-slate-500">{b.hmoName || b.hmo_name || "HMO"} · <EnrolleeId booking={b} /></span>}</td>
                               <td className="py-4 px-4 text-slate-300">{b.doctorSpecialty || b.doctor_specialty || "Outpatient"}<span className="block text-[10px] text-slate-500">{b.date} · {b.deleteReason || b.delete_reason || "Disabled"}</span></td>
                               <td className="py-4 px-4">
                                 <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-red-500/15 text-red-400 border border-red-500/30">
@@ -9215,7 +9329,7 @@ ADMINISTRATIVE VERIFICATION:
                 <div>
                   <h3 id="decline-hmo-title" className="text-lg font-black text-slate-900 dark:text-white">Decline HMO pre-authorization</h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
-                    {declineTarget.patientName || declineTarget.patient_name} · {declineTarget.refCode || declineTarget.ref_code} · {declineTarget.hmoName || declineTarget.hmo_name || "HMO"}
+                    {declineTarget.patientName || declineTarget.patient_name} · {declineTarget.refCode || declineTarget.ref_code} · {declineTarget.hmoName || declineTarget.hmo_name || "HMO"} · Enrollee ID {enrolleeIdOf(declineTarget) || "not provided"}
                   </p>
                 </div>
               </div>

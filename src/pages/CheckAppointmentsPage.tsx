@@ -581,7 +581,9 @@ export function CheckAppointmentsPage() {
     drawRow("APPOINTMENT DATE", booking.date || "N/A", "TIME SLOT", cleanTimeSlotString(booking.time, booking.date));
     drawRow(
       "PATIENT TYPE",
-      booking.paymentType || booking.payment_type || "Private Self-Pay",
+      String(booking.paymentType || booking.payment_type || "").toLowerCase().includes("hmo")
+        ? `HMO · ${booking.hmoName || booking.hmo_name || "HMO"} · ID ${booking.hmoEnrolleeIdMasked || booking.hmoPolicyCode || "N/A"}`
+        : (booking.paymentType || booking.payment_type || "Private Self-Pay"),
       "BOOKING STATUS",
       booking.status || "Confirmed"
     );
@@ -751,7 +753,9 @@ export function CheckAppointmentsPage() {
     addDetailRow("Patient Name", booking.patientName || booking.patient_name || "N/A", "Contact Phone", booking.patientPhone || booking.patient_phone || "N/A");
     addDetailRow("Specialist Doctor", getDoctorDisplayAcronym(booking) || "Specialist", "Department / Specialty", booking.doctorSpecialty || booking.doctor_specialty || "Specialist Clinic");
     addDetailRow("Appointment Date", booking.date || "N/A", "Time Slot", cleanTimeSlotString(booking.time, booking.date));
-    addDetailRow("Patient Type", booking.paymentType || booking.payment_type || "Private Self-Pay", "Booking Status", booking.status || "Confirmed");
+    addDetailRow("Patient Type", String(booking.paymentType || booking.payment_type || "").toLowerCase().includes("hmo")
+      ? `HMO · ${booking.hmoName || booking.hmo_name || "HMO"} · Enrollee ID ${booking.hmoEnrolleeIdMasked || booking.hmoPolicyCode || "N/A"}`
+      : (booking.paymentType || booking.payment_type || "Private Self-Pay"), "Booking Status", booking.status || "Confirmed");
 
     if (booking.referralDocName || booking.referral_doc_name) {
       doc.setTextColor(100, 116, 139);
@@ -1409,6 +1413,12 @@ export function CheckAppointmentsPage() {
                     <span className="text-slate-400 text-xs font-semibold">Payment Type:</span>
                     <span className="font-bold">{selectedBooking.paymentType || selectedBooking.payment_type || "Private Self-Pay"}</span>
                   </div>
+                  {String(selectedBooking.paymentType || selectedBooking.payment_type || "").toLowerCase().includes("hmo") && (
+                    <div className="flex justify-between" data-testid="check-enrollee-id">
+                      <span className="text-slate-400 text-xs font-semibold">HMO / Enrollee ID:</span>
+                      <span className="font-bold font-mono">{selectedBooking.hmoName || selectedBooking.hmo_name || "HMO"} · {selectedBooking.hmoEnrolleeIdMasked || selectedBooking.hmoPolicyCode || "Not provided"}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between">
                     <span className="text-slate-400 text-xs font-semibold">Status:</span>
                     <span className="font-bold text-emerald-600">{selectedBooking.status || "Confirmed"}</span>
