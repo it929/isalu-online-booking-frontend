@@ -1345,7 +1345,7 @@ export function HospitalDashboardPage() {
     setConfirmModalConfig({
       isOpen: true,
       title: isDisabling ? "Disable Staff Account" : "Enable Staff Account",
-      message: `Are you sure you want to ${isDisabling ? "disable" : "re-enable"} staff account access for "${user.name}" (${user.email})? This staff member will ${isDisabling ? "be blocked from logging in" : "now be allowed to log in"}.`,
+      message: `Are you sure you want to ${isDisabling ? "disable" : "re-enable"} staff account access for "${user.name}" (${user.email || user.username || "no email"})? This staff member will ${isDisabling ? "be blocked from logging in" : "now be allowed to log in"}.`,
       confirmText: isDisabling ? "Yes, Disable Account" : "Yes, Enable Account",
       cancelText: "Cancel",
       variant: isDisabling ? "danger" : "primary",
@@ -2283,7 +2283,7 @@ ADMINISTRATIVE VERIFICATION:
     return systemUsers.filter((u: any) => {
       const role = String(u.role || "").trim();
       const status = String(u.status ?? u.is_active ?? "").trim().toLowerCase();
-      const matchesSearch = !q || [u.name, u.email, role, u.desk].some((v) => String(v ?? "").toLowerCase().includes(q));
+      const matchesSearch = !q || [u.name, u.email, u.username, role, u.desk].some((v) => String(v ?? "").toLowerCase().includes(q));
       const matchesRole = userRoleFilter === "all" || role === userRoleFilter;
       const matchesStatus = userStatusFilter === "all" || (userStatusFilter === "active" ? ["active", "true", "1"].includes(status) : ["disabled", "inactive", "false", "0"].includes(status));
       return matchesSearch && matchesRole && matchesStatus;
@@ -2590,7 +2590,7 @@ ADMINISTRATIVE VERIFICATION:
   const handleStartEditUser = (user: any) => {
     setEditingUser(user);
     setEditUserName(user.name || "");
-    setEditUserEmail(user.email || "");
+    setEditUserEmail(user.email || user.username || "");
     setEditUserPassword(user.password || "");
     setEditUserRole(user.role || "Helpdesk Officer");
     setEditUserError("");
@@ -2601,7 +2601,7 @@ ADMINISTRATIVE VERIFICATION:
     e.preventDefault();
     if (!editingUser) return;
     if (!editUserName.trim() || !editUserEmail.trim()) {
-      setEditUserError("Please enter staff name and email address.");
+      setEditUserError("Please enter staff name and email address or username.");
       return;
     }
 
@@ -4688,7 +4688,7 @@ ADMINISTRATIVE VERIFICATION:
       data: filteredSystemUsers.map((u) => [
         u.id || u.user_id || "-",
         u.name || "-",
-        u.email || "-",
+        u.email || u.username || "-",
         u.role || "-",
         u.desk || "-",
         u.status || "Active",
@@ -8370,7 +8370,7 @@ ADMINISTRATIVE VERIFICATION:
                           {filteredSystemUsers.slice((Math.min(staffPage, Math.max(1, Math.ceil(filteredSystemUsers.length / staffPageSize))) - 1) * staffPageSize, Math.min(staffPage, Math.max(1, Math.ceil(filteredSystemUsers.length / staffPageSize))) * staffPageSize).map((u) => {
                             const uId = u.id || u.user_id;
                             const uName = u.name || "Staff Member";
-                            const uEmail = u.email || "staff@isaluhospitals.com";
+                            const uEmail = u.email || u.username || "staff@isaluhospitals.com";
                             const uRole = u.role || "Hospital Staff Officer";
                             const uDesk = u.desk || "helpdesk";
                             const isActive = u.status === "Active" || u.status === true;
@@ -8406,13 +8406,24 @@ ADMINISTRATIVE VERIFICATION:
                                       >
                                         Edit
                                       </button>
-                                      <button
-                                        onClick={() => handleDeactivateUser(uId, uName)}
-                                        className="px-2.5 py-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 font-bold border border-red-500/20 transition-colors"
-                                        title="Delete Staff"
-                                      >
-                                        <Trash2 className="w-3.5 h-3.5 inline" />
-                                      </button>
+                                      {isActive ? (
+                                        <button
+                                          onClick={() => handleDeactivateUser(uId, uName)}
+                                          className="px-2.5 py-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 font-bold border border-red-500/20 transition-colors"
+                                          title="Delete Staff"
+                                        >
+                                          <Trash2 className="w-3.5 h-3.5 inline" />
+                                        </button>
+                                      ) : (
+                                        <button
+                                          onClick={() => handleRequestToggleUserDisable({ ...u, status: "Disabled" })}
+                                          className="px-3 py-1.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 font-bold border border-emerald-500/30 transition-colors"
+                                          title="Activate Staff"
+                                        >
+                                          <UserCheck className="w-3.5 h-3.5 inline mr-1" />
+                                          Activate
+                                        </button>
+                                      )}
                                     </>
                                   )}
                                 </td>
@@ -9364,7 +9375,7 @@ ADMINISTRATIVE VERIFICATION:
 
       {/* EDIT STAFF MODAL */}
       {editingUser && (
-        <div className="fixed inset-0 z-[130] flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4"><div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 shadow-2xl"><div className="flex justify-between items-center mb-5"><h3 className="text-xl font-black text-slate-900 dark:text-white">Edit Staff Account</h3><button type="button" onClick={() => setEditingUser(null)} className="p-2 text-slate-400"><X /></button></div>{editUserError && <div className="mb-4 p-3 rounded-xl bg-red-500/10 text-red-500 text-xs font-bold">{editUserError}</div>}<form onSubmit={handleSaveEditUser} className="space-y-4"><input value={editUserName} onChange={e => setEditUserName(e.target.value)} placeholder="Staff name" className="w-full px-4 py-3 rounded-xl border bg-transparent text-xs" required /><input type="email" value={editUserEmail} onChange={e => setEditUserEmail(e.target.value)} placeholder="Email" className="w-full px-4 py-3 rounded-xl border bg-transparent text-xs" required /><select value={editUserRole} onChange={e => setEditUserRole(e.target.value)} className="w-full px-4 py-3 rounded-xl border bg-transparent text-xs">{roles.map((r: any) => <option key={r.id || r.role_id || r.name} value={r.name}>{r.name}</option>)}<option value="Helpdesk Officer">Helpdesk Officer</option><option value="HMO Approval Officer">HMO Approval Officer</option><option value="Cashdesk Billing Officer">Cashdesk Billing Officer</option><option value="Monitor Room Operator">Monitor Room Operator</option></select><div className="relative"><input type={showEditPassword ? "text" : "password"} value={editUserPassword} onChange={e => setEditUserPassword(e.target.value)} placeholder="New password (optional)" className="w-full px-4 py-3 rounded-xl border bg-transparent text-xs pr-12" /><button type="button" onClick={() => setShowEditPassword(p => !p)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">{showEditPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</button></div><div className="flex justify-end gap-3"><button type="button" onClick={() => setEditingUser(null)} className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-bold">Cancel</button><button type="submit" className="px-5 py-2 rounded-xl bg-sky-600 text-white text-xs font-black">Save Changes</button></div></form></div></div>
+        <div className="fixed inset-0 z-[130] flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4"><div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 shadow-2xl"><div className="flex justify-between items-center mb-5"><h3 className="text-xl font-black text-slate-900 dark:text-white">Edit Staff Account</h3><button type="button" onClick={() => setEditingUser(null)} className="p-2 text-slate-400"><X /></button></div>{editUserError && <div className="mb-4 p-3 rounded-xl bg-red-500/10 text-red-500 text-xs font-bold">{editUserError}</div>}<form onSubmit={handleSaveEditUser} className="space-y-4"><input value={editUserName} onChange={e => setEditUserName(e.target.value)} placeholder="Staff name" className="w-full px-4 py-3 rounded-xl border bg-transparent text-xs" required /><input type="text" autoCapitalize="none" spellCheck={false} value={editUserEmail} onChange={e => setEditUserEmail(e.target.value)} placeholder="Email or username" className="w-full px-4 py-3 rounded-xl border bg-transparent text-xs" required /><select value={editUserRole} onChange={e => setEditUserRole(e.target.value)} className="w-full px-4 py-3 rounded-xl border bg-transparent text-xs">{roles.map((r: any) => <option key={r.id || r.role_id || r.name} value={r.name}>{r.name}</option>)}<option value="Helpdesk Officer">Helpdesk Officer</option><option value="HMO Approval Officer">HMO Approval Officer</option><option value="Cashdesk Billing Officer">Cashdesk Billing Officer</option><option value="Monitor Room Operator">Monitor Room Operator</option></select><div className="relative"><input type={showEditPassword ? "text" : "password"} value={editUserPassword} onChange={e => setEditUserPassword(e.target.value)} placeholder="New password (optional)" className="w-full px-4 py-3 rounded-xl border bg-transparent text-xs pr-12" /><button type="button" onClick={() => setShowEditPassword(p => !p)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">{showEditPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</button></div><div className="flex justify-end gap-3"><button type="button" onClick={() => setEditingUser(null)} className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-bold">Cancel</button><button type="submit" className="px-5 py-2 rounded-xl bg-sky-600 text-white text-xs font-black">Save Changes</button></div></form></div></div>
       )}
 
       {/* EDIT ROLE MODAL */}
@@ -9411,10 +9422,13 @@ ADMINISTRATIVE VERIFICATION:
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Email Address / Username</label>
                 <input
-                  type="email"
+                  type="text"
+                  autoComplete="off"
+                  autoCapitalize="none"
+                  spellCheck={false}
                   value={newUserEmail}
                   onChange={(e) => setNewUserEmail(e.target.value)}
-                  placeholder="e.g. folake@isaluhospitals.com"
+                  placeholder="e.g. folake@isaluhospitals.com or folake.adebayo"
                   className={`w-full ${isDarkMode ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'} border rounded-xl px-4 py-3 text-xs focus:outline-none`}
                   required
                 />
