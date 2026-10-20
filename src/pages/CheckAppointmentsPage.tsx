@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { jsPDF } from "jspdf";
 import {
@@ -27,7 +27,6 @@ import {
 } from "lucide-react";
 import { updateBookingAPI, getDoctorsAPI, getSchedulesAPI, lookupBookingAPI, getBookingAvailabilityAPI, getDoctorAvailableDatesAPI } from "../api/client";
 
-const getDoctorDisplayAcronym = (booking: any) => booking?.doctorName || booking?.doctor_name || booking?.acronym || "Specialist";
 
 export function CheckAppointmentsPage() {
   const [searchParams] = useSearchParams();
@@ -48,16 +47,33 @@ export function CheckAppointmentsPage() {
   // Server calendar for the booking's doctor (null = loading, false = failed).
   const [rescheduleAvailability, setRescheduleAvailability] = useState<Record<string, any> | null | false>(null);
 
+  // Doctor chosen in the reschedule modal (defaults to the booking's doctor).
+  const [rescheduleDoctorId, setRescheduleDoctorId] = useState("");
+  const latestAvailabilityDocRef = useRef("");
+
+  // Server calendar for one doctor: { "YYYY-MM-DD": { available, isFull, booked, capacity, remaining, ... } }
+  const fetchDoctorAvailabilityMap = async (docId: string): Promise<Record<string, any>> => {
+    const data: any = await getDoctorAvailableDatesAPI(docId, 60);
+    if (!data || !Array.isArray(data.availability)) throw new Error("no availability");
+    const map: Record<string, any> = {};
+    data.availability.forEach((item: any) => { map[item.date] = item; });
+    return map;
+  };
+
+  // Whether a doctor still has at least one open (not fully booked) day that
+  // meets the 24-hour notice rule. "loading" / "error" while unknown.
+  const [clinicDoctorOpenness, setClinicDoctorOpenness] = useState<Record<string, "loading" | "error" | "open" | "full">>({});
+
   const loadRescheduleAvailability = async (booking: any) => {
     setRescheduleAvailability(null);
     const docId = String(booking?.doctorId || booking?.doctor_id || "");
+    latestAvailabilityDocRef.current = docId;
     try {
-      const data: any = await getDoctorAvailableDatesAPI(docId, 60);
-      if (!data || !Array.isArray(data.availability)) throw new Error("no availability");
-      const map: Record<string, any> = {};
-      data.availability.forEach((item: any) => { map[item.date] = item; });
+      const map = await fetchDoctorAvailabilityMap(docId);
+      if (latestAvailabilityDocRef.current !== docId) return; // a newer doctor was picked
       setRescheduleAvailability(map);
     } catch {
+      if (latestAvailabilityDocRef.current !== docId) return;
       setRescheduleAvailability(false);
     }
   };
@@ -170,6 +186,27 @@ export function CheckAppointmentsPage() {
     return null;
   };
 
+  // Public acronym of a doctor object (e.g. "Specialist A"); never the full name.
+  const getAcronymOfDoctor = (doc: any): string => {
+    const acronym = doc?.acronym || doc?.doctorAcronym || doc?.doctor_acronym;
+    if (typeof acronym === "string" && acronym.trim()) return acronym.trim();
+    const nameStr = String(doc?.name || "").trim();
+    if (nameStr.toLowerCase().startsWith("specialist")) return nameStr;
+    return "Specialist";
+  };
+
+  // Acronym to show for a booking's doctor. The doctor record is checked first
+  // (it is always current, also right after switching doctors), then the
+  // acronym sent with the booking lookup.
+  const getDoctorDisplayAcronym = (booking: any): string => {
+    if (!booking) return "Specialist";
+    const doc = findDoctorForBooking(booking);
+    if (doc) return getAcronymOfDoctor(doc);
+    const fromBooking = booking.doctorAcronym || booking.doctor_acronym;
+    if (typeof fromBooking === "string" && fromBooking.trim()) return fromBooking.trim();
+    return "Specialist";
+  };
+
   // Helper 2: Resolve configured duty days for the booking doctor
   const getDoctorEffectiveDutyDays = (booking: any): string[] => {
     if (!booking) return ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
@@ -249,9 +286,23 @@ export function CheckAppointmentsPage() {
     });
   };
 
+  // Real booked / capacity figures for one day from the server calendar.
+  // `includesOwnBooking` = the patient's current booking is on this doctor+day,
+  // so it is not counted against them (the server excludes it the same way).
+  const getServerDayStats = (entry: any, includesOwnBooking = false) => {
+    if (!entry) return null;
+    const capacity = Number(entry.capacity) || 0;
+    const booked = Math.max(0, (Number(entry.booked) || 0) - (includesOwnBooking ? 1 : 0));
+    const remaining = Math.max(0, capacity - booked);
+    const onDuty = entry.onDuty ?? entry.on_duty ?? capacity > 0;
+    return { capacity, booked, remaining, isFull: !!onDuty && capacity > 0 && remaining <= 0 };
+  };
+
   // Helper 4: Get upcoming valid duty dates for doctor
-  const getUpcomingAvailableDutyDatesForDoctor = (dutyDays: string[], maxCount = 25, serverMap?: Record<string, any>) => {
-    const dates: { dateStr: string; displayLabel: string; dayName: string; dayShort: string; isNextAvailable?: boolean; isAvailable?: boolean; isPast24HoursNotice?: boolean }[] = [];
+  // `ownBookingDate` = date of the patient's current booking when this calendar
+  // belongs to that same doctor (that seat is theirs, so it is not counted).
+  const getUpcomingAvailableDutyDatesForDoctor = (dutyDays: string[], maxCount = 25, serverMap?: Record<string, any>, ownBookingDate?: string) => {
+    const dates: { dateStr: string; displayLabel: string; dayName: string; dayShort: string; isNextAvailable?: boolean; isAvailable?: boolean; isPast24HoursNotice?: boolean; isFull?: boolean; serverStats?: { capacity: number; booked: number; remaining: number; isFull: boolean } | null }[] = [];
     const now = new Date();
     const minAllowedTime = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
@@ -270,14 +321,21 @@ export function CheckAppointmentsPage() {
       const candidateStartTime = new Date(dYear, d.getMonth(), d.getDate(), 8, 0, 0);
       const isPast24HoursNotice = candidateStartTime.getTime() >= minAllowedTime.getTime();
 
-      // Prefer the server calendar: it excludes cancelled / moved / full days.
-      const onServerCalendar = serverMap ? serverMap[dateStr]?.available === true : isDateMatchingDoctorDutyDays(dateStr, dutyDays);
+      // Prefer the server calendar: it excludes cancelled / moved days and
+      // reports full days, which are listed but cannot be picked.
+      const entry = serverMap ? serverMap[dateStr] : null;
+      const serverStats = entry ? getServerDayStats(entry, !!ownBookingDate && ownBookingDate === dateStr) : null;
+      const onDuty = entry ? !!(entry.onDuty ?? entry.on_duty) : false;
+      const onServerCalendar = serverMap
+        ? !!entry && (entry.available === true || (onDuty && !!serverStats && (serverStats.isFull || ownBookingDate === dateStr)))
+        : isDateMatchingDoctorDutyDays(dateStr, dutyDays);
       if (onServerCalendar) {
         const displayLabel = formatDateToOrdinal(dateStr);
         const dayName = d.toLocaleDateString("en-US", { weekday: "long" });
         const dayShort = d.toLocaleDateString("en-US", { weekday: "short" });
+        const isFull = !!serverStats?.isFull;
 
-        dates.push({ dateStr, displayLabel, dayName, dayShort, isPast24HoursNotice, isAvailable: isPast24HoursNotice });
+        dates.push({ dateStr, displayLabel, dayName, dayShort, isPast24HoursNotice, isFull, serverStats, isAvailable: isPast24HoursNotice && !isFull });
         if (dates.length >= maxCount) break;
       }
     }
@@ -948,6 +1006,101 @@ export function CheckAppointmentsPage() {
     return { disabled: false, reason: "" };
   };
 
+  // ---- Same-clinic doctor switching -------------------------------------
+  const getDoctorId = (doc: any) => String(doc?.id || doc?.doc_id || "");
+  const getDoctorDisplayName = (doc: any) => doc?.fullName || doc?.full_name || doc?.name || "Specialist";
+  const getDoctorClinicName = (doc: any) =>
+    String(doc?.department?.name || doc?.specialty || "").toLowerCase().trim();
+
+  // Active doctors in the booking's clinic who accept the patient's payment type.
+  // The booking's current doctor is always listed first.
+  const getSameClinicDoctors = (booking: any): any[] => {
+    if (!booking) return [];
+    const currentId = String(booking.doctorId || booking.doctor_id || "").toLowerCase();
+    const currentDoc = findDoctorForBooking(booking);
+    const currentDeptId = String(currentDoc?.departmentId || currentDoc?.department_id || "");
+    const currentClinic = currentDoc
+      ? getDoctorClinicName(currentDoc)
+      : String(booking.doctorSpecialty || booking.doctor_specialty || "").toLowerCase().trim();
+    const isHmo = String(booking.paymentType || booking.payment_type || "").toLowerCase().includes("hmo");
+    const patientType = isHmo ? "HMO Insurance" : "Private Self-Pay";
+
+    const others = doctorsList.filter((d) => {
+      const dId = getDoctorId(d).toLowerCase();
+      if (!dId || dId === currentId) return false;
+      if (d.status === false) return false;
+      const dDeptId = String(d.departmentId || d.department_id || "");
+      const sameClinic = currentDeptId && dDeptId
+        ? dDeptId === currentDeptId
+        : !!currentClinic && getDoctorClinicName(d) === currentClinic;
+      if (!sameClinic) return false;
+      const accepted = Array.isArray(d.acceptedPatientTypes || d.accepted_patient_types) && (d.acceptedPatientTypes || d.accepted_patient_types).length > 0
+        ? (d.acceptedPatientTypes || d.accepted_patient_types)
+        : ["Private Self-Pay", "HMO Insurance"];
+      return accepted.includes(patientType);
+    });
+
+    const current = currentDoc || {
+      id: booking.doctorId || booking.doctor_id,
+      fullName: booking.doctorName || booking.doctor_name,
+      acronym: booking.doctorAcronym || booking.doctor_acronym,
+    };
+    return [current, ...others];
+  };
+
+  // The booking as it would look with the doctor picked in the modal; the
+  // calendar / capacity / time-slot helpers all read the doctor from this.
+  const getRescheduleTarget = (booking: any) => {
+    if (!booking) return booking;
+    const currentId = String(booking.doctorId || booking.doctor_id || "");
+    if (!rescheduleDoctorId || rescheduleDoctorId.toLowerCase() === currentId.toLowerCase()) return booking;
+    const doc = doctorsList.find((d) => getDoctorId(d).toLowerCase() === rescheduleDoctorId.toLowerCase());
+    const name = doc ? getDoctorDisplayName(doc) : "";
+    return { ...booking, doctorId: rescheduleDoctorId, doctor_id: rescheduleDoctorId, doctorName: name, doctor_name: name };
+  };
+
+  // Check every doctor in the clinic for at least one bookable (not full) day,
+  // using exactly the same date rules as the calendar in the modal.
+  const loadClinicDoctorOpenness = async (booking: any) => {
+    const doctors = getSameClinicDoctors(booking);
+    const currentId = String(booking.doctorId || booking.doctor_id || "").toLowerCase();
+    const ownDate = formatDateToISO(booking.date);
+    const initial: Record<string, "loading"> = {};
+    doctors.forEach((d) => { initial[getDoctorId(d)] = "loading"; });
+    setClinicDoctorOpenness(initial);
+
+    await Promise.all(doctors.map(async (d) => {
+      const dId = getDoctorId(d);
+      try {
+        const map = await fetchDoctorAvailabilityMap(dId);
+        const days = getUpcomingAvailableDutyDatesForDoctor([], 25, map, dId.toLowerCase() === currentId ? ownDate : undefined);
+        const open = days.some((x) => x.isAvailable);
+        setClinicDoctorOpenness((prev) => ({ ...prev, [dId]: open ? "open" : "full" }));
+      } catch {
+        setClinicDoctorOpenness((prev) => ({ ...prev, [dId]: "error" }));
+      }
+    }));
+  };
+
+  const handleChangeRescheduleDoctor = (docId: string) => {
+    if (clinicDoctorOpenness[docId] === "full") {
+      showToast("That doctor is fully booked. Please choose another doctor.", "error");
+      return;
+    }
+    if (!selectedBooking) return;
+    setRescheduleDoctorId(docId);
+    const currentId = String(selectedBooking.doctorId || selectedBooking.doctor_id || "");
+    const doc = doctorsList.find((d) => getDoctorId(d).toLowerCase() === docId.toLowerCase());
+    const name = doc ? getDoctorDisplayName(doc) : "";
+    const target = docId.toLowerCase() === currentId.toLowerCase()
+      ? selectedBooking
+      : { ...selectedBooking, doctorId: docId, doctor_id: docId, doctorName: name, doctor_name: name };
+    // A different doctor has a different calendar, so the date must be picked again.
+    setRescheduleDate("");
+    setRescheduleTime("");
+    void loadRescheduleAvailability(target);
+  };
+
   const handleOpenReschedule = (booking: any) => {
     const check = isActionDisabled(booking);
     if (check.disabled) {
@@ -956,7 +1109,9 @@ export function CheckAppointmentsPage() {
     }
 
     setSelectedBooking(booking);
+    setRescheduleDoctorId(String(booking.doctorId || booking.doctor_id || ""));
     void loadRescheduleAvailability(booking);
+    void loadClinicDoctorOpenness(booking);
     const isoDate = formatDateToISO(booking.date);
     setRescheduleDate(isoDate);
 
@@ -984,15 +1139,32 @@ export function CheckAppointmentsPage() {
       return;
     }
 
+    // Never submit a day the chosen doctor is fully booked on.
+    if (rescheduleAvailability) {
+      const sameDoctor = !rescheduleDoctorId ||
+        rescheduleDoctorId.toLowerCase() === String(selectedBooking.doctorId || selectedBooking.doctor_id || "").toLowerCase();
+      const stats = getServerDayStats(
+        rescheduleAvailability[isoDate],
+        sameDoctor && formatDateToISO(selectedBooking.date) === isoDate
+      );
+      if (stats?.isFull) {
+        showToast("The selected doctor is fully booked on that day. Please choose another date.", "error");
+        return;
+      }
+    }
+
     setIsSubmittingReschedule(true);
 
     try {
-      const payload = {
+      const currentDoctorId = String(selectedBooking.doctorId || selectedBooking.doctor_id || "");
+      const doctorChanged = !!rescheduleDoctorId && rescheduleDoctorId.toLowerCase() !== currentDoctorId.toLowerCase();
+      const payload: Record<string, unknown> = {
         date: isoDate,
         time: rescheduleTime,
         reschedule_reason: rescheduleReason || "Patient requested reschedule",
         status: "Confirmed",
       };
+      if (doctorChanged) payload.doctor_id = rescheduleDoctorId;
 
       const refCode = selectedBooking.refCode || selectedBooking.ref_code;
       const res = await updateBookingAPI(refCode, payload);
@@ -1004,11 +1176,19 @@ export function CheckAppointmentsPage() {
         return;
       }
 
+      const target = getRescheduleTarget(selectedBooking);
       const updatedBooking = {
         ...selectedBooking,
         date: isoDate,
         time: rescheduleTime,
         rescheduleReason,
+        doctorId: res?.doctorId || target.doctorId || target.doctor_id,
+        doctor_id: res?.doctorId || target.doctorId || target.doctor_id,
+        doctorName: res?.doctorName || target.doctorName || target.doctor_name,
+        doctor_name: res?.doctorName || target.doctorName || target.doctor_name,
+        doctorAcronym: getAcronymOfDoctor(findDoctorForBooking({ doctorId: res?.doctorId || target.doctorId || target.doctor_id }) || { acronym: selectedBooking.doctorAcronym || selectedBooking.doctor_acronym }),
+        doctorSpecialty: res?.doctorSpecialty || selectedBooking.doctorSpecialty || selectedBooking.doctor_specialty,
+        doctor_specialty: res?.doctorSpecialty || selectedBooking.doctorSpecialty || selectedBooking.doctor_specialty,
       };
 
       setSelectedBooking(updatedBooking);
@@ -1024,7 +1204,12 @@ export function CheckAppointmentsPage() {
       );
 
       setIsRescheduleOpen(false);
-      showToast("Appointment rescheduled successfully!", "success");
+      showToast(
+        doctorChanged
+          ? `Appointment rescheduled with ${getDoctorDisplayAcronym(updatedBooking)} successfully!`
+          : "Appointment rescheduled successfully!",
+        "success"
+      );
     } catch {
       showToast("An unexpected error occurred while rescheduling.", "error");
     } finally {
@@ -1214,8 +1399,13 @@ export function CheckAppointmentsPage() {
 
         {/* Reschedule Modal */}
         {isRescheduleOpen && selectedBooking && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
-            <div className="bg-white rounded-3xl max-w-lg w-full p-6 sm:p-8 shadow-2xl border border-slate-100 space-y-6">
+          <div className="fixed inset-0 !m-0 z-[90] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn overflow-y-auto">
+            <div
+              role="dialog"
+              aria-modal="true"
+              data-testid="reschedule-modal"
+              className="bg-white rounded-3xl max-w-lg w-full p-5 sm:p-8 shadow-2xl border border-slate-100 space-y-5 sm:space-y-6 max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain my-auto"
+            >
               <div className="flex items-center justify-between pb-4 border-b border-slate-100">
                 <div className="flex items-center gap-3">
                   <div className="p-2.5 bg-amber-50 rounded-2xl text-amber-600">
@@ -1223,7 +1413,7 @@ export function CheckAppointmentsPage() {
                   </div>
                   <div>
                     <h2 className="text-xl font-bold text-slate-900">Reschedule Visit</h2>
-                    <p className="text-xs text-slate-500">Select a new date and time slot</p>
+                    <p className="text-xs text-slate-500">Select a new date and time slot, or another doctor in the same clinic</p>
                   </div>
                 </div>
                 <button
@@ -1235,6 +1425,62 @@ export function CheckAppointmentsPage() {
               </div>
 
               <form onSubmit={handleConfirmReschedule} className="space-y-5">
+                {/* Doctor (same clinic only) */}
+                {(() => {
+                  const clinicDoctors = getSameClinicDoctors(selectedBooking);
+                  const currentId = String(selectedBooking.doctorId || selectedBooking.doctor_id || "");
+                  const clinicName = selectedBooking.doctorSpecialty || selectedBooking.doctor_specialty || "this clinic";
+                  return (
+                    <div className="space-y-2">
+                      <label htmlFor="reschedule-doctor" className="text-xs font-bold text-slate-600 uppercase tracking-wider block">
+                        Doctor
+                      </label>
+                      {clinicDoctors.length > 1 ? (
+                        <>
+                          <select
+                            id="reschedule-doctor"
+                            data-testid="reschedule-doctor"
+                            value={rescheduleDoctorId}
+                            onChange={(e) => handleChangeRescheduleDoctor(e.target.value)}
+                            className="w-full p-3 rounded-xl border border-slate-200 bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500 text-xs sm:text-sm font-semibold"
+                          >
+                            {clinicDoctors.map((d) => {
+                              const dId = getDoctorId(d);
+                              const isCurrent = dId.toLowerCase() === currentId.toLowerCase();
+                              const openness = clinicDoctorOpenness[dId];
+                              const tags = [
+                                isCurrent ? "current doctor" : "",
+                                openness === "full" ? "fully booked" : "",
+                                openness === "loading" && !isCurrent ? "checking…" : "",
+                              ].filter(Boolean);
+                              return (
+                                <option
+                                  key={dId}
+                                  value={dId}
+                                  // Other doctors can only be picked when they still have an open day.
+                                  disabled={!isCurrent && (openness === "full" || openness === "loading")}
+                                >
+                                  {getAcronymOfDoctor(d)}{tags.length ? ` (${tags.join(", ")})` : ""}
+                                </option>
+                              );
+                            })}
+                          </select>
+                          <p className="text-[11px] text-slate-500">
+                            {clinicDoctors.slice(1).length > 0 && clinicDoctors.slice(1).every((d) => clinicDoctorOpenness[getDoctorId(d)] === "full")
+                              ? `All other doctors in ${clinicName} are fully booked right now.`
+                              : `You can switch to another doctor in ${clinicName} who still has open slots. Available dates update for the selected doctor.`}
+                          </p>
+                        </>
+                      ) : (
+                        <p className="text-xs text-slate-700 font-semibold p-3 rounded-xl border border-slate-200 bg-slate-50">
+                          {getDoctorDisplayAcronym(selectedBooking)}
+                          <span className="block text-[11px] font-normal text-slate-500 mt-0.5">No other doctor in {clinicName} is available to switch to.</span>
+                        </p>
+                      )}
+                    </div>
+                  );
+                })()}
+
                 {/* Available Date Picker */}
                 <div className="space-y-2">
                   <label className="text-xs font-bold text-slate-600 uppercase tracking-wider block">
@@ -1247,48 +1493,72 @@ export function CheckAppointmentsPage() {
                     {rescheduleAvailability === false && (
                       <p className="text-xs text-rose-600 p-3 sm:col-span-2">
                         Couldn't load the doctor's calendar.{" "}
-                        <button type="button" className="underline font-bold" onClick={() => loadRescheduleAvailability(selectedBooking)}>Try again</button>
+                        <button type="button" className="underline font-bold" onClick={() => loadRescheduleAvailability(getRescheduleTarget(selectedBooking))}>Try again</button>
                       </p>
                     )}
-                    {rescheduleAvailability && getUpcomingAvailableDutyDatesForDoctor(
-                      getDoctorEffectiveDutyDays(selectedBooking), 25, rescheduleAvailability
-                    ).map((dItem, idx) => {
-                      const stats = getDoctorSlotStatsForDate(selectedBooking, dItem.dateStr);
-                      const isSelected = rescheduleDate === dItem.dateStr;
-                      const isDisabled = !dItem.isAvailable || stats.isLocked;
-
-                      return (
-                        <button
-                          key={idx}
-                          type="button"
-                          disabled={isDisabled}
-                          onClick={() => {
-                            setRescheduleDate(dItem.dateStr);
-                            const slots = getDoctorTimeSlotsForDate(selectedBooking, dItem.dateStr);
-                            if (slots.length > 0) setRescheduleTime(slots[0]);
-                          }}
-                          className={`p-3 rounded-xl border text-left transition-all text-xs flex flex-col justify-between gap-1 ${isSelected
-                            ? "border-sky-600 bg-sky-50 ring-2 ring-sky-500/20 text-sky-900 font-bold"
-                            : isDisabled
-                              ? "border-slate-100 bg-slate-50 text-slate-300 cursor-not-allowed"
-                              : "border-slate-200 bg-white hover:border-sky-300 text-slate-700"
-                            }`}
-                        >
-                          <div className="flex items-center justify-between w-full">
-                            <span className="font-semibold">{dItem.dayName}</span>
-                            {dItem.isNextAvailable && (
-                              <span className="bg-emerald-100 text-emerald-800 text-[10px] font-extrabold px-1.5 py-0.5 rounded">
-                                Next Available
-                              </span>
-                            )}
-                          </div>
-                          <span className="text-slate-500 font-medium">{dItem.displayLabel}</span>
-                          <span className="text-[10px] text-slate-400">
-                            {stats.remainingSlots} / {stats.maxCapacity} slots left
-                          </span>
-                        </button>
+                    {rescheduleAvailability && (() => {
+                      const target = getRescheduleTarget(selectedBooking);
+                      const sameDoctor = target === selectedBooking;
+                      const days = getUpcomingAvailableDutyDatesForDoctor(
+                        getDoctorEffectiveDutyDays(target), 25, rescheduleAvailability,
+                        sameDoctor ? formatDateToISO(selectedBooking.date) : undefined
                       );
-                    })}
+                      const noOpenDay = !days.some((x) => x.isAvailable);
+                      return (
+                        <>
+                          {noOpenDay && (
+                            <p data-testid="reschedule-all-full" className="text-xs text-rose-600 font-semibold p-3 sm:col-span-2">
+                              This doctor has no open day in the coming weeks. Please choose another doctor in this clinic.
+                            </p>
+                          )}
+                          {days.map((dItem, idx) => {
+                            const stats = dItem.serverStats
+                              ? { remainingSlots: dItem.serverStats.remaining, maxCapacity: dItem.serverStats.capacity, isLocked: dItem.serverStats.isFull }
+                              : getDoctorSlotStatsForDate(target, dItem.dateStr);
+                            const isSelected = rescheduleDate === dItem.dateStr;
+                            const isDisabled = !dItem.isAvailable || stats.isLocked;
+
+                            return (
+                              <button
+                                key={idx}
+                                type="button"
+                                disabled={isDisabled}
+                                data-testid={stats.isLocked ? "reschedule-day-full" : "reschedule-day"}
+                                onClick={() => {
+                                  if (isDisabled) return;
+                                  setRescheduleDate(dItem.dateStr);
+                                  const slots = getDoctorTimeSlotsForDate(target, dItem.dateStr);
+                                  if (slots.length > 0) setRescheduleTime(slots[0]);
+                                }}
+                                className={`p-3 rounded-xl border text-left transition-all text-xs flex flex-col justify-between gap-1 ${isSelected
+                                  ? "border-sky-600 bg-sky-50 ring-2 ring-sky-500/20 text-sky-900 font-bold"
+                                  : isDisabled
+                                    ? "border-slate-100 bg-slate-50 text-slate-300 cursor-not-allowed"
+                                    : "border-slate-200 bg-white hover:border-sky-300 text-slate-700"
+                                  }`}
+                              >
+                                <div className="flex items-center justify-between w-full">
+                                  <span className="font-semibold">{dItem.dayName}</span>
+                                  {stats.isLocked ? (
+                                    <span className="bg-rose-100 text-rose-700 text-[10px] font-extrabold px-1.5 py-0.5 rounded">
+                                      Fully Booked
+                                    </span>
+                                  ) : dItem.isNextAvailable && (
+                                    <span className="bg-emerald-100 text-emerald-800 text-[10px] font-extrabold px-1.5 py-0.5 rounded">
+                                      Next Available
+                                    </span>
+                                  )}
+                                </div>
+                                <span className="text-slate-500 font-medium">{dItem.displayLabel}</span>
+                                <span className={`text-[10px] ${stats.isLocked ? "text-rose-400" : "text-slate-400"}`}>
+                                  {stats.isLocked ? "No slots left" : `${stats.remainingSlots} / ${stats.maxCapacity} slots left`}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </>
+                      );
+                    })()}
                   </div>
                 </div>
 
@@ -1299,7 +1569,7 @@ export function CheckAppointmentsPage() {
                       Time Slot
                     </label>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      {getDoctorTimeSlotsForDate(selectedBooking, rescheduleDate).map((slot, idx) => {
+                      {getDoctorTimeSlotsForDate(getRescheduleTarget(selectedBooking), rescheduleDate).map((slot, idx) => {
                         const isSelected = rescheduleTime === slot;
                         return (
                           <button
@@ -1363,7 +1633,7 @@ export function CheckAppointmentsPage() {
 
         {/* View Details Slip Modal */}
         {isSlipModalOpen && selectedBooking && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
+          <div className="fixed inset-0 !m-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
             <div className="bg-white rounded-3xl max-w-xl w-full p-6 sm:p-8 shadow-2xl border border-slate-100 space-y-6 max-h-[90vh] overflow-y-auto">
               <div className="flex items-center justify-between pb-4 border-b border-slate-100">
                 <div className="flex items-center gap-3">
