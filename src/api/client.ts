@@ -958,6 +958,49 @@ export async function deleteDoctorAPI(
   );
 }
 
+/* =========================================================
+   ONLINE PAYMENT (PAYSTACK) FOR PRIVATE SELF-PAY BOOKINGS
+========================================================= */
+
+export interface PaymentConfig {
+  online_payments_enabled: boolean;
+  private_bookings_require_payment?: boolean;
+  hold_minutes: number;
+  hmo_min_notice_hours: number;
+  currency: string;
+}
+
+export async function getPaymentConfigAPI(): Promise<PaymentConfig | null> {
+  return apiRequest<PaymentConfig>("/payments/config/");
+}
+
+/**
+ * Booking Payments module: payments and payouts read live from Paystack for
+ * a date range (YYYY-MM-DD). refresh=true skips the 2-minute server cache.
+ */
+export async function getPaymentReportAPI(from: string, to: string, refresh = false): Promise<any | null> {
+  const params = new URLSearchParams({ from, to });
+  if (refresh) params.set("refresh", "1");
+  return apiRequest<any>(`/payments/report/?${params.toString()}`, { timeoutMs: 120_000 });
+}
+
+/**
+ * Holds the slot and opens a Paystack checkout. Send the booking details, or
+ * { ref_code } to retry payment for a booking that is still held.
+ * Returns { authorization_url, reference, ref_code, amount, expires_at } or { error }.
+ */
+export async function startPaymentAPI(body: Record<string, unknown>): Promise<any> {
+  return apiRequest<any>("/payments/start/", {
+    method: "POST",
+    body: JSON.stringify({ ...body, return_origin: window.location.origin }),
+  });
+}
+
+/** Returns { outcome: "paid" | "already_paid" | "pending" | "failed" | "refund_due", booking } or { error }. */
+export async function verifyPaymentAPI(reference: string): Promise<any> {
+  return apiRequest<any>(`/payments/verify/?reference=${encodeURIComponent(reference)}`);
+}
+
 export async function getDoctorAvailableDatesAPI(
   docId: string | number,
   days: number = 90
@@ -1635,13 +1678,16 @@ export async function getStaffProfileAPI(): Promise<any | null> {
 export async function checkDuplicateBookingAPI(
   doctorId: string,
   patientName: string,
-  patientPhone: string
+  patientPhone: string,
+  date?: string
 ): Promise<any | null> {
   const params = new URLSearchParams({
     doctor_id: doctorId,
     patient_name: patientName,
     patient_phone: patientPhone,
   });
+  // Only the same clinic on the same day counts as a double booking.
+  if (date) params.set("date", date);
   return apiRequest<any>(`/bookings/duplicate-check/?${params.toString()}`);
 }
 
@@ -2488,6 +2534,10 @@ export const api = {
 
   getBookingAvailabilityAPI,
   lookupBookingAPI,
+
+  getPaymentConfigAPI,
+  startPaymentAPI,
+  verifyPaymentAPI,
 
   getAppSettingAPI,
   saveAppSettingAPI,

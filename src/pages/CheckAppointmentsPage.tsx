@@ -25,7 +25,7 @@ import {
   AlertTriangle,
   Share2,
 } from "lucide-react";
-import { updateBookingAPI, getDoctorsAPI, getSchedulesAPI, lookupBookingAPI, getBookingAvailabilityAPI, getDoctorAvailableDatesAPI } from "../api/client";
+import { updateBookingAPI, getDoctorsAPI, getSchedulesAPI, lookupBookingAPI, getBookingAvailabilityAPI, getDoctorAvailableDatesAPI, getPaymentConfigAPI } from "../api/client";
 
 
 export function CheckAppointmentsPage() {
@@ -301,8 +301,9 @@ export function CheckAppointmentsPage() {
   // Helper 4: Get upcoming valid duty dates for doctor
   // `ownBookingDate` = date of the patient's current booking when this calendar
   // belongs to that same doctor (that seat is theirs, so it is not counted).
-  const getUpcomingAvailableDutyDatesForDoctor = (dutyDays: string[], maxCount = 25, serverMap?: Record<string, any>, ownBookingDate?: string) => {
-    const dates: { dateStr: string; displayLabel: string; dayName: string; dayShort: string; isNextAvailable?: boolean; isAvailable?: boolean; isPast24HoursNotice?: boolean; isFull?: boolean; serverStats?: { capacity: number; booked: number; remaining: number; isFull: boolean } | null }[] = [];
+  // `hmo` = the booking is HMO: days inside the HMO notice window are shown but can't be picked.
+  const getUpcomingAvailableDutyDatesForDoctor = (dutyDays: string[], maxCount = 25, serverMap?: Record<string, any>, ownBookingDate?: string, hmo = false) => {
+    const dates: { dateStr: string; displayLabel: string; dayName: string; dayShort: string; isNextAvailable?: boolean; isAvailable?: boolean; isPast24HoursNotice?: boolean; isFull?: boolean; isHmoLocked?: boolean; hmoOpensDay?: string; serverStats?: { capacity: number; booked: number; remaining: number; isFull: boolean } | null }[] = [];
     const now = new Date();
     const minAllowedTime = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
@@ -334,8 +335,12 @@ export function CheckAppointmentsPage() {
         const dayName = d.toLocaleDateString("en-US", { weekday: "long" });
         const dayShort = d.toLocaleDateString("en-US", { weekday: "short" });
         const isFull = !!serverStats?.isFull;
+        // HMO: bookable only from 48 hours until 10 minutes before the clinic starts.
+        const isHmoLocked = hmo && !!entry && entry.hmo_available === false && !isFull;
+        const hmoOpensDay = isHmoLocked && entry?.hmo_window === "not_yet" && entry?.hmo_opens_at
+          ? new Date(entry.hmo_opens_at).toLocaleDateString("en-GB", { weekday: "short" }) : "";
 
-        dates.push({ dateStr, displayLabel, dayName, dayShort, isPast24HoursNotice, isFull, serverStats, isAvailable: isPast24HoursNotice && !isFull });
+        dates.push({ dateStr, displayLabel, dayName, dayShort, isPast24HoursNotice, isFull, isHmoLocked, hmoOpensDay, serverStats, isAvailable: isPast24HoursNotice && !isFull && !isHmoLocked });
         if (dates.length >= maxCount) break;
       }
     }
@@ -1002,9 +1007,25 @@ export function CheckAppointmentsPage() {
     if (status === "completed") {
       return { disabled: true, reason: "Appointment is already completed" };
     }
+    if (status === "awaiting payment") {
+      return { disabled: true, reason: "Payment for this booking isn't complete yet" };
+    }
+    if (status === "payment expired") {
+      return { disabled: true, reason: "This booking wasn't paid in time, so it was released" };
+    }
 
     return { disabled: false, reason: "" };
   };
+
+  const isHmoBooking = (booking: any) => String(booking?.paymentType || booking?.payment_type || "").toLowerCase().includes("hmo");
+  const [hmoNoticeHours, setHmoNoticeHours] = useState(48);
+  const [hmoCloseMinutes, setHmoCloseMinutes] = useState(10);
+  useEffect(() => {
+    getPaymentConfigAPI().then((c: any) => {
+      if (c && !c.error && c.hmo_min_notice_hours) setHmoNoticeHours(Number(c.hmo_min_notice_hours));
+      if (c && !c.error && c.hmo_close_minutes != null) setHmoCloseMinutes(Number(c.hmo_close_minutes));
+    }).catch(() => { });
+  }, []);
 
   // ---- Same-clinic doctor switching -------------------------------------
   const getDoctorId = (doc: any) => String(doc?.id || doc?.doc_id || "");
@@ -1073,7 +1094,7 @@ export function CheckAppointmentsPage() {
       const dId = getDoctorId(d);
       try {
         const map = await fetchDoctorAvailabilityMap(dId);
-        const days = getUpcomingAvailableDutyDatesForDoctor([], 25, map, dId.toLowerCase() === currentId ? ownDate : undefined);
+        const days = getUpcomingAvailableDutyDatesForDoctor([], 25, map, dId.toLowerCase() === currentId ? ownDate : undefined, isHmoBooking(booking));
         const open = days.some((x) => x.isAvailable);
         setClinicDoctorOpenness((prev) => ({ ...prev, [dId]: open ? "open" : "full" }));
       } catch {
@@ -1501,11 +1522,17 @@ export function CheckAppointmentsPage() {
                       const sameDoctor = target === selectedBooking;
                       const days = getUpcomingAvailableDutyDatesForDoctor(
                         getDoctorEffectiveDutyDays(target), 25, rescheduleAvailability,
-                        sameDoctor ? formatDateToISO(selectedBooking.date) : undefined
+                        sameDoctor ? formatDateToISO(selectedBooking.date) : undefined,
+                        isHmoBooking(selectedBooking)
                       );
                       const noOpenDay = !days.some((x) => x.isAvailable);
                       return (
                         <>
+                          {isHmoBooking(selectedBooking) && (
+                            <p data-testid="reschedule-hmo-note" className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-xl p-3 sm:col-span-2">
+                              HMO appointments can be booked from {hmoNoticeHours} hours before the clinic starts until {hmoCloseMinutes} minutes before, if space is still available. Later days open for HMO booking {hmoNoticeHours} hours before their clinic.
+                            </p>
+                          )}
                           {noOpenDay && (
                             <p data-testid="reschedule-all-full" className="text-xs text-rose-600 font-semibold p-3 sm:col-span-2">
                               This doctor has no open day in the coming weeks. Please choose another doctor in this clinic.
@@ -1542,6 +1569,10 @@ export function CheckAppointmentsPage() {
                                   {stats.isLocked ? (
                                     <span className="bg-rose-100 text-rose-700 text-[10px] font-extrabold px-1.5 py-0.5 rounded">
                                       Fully Booked
+                                    </span>
+                                  ) : dItem.isHmoLocked ? (
+                                    <span className="bg-amber-100 text-amber-800 text-[10px] font-extrabold px-1.5 py-0.5 rounded">
+                                      {dItem.hmoOpensDay ? `HMO from ${dItem.hmoOpensDay}` : "Closed"}
                                     </span>
                                   ) : dItem.isNextAvailable && (
                                     <span className="bg-emerald-100 text-emerald-800 text-[10px] font-extrabold px-1.5 py-0.5 rounded">

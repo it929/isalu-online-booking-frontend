@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import "../styles/booking-glass.css";
 import "../styles/booking-design.css";
 import { useSearchParams, Link } from "react-router-dom";
@@ -56,48 +57,59 @@ import {
 } from "lucide-react";
 import { SpecialistAvatar } from "../components/SpecialistAvatar";
 import { IsaluLogo } from "../components/IsaluLogo";
-import { getDoctorsAPI, getDepartmentsAPI, createBookingAPI, getSchedulesAPI, getDoctorAvailableDatesAPI, checkDuplicateBookingAPI } from "../api/client";
+import { getDoctorsAPI, getDepartmentsAPI, createBookingAPI, getSchedulesAPI, getDoctorAvailableDatesAPI, checkDuplicateBookingAPI, getPaymentConfigAPI, startPaymentAPI, verifyPaymentAPI, lookupBookingAPI, type PaymentConfig } from "../api/client";
 
 /**
- * Modern High-UX & User-Friendly API Error Modal Component
+ * Booking notice. Shows the hospital server's own explanation (for example
+ * "You already have an upcoming appointment in this clinic…") so patients
+ * know what to change. Generic wording is only used for technical errors.
  */
 export function ApiErrorModal({ error, onClose, onRetry }: { error: string | null; onClose: () => void; onRetry?: () => void }) {
+  useEffect(() => {
+    if (!error) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [error, onClose]);
   if (!error) return null;
 
-  let userFriendlyMessage = "We encountered a temporary issue processing your appointment request. Please review your details and try again.";
-  const lowerErr = error.toLowerCase();
+  const raw = String(error).trim();
+  const lowerErr = raw.toLowerCase();
+  const isTechnical =
+    !raw ||
+    raw.length > 600 ||
+    /^request failed with status/i.test(raw) ||
+    /[{}<>]|traceback|exception|undefined|null/i.test(raw);
 
-  if (lowerErr.includes("capacity") || lowerErr.includes("full") || lowerErr.includes("maximum")) {
-    userFriendlyMessage = "The selected date has reached its maximum appointment capacity for this specialist. Please select another available date or time.";
-  } else if (lowerErr.includes("same-day") || lowerErr.includes("cutoff") || lowerErr.includes("10 minutes") || lowerErr.includes("30 minutes")) {
-    userFriendlyMessage = "Online booking for today's session is closed because it is less than 10 minutes before clinic hours. Please select a future date or contact our front desk.";
-  } else if (lowerErr.includes("network") || lowerErr.includes("connection") || lowerErr.includes("failed to fetch")) {
-    userFriendlyMessage = "Unable to connect to the secure hospital server. Please check your internet connection and try again.";
-  } else if (lowerErr.includes("required") || lowerErr.includes("mandatory") || lowerErr.includes("invalid")) {
-    userFriendlyMessage = "Please ensure all required form fields and patient details are filled out correctly.";
+  let message = raw;
+  if (lowerErr.includes("failed to fetch") || lowerErr.includes("unable to connect") || lowerErr.includes("network")) {
+    message = "We couldn't reach the hospital server. Check your internet connection and try again.";
+  } else if (isTechnical) {
+    message = "Something went wrong while processing your request. Please check your details and try again. If it keeps happening, call the hospital.";
   }
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-fadeIn">
-      <div className="relative w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-2xl space-y-5 text-center">
+  return createPortal(
+    <div className="fixed inset-0 z-[2100] flex items-center justify-center p-4 bg-slate-950/70" onMouseDown={onClose}>
+      <div role="alertdialog" aria-modal="true" aria-labelledby="booking-notice-title" aria-describedby="booking-notice-text" data-testid="booking-notice"
+        className="relative w-full max-w-md max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-[24px] border border-slate-200 p-6 shadow-2xl space-y-5 text-center"
+        style={{ backgroundColor: "#ffffff" }}
+        onMouseDown={(e) => e.stopPropagation()}>
         <div className="absolute top-4 right-4">
-          <button
-            onClick={onClose}
-            className="p-2 rounded-full text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
-          >
+          <button onClick={onClose} aria-label="Close" className="p-2 rounded-full text-slate-400 hover:text-slate-600 transition-colors">
             <X className="h-5 w-5" />
           </button>
         </div>
 
-        <div className="w-14 h-14 rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400 mx-auto flex items-center justify-center border border-amber-500/20 shadow-inner">
+        <div className="w-14 h-14 rounded-2xl bg-amber-500/10 text-amber-600 mx-auto flex items-center justify-center border border-amber-500/20 shadow-inner">
           <AlertCircle className="h-7 w-7" />
         </div>
 
         <div className="space-y-1.5">
-          <h3 className="text-base font-bold text-slate-900 dark:text-white tracking-tight">Notice regarding your booking</h3>
-          <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed px-2">
-            {userFriendlyMessage}
+          <h3 id="booking-notice-title" className="text-base font-bold text-slate-900 tracking-tight">Notice regarding your booking</h3>
+          <p id="booking-notice-text" data-testid="booking-notice-text" className="text-sm text-slate-700 leading-relaxed px-2">
+            {message}
           </p>
+          <p className="text-[11px] text-slate-500 pt-1">Your details are kept. Close this notice to continue.</p>
         </div>
 
         <div className="pt-2 flex items-center justify-center gap-3">
@@ -106,18 +118,20 @@ export function ApiErrorModal({ error, onClose, onRetry }: { error: string | nul
               onClick={onRetry}
               className="flex-1 py-3 px-4 bg-[#008ac9] hover:bg-[#0072b1] text-white font-semibold rounded-xl text-xs transition-all shadow-md flex items-center justify-center gap-2"
             >
-              <RefreshCw className="h-3.5 w-3.5 animate-spin" /> Try Again
+              <RefreshCw className="h-3.5 w-3.5" /> Try Again
             </button>
           )}
           <button
             onClick={onClose}
-            className="flex-1 py-3 px-4 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-semibold rounded-xl text-xs transition-colors"
+            autoFocus
+            className="flex-1 py-3 px-4 bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold rounded-xl text-xs transition-colors"
           >
             Okay, Got It
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -160,6 +174,9 @@ export function BookAppointmentPage() {
   // recurring weeks and full days). Keyed by doctor id, then by YYYY-MM-DD.
   const [availabilityByDoctor, setAvailabilityByDoctor] = useState<Record<string, Record<string, any>>>({});
   const [availabilityError, setAvailabilityError] = useState<Record<string, boolean>>({});
+  // Per doctor: clinic fee, whether private patients pay online, and the first
+  // date HMO patients can book (they need HMO_MIN_NOTICE_HOURS' notice).
+  const [availabilityMetaByDoctor, setAvailabilityMetaByDoctor] = useState<Record<string, { fee: number; onlinePaymentRequired: boolean; privateProblem: string; earliestHmoDate: string | null; hmoNoticeHours: number; hmoCloseMinutes: number }>>({});
   const [analyticsUpdatedAt, setAnalyticsUpdatedAt] = useState<Date | null>(null);
   const [analyticsDate, setAnalyticsDate] = useState<string>("");
   const [analyticsWeek, setAnalyticsWeek] = useState<number>(0); // 0 = next 7 days, 1 = the 7 after, …
@@ -181,6 +198,24 @@ export function BookAppointmentPage() {
 
   const [step, setStep] = useState<number>(1);
   const [bookingConfirmed, setBookingConfirmed] = useState<any>(null);
+
+  // ---- Online payment (Paystack) for private self-pay ----
+  const [paymentConfig, setPaymentConfig] = useState<PaymentConfig | null>(null);
+  const [isStartingPayment, setIsStartingPayment] = useState(false);
+  const [paidOnline, setPaidOnline] = useState(false);
+  // Set when Paystack sends the patient back to this page.
+  const [paymentReturn, setPaymentReturn] = useState<null | {
+    state: "verifying" | "pending" | "failed" | "refund_due" | "cancelled" | "error";
+    reference?: string;
+    refCode?: string;
+    booking?: any;
+    message?: string;
+  }>(null);
+  // ---- HMO minimum-notice pop-up ----
+  const [hmoNoticeOpen, setHmoNoticeOpen] = useState(false);
+  const [hmoNoticeShownFor, setHmoNoticeShownFor] = useState<string>("");
+  // The clinic day the patient tried to pick when HMO booking for it isn't open yet ("" = general notice).
+  const [hmoNoticeDate, setHmoNoticeDate] = useState<string>("");
   const [isSubmittingBooking, setIsSubmittingBooking] = useState<boolean>(false);
 
   const formTopRef = useRef<HTMLDivElement>(null);
@@ -247,6 +282,7 @@ export function BookAppointmentPage() {
               iconName: d.icon_name || d.iconName || "Stethoscope",
               doctorCount: d.doctor_count || d.doctorCount || 0,
               status: d.status !== undefined ? d.status : true,
+              consultationFee: Number(d.consultationFee ?? d.consultation_fee ?? 0),
             }));
           setDepartmentsList(mapped);
         }
@@ -311,6 +347,17 @@ export function BookAppointmentPage() {
       const map: Record<string, any> = {};
       data.availability.forEach((item: any) => { map[item.date] = item; });
       setAvailabilityByDoctor((prev) => ({ ...prev, [docKey]: map }));
+      setAvailabilityMetaByDoctor((prev) => ({
+        ...prev,
+        [docKey]: {
+          fee: Number(data.consultation_fee || 0),
+          onlinePaymentRequired: Boolean(data.online_payment_required),
+          privateProblem: String(data.private_booking_problem || ""),
+          earliestHmoDate: data.earliest_hmo_date || null,
+          hmoNoticeHours: Number(data.hmo_min_notice_hours || 48),
+          hmoCloseMinutes: Number(data.hmo_close_minutes ?? 10),
+        },
+      }));
       setAvailabilityError((prev) => ({ ...prev, [docKey]: false }));
     } catch (err) {
       console.warn("Could not load doctor availability:", err);
@@ -353,7 +400,7 @@ export function BookAppointmentPage() {
     if (selectedDoctor) {
       const upcoming = getUpcomingDates(undefined, selectedDoctor);
       const nextAvail = upcoming.find((d) => d.isNextAvailable);
-      if (nextAvail && (!selectedDate || isDateFullyBooked(selectedDoctor, selectedDate))) {
+      if (nextAvail && (!selectedDate || isDateFullyBooked(selectedDoctor, selectedDate) || isHmoLockedDate(selectedDoctor, selectedDate))) {
         setSelectedDate(nextAvail.dateStr);
         setSelectedTime(getDutyTimeWindow(selectedDoctor, nextAvail.dateStr));
       }
@@ -361,7 +408,7 @@ export function BookAppointmentPage() {
       setSelectedDate("");
       setSelectedTime("");
     }
-  }, [selectedDoctorId, doctorAvailabilityMap, allDoctors]);
+  }, [selectedDoctorId, doctorAvailabilityMap, allDoctors, patientType]);
 
   const matchesDept = (doc: any, deptId: string) => {
     if (!deptId || deptId === "all") return true;
@@ -429,16 +476,18 @@ export function BookAppointmentPage() {
     (d) => d.id === selectedDept || d.name.toLowerCase() === selectedDept.toLowerCase()
   );
 
-  // Double-booking guard: warn as soon as name + phone match an upcoming
-  // appointment in the same clinic (the server enforces the same rule).
+  // Double-booking guard: warn as soon as the chosen date already holds an
+  // appointment for this patient (name + phone) in the same clinic. Other
+  // days in the same clinic are fine (the server enforces the same rule).
   const [duplicateBooking, setDuplicateBooking] = useState<any | null>(null);
   const [isCheckingDuplicate, setIsCheckingDuplicate] = useState(false);
   useEffect(() => {
     const docKey = String(selectedDoctorId || "");
     const name = patientName.trim();
     const phoneDigits = patientPhone.replace(/\D/g, "");
-    if (!docKey || name.split(/\s+/).length < 2 || phoneDigits.length < 10) {
+    if (!docKey || !selectedDate || name.split(/\s+/).length < 2 || phoneDigits.length < 10) {
       setDuplicateBooking(null);
+      setIsCheckingDuplicate(false);
       return;
     }
     let cancelled = false;
@@ -446,7 +495,7 @@ export function BookAppointmentPage() {
     const timer = window.setTimeout(async () => {
       try {
         const doc = allDoctors.find((d) => String(d.id) === docKey || String((d as any).doc_id) === docKey);
-        const res: any = await checkDuplicateBookingAPI(String((doc as any)?.doc_id || doc?.id || docKey), name, patientPhone);
+        const res: any = await checkDuplicateBookingAPI(String((doc as any)?.doc_id || doc?.id || docKey), name, patientPhone, selectedDate);
         if (!cancelled) setDuplicateBooking(res && res.duplicate ? res : null);
       } catch {
         if (!cancelled) setDuplicateBooking(null);
@@ -455,19 +504,18 @@ export function BookAppointmentPage() {
       }
     }, 500);
     return () => { cancelled = true; window.clearTimeout(timer); };
-  }, [selectedDoctorId, patientName, patientPhone, allDoctors]);
+  }, [selectedDoctorId, selectedDate, patientName, patientPhone, allDoctors]);
 
   const duplicateBanner = duplicateBooking ? (
     <div role="alert" data-testid="duplicate-warning" className="mt-3 p-4 rounded-2xl border-2 border-amber-400 bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 text-xs font-bold space-y-1.5">
-      <p className="font-black text-sm">You already have an appointment in this clinic</p>
+      <p className="font-black text-sm">You already have an appointment in this clinic on this day</p>
       <p>
         {patientName.trim()} ({patientPhone.trim()}) is booked in the {duplicateBooking.clinic} clinic on{" "}
         {new Date(`${duplicateBooking.date}T00:00:00`).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
-        {" "}(ref {duplicateBooking.refCode}). Each patient can hold one upcoming appointment per clinic.
+        {" "}(ref {duplicateBooking.refCode}). A patient can have only one appointment in a clinic on the same day.
       </p>
       <p>
-        To change the date, <Link to="/appointments" className="underline text-[#008ac9]">reschedule your existing appointment</Link>{" "}
-        instead of booking again.
+        Please pick another date, or <Link to="/appointments" className="underline text-[#008ac9]">change your existing appointment</Link>.
       </p>
     </div>
   ) : null;
@@ -1108,6 +1156,15 @@ export function BookAppointmentPage() {
     });
   };
 
+  // True when an HMO patient can't book this (otherwise open) clinic day yet.
+  const isHmoLockedDate = (docObj: Doctor | undefined, dateStr: string, isOpen = true) => {
+    if (patientType !== "HMO Insurance" || !docObj || !isOpen) return false;
+    const key = String((docObj as any).doc_id || docObj.id || "");
+    if (key !== selectedDoctorKey) return false;
+    const entry = doctorAvailabilityMap[dateStr];
+    return Boolean(entry) && entry.hmo_available === false && entry.available !== false;
+  };
+
   const getUpcomingDates = (doctorAvailability?: string[], selectedDocObj?: Doctor) => {
     const list: any[] = [];
     const today = new Date();
@@ -1166,9 +1223,14 @@ export function BookAppointmentPage() {
       // must be labelled Cancelled, not FULL.
       const isFullyBooked = selectedDocObj && isAvailable ? isDateFullyBooked(selectedDocObj, dateStr) : false;
 
+      // HMO patients can only book a clinic from 48 hours until 10 minutes
+      // before it starts (the server says which days, per doctor). The other
+      // open days are for private patients.
+      const isHmoLocked = isHmoLockedDate(selectedDocObj, dateStr, isAvailable && !isFullyBooked);
+
       let isNextAvailable = false;
       // CRITICAL FIX: Must check that isAvailable is TRUE AND isFullyBooked is FALSE
-      if (isAvailable && !isFullyBooked && !firstNextAvailableFound) {
+      if (isAvailable && !isFullyBooked && !isHmoLocked && !firstNextAvailableFound) {
         isNextAvailable = true;
         firstNextAvailableFound = true;
       }
@@ -1185,6 +1247,7 @@ export function BookAppointmentPage() {
         serverNote: String(doctorAvailabilityMap[dateStr]?.note || ""),
         isPast24HoursNotice: i >= 0,
         isNextAvailable,
+        isHmoLocked,
       });
     }
 
@@ -1684,6 +1747,178 @@ export function BookAppointmentPage() {
     doc.save(`Isalu_Appointment_Ticket_${booking.refCode}.pdf`);
   };
 
+  // ------------------------------------------------------------------
+  // ONLINE PAYMENT (private self-pay) AND HMO NOTICE
+  // ------------------------------------------------------------------
+  const selectedMeta = availabilityMetaByDoctor[selectedDoctorKey];
+  const selectedDeptFee = Number(departmentsList.find((d: any) => d.id === selectedDept || d.dept_id === selectedDept)?.consultationFee || 0);
+  const clinicFee = Number(selectedMeta?.fee ?? (selectedDoctor as any)?.consultationFee ?? selectedDeptFee ?? 0);
+  // The server decides (Paystack switched on, clinic has a fee, patient is private).
+  // Before a doctor's calendar loads, the clinic's fee gives the same answer.
+  const paymentMandatory = paymentConfig?.private_bookings_require_payment !== false;
+  const needsOnlinePayment = patientType === "Private Self-Pay" && (
+    selectedMeta
+      ? Boolean(selectedMeta.onlinePaymentRequired)
+      : paymentMandatory || (Boolean(paymentConfig?.online_payments_enabled) && selectedDeptFee > 0)
+  );
+  // Why this private patient can't book (and pay) online right now, if anything.
+  const privateBookingProblem = patientType === "Private Self-Pay" && needsOnlinePayment ? (selectedMeta?.privateProblem || "") : "";
+  const paymentFlow = needsOnlinePayment || paymentReturn !== null || paidOnline;
+  const ticketStep = paymentFlow ? 5 : 4;
+  const holdMinutes = paymentConfig?.hold_minutes ?? 30;
+  const hmoNoticeHours = selectedMeta?.hmoNoticeHours ?? paymentConfig?.hmo_min_notice_hours ?? 48;
+  const hmoCloseMinutes = selectedMeta?.hmoCloseMinutes ?? (paymentConfig as any)?.hmo_close_minutes ?? 10;
+  // When HMO booking opens for a clinic day (from the server), e.g. "Thursday 22 October, 8:00 am".
+  const hmoOpensLabel = (dateStr: string) => {
+    const iso = doctorAvailabilityMap[dateStr]?.hmo_opens_at;
+    if (!iso) return "";
+    const d = new Date(iso);
+    return `${d.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}, ${d.toLocaleTimeString("en-GB", { hour: "numeric", minute: "2-digit", hour12: true })}`;
+  };
+  const hmoOpensShort = (dateStr: string) => {
+    const iso = doctorAvailabilityMap[dateStr]?.hmo_opens_at;
+    return iso && doctorAvailabilityMap[dateStr]?.hmo_window === "not_yet"
+      ? new Date(iso).toLocaleDateString("en-GB", { weekday: "short" })
+      : "";
+  };
+  const formatNaira = (n: number) => `₦${Number(n || 0).toLocaleString("en-NG", { maximumFractionDigits: 2 })}`;
+  const doctorAcceptsPrivate = (() => {
+    const accepted = (selectedDoctor as any)?.acceptedPatientTypes || ["Private Self-Pay", "HMO Insurance"];
+    return accepted.includes("Private Self-Pay");
+  })();
+  const earliestHmoDate = selectedMeta?.earliestHmoDate || "";
+  const earliestHmoLabel = earliestHmoDate
+    ? new Date(`${earliestHmoDate}T00:00:00`).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })
+    : "";
+
+  useEffect(() => {
+    getPaymentConfigAPI().then((c) => { if (c && !(c as any).error) setPaymentConfig(c); }).catch(() => { });
+  }, []);
+
+  // The booking form is never stored in the browser. Remove any copy an
+  // earlier version may have left in this tab.
+  useEffect(() => { try { sessionStorage.removeItem("isalu_booking_draft"); } catch { /* storage blocked */ } }, []);
+
+  // Paystack sends the patient back to /book?payment=return&reference=...
+  // (or &cancelled=<ref_code> if they cancel). Confirm the payment with the server.
+  useEffect(() => {
+    const reference = searchParams.get("reference") || searchParams.get("trxref") || "";
+    const cancelledRef = searchParams.get("cancelled") || "";
+    if (!reference && !cancelledRef) return;
+    try { window.history.replaceState({}, "", window.location.pathname); } catch { }
+    if (!reference) {
+      setPaymentReturn({ state: "cancelled", refCode: cancelledRef });
+      setStep(4);
+      // Fill in the summary (patient, clinic, amount) from the held booking.
+      lookupBookingAPI(cancelledRef).then((b: any) => {
+        if (b && !b.error) setPaymentReturn((prev) => (prev && prev.state === "cancelled" ? { ...prev, booking: b } : prev));
+      }).catch(() => { });
+      return;
+    }
+    setPaymentReturn({ state: "verifying", reference });
+    setStep(4);
+    void confirmReturnedPayment(reference);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const confirmReturnedPayment = async (reference: string) => {
+    setPaymentReturn({ state: "verifying", reference });
+    const res: any = await verifyPaymentAPI(reference);
+    if (!res || res.error) {
+      setPaymentReturn({ state: "error", reference, message: res?.error || "We couldn't confirm your payment right now." });
+      return;
+    }
+    const booking = res.booking;
+    if (res.outcome === "paid" || res.outcome === "already_paid") {
+      setPaymentReturn(null);
+      setPaidOnline(true);
+      setBookingConfirmed(booking);
+      setStep(5);
+      try { window.dispatchEvent(new CustomEvent("isalu_booking_created", { detail: booking })); } catch { }
+      return;
+    }
+    setPaymentReturn({
+      state: res.outcome === "refund_due" ? "refund_due" : res.outcome === "failed" ? "failed" : "pending",
+      reference,
+      refCode: booking?.refCode || booking?.ref_code,
+      booking,
+    });
+  };
+
+  const bookingPayload = () => ({
+    doctorId: selectedDoctor?.id,
+    doctor_id: selectedDoctor?.id,
+    date: selectedDate,
+    time: selectedTime,
+    patientName,
+    patient_name: patientName,
+    patientPhone,
+    patient_phone: patientPhone,
+    patientEmail,
+    patient_email: patientEmail,
+    reason,
+    paymentType: "Private Self-Pay",
+    payment_type: "Private Self-Pay",
+    referralDocName: referralDocName || "",
+    referral_doc_name: referralDocName || "",
+    referralDocData: referralDocData || "",
+    referral_doc_data: referralDocData || "",
+    referralDocText: referralDocText || "",
+    referral_doc_text: referralDocText || "",
+  });
+
+  // Hold the slot, open Paystack checkout, and leave the page for it.
+  const handleStartPayment = async (retryRefCode?: string) => {
+    if (isStartingPayment) return;
+    if (!retryRefCode) {
+      if (!selectedDoctor || !selectedDate || !selectedTime || !patientName || !patientPhone) {
+        setApiError("Please complete all required fields before paying.");
+        return;
+      }
+      if (patientEmail.trim() && !/^\S+@\S+\.\S+$/.test(patientEmail.trim())) {
+        setApiError("The email address in step 1 doesn't look right. Correct it, or clear it to pay without an emailed receipt.");
+        return;
+      }
+    }
+    setIsStartingPayment(true);
+    const res: any = await startPaymentAPI(retryRefCode ? { ref_code: retryRefCode } : bookingPayload());
+    if (!res || res.error || !res.authorization_url) {
+      setIsStartingPayment(false);
+      setApiError(res?.error || "We couldn't open the payment page. Please try again.");
+      return;
+    }
+    window.location.assign(res.authorization_url);
+  };
+
+  // Moving from the schedule step to payment runs the same checks as booking.
+  const goToPayment = () => {
+    if (privateBookingProblem) {
+      setApiError(privateBookingProblem);
+      return;
+    }
+    if (!selectedDoctor || !selectedDate || !selectedTime || !patientName || !patientPhone) {
+      setApiError("Please complete all required fields before continuing.");
+      return;
+    }
+    if (duplicateBooking) {
+      setApiError(duplicateBooking.message || "You already have an appointment in this clinic on this day. Please pick another date.");
+      return;
+    }
+    if (isSameDayBookingWithin30MinCutoff(selectedDate, selectedTime)) {
+      setApiError("Online appointments for today's clinic must be booked at least 10 minutes before the clinic starts. Please select a future date or contact hospital reception.");
+      return;
+    }
+    setStep(4);
+  };
+
+  // HMO patients see the minimum-notice pop-up when they reach the schedule step.
+  useEffect(() => {
+    if (step === 3 && patientType === "HMO Insurance" && selectedDoctorKey && selectedMeta && hmoNoticeShownFor !== selectedDoctorKey) {
+      setHmoNoticeShownFor(selectedDoctorKey);
+      setHmoNoticeOpen(true);
+    }
+  }, [step, patientType, selectedDoctorKey, selectedMeta, hmoNoticeShownFor]);
+
   const handleBookingSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedDoctor || !selectedDate || !selectedTime || !patientName || !patientPhone) {
@@ -1692,7 +1927,7 @@ export function BookAppointmentPage() {
     }
 
     if (duplicateBooking) {
-      setApiError(duplicateBooking.message || "You already have an upcoming appointment in this clinic.");
+      setApiError(duplicateBooking.message || "You already have an appointment in this clinic on this day. Please pick another date.");
       return;
     }
 
@@ -1701,8 +1936,14 @@ export function BookAppointmentPage() {
       return;
     }
 
+    if (isHmoLockedDate(selectedDoctor, selectedDate)) {
+      setHmoNoticeDate(selectedDate);
+      setHmoNoticeOpen(true);
+      return;
+    }
+
     if (isSameDayBookingWithin30MinCutoff(selectedDate, selectedTime)) {
-      setApiError("Online appointments for today's clinic must be booked at least 30 minutes prior to the clinic start time. Please select a future date or contact hospital reception.");
+      setApiError("Online appointments for today's clinic must be booked at least 10 minutes before the clinic starts. Please select a future date or contact hospital reception.");
       return;
     }
 
@@ -1783,6 +2024,239 @@ export function BookAppointmentPage() {
   };
 
 
+  // ------------------------------------------------------------------
+  // PAYMENT STEP
+  // ------------------------------------------------------------------
+  const renderPaymentStep = () => {
+    const ret = paymentReturn;
+    const b = ret?.booking;
+    const summary = {
+      clinic: b?.doctorSpecialty || b?.doctor_specialty || selectedDoctor?.specialty || "",
+      doctor: b?.doctorAcronym || (selectedDoctor ? getDoctorDisplayAcronym(selectedDoctor) : "Specialist"),
+      date: b?.date || selectedDate,
+      time: b?.time || selectedTime,
+      patient: b?.patientName || b?.patient_name || patientName,
+      fee: Number(b?.feeAmount ?? clinicFee),
+      expires: b?.paymentExpiresAt ? new Date(b.paymentExpiresAt) : null,
+    };
+    const dateLabel = summary.date
+      ? new Date(`${summary.date}T00:00:00`).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })
+      : "";
+    const holdUntil = summary.expires ? summary.expires.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "";
+    const startOver = () => { window.location.assign(window.location.pathname); };
+    const retry = () => handleStartPayment(ret?.refCode);
+
+    const Row = ({ label, value }: { label: string; value: string }) => (
+      <div className="flex items-baseline justify-between gap-4 py-2.5 border-b border-slate-100 dark:border-slate-800 last:border-0">
+        <span className="text-xs font-bold text-slate-500 dark:text-slate-400">{label}</span>
+        <span className="text-sm font-black text-slate-900 dark:text-white text-right">{value}</span>
+      </div>
+    );
+
+    let notice: React.ReactNode = null;
+    let actions: React.ReactNode = null;
+
+    if (!ret) {
+      actions = (
+        <>
+          <button type="button" onClick={() => setStep(3)} disabled={isStartingPayment}
+            className="bk-back px-5 py-3 rounded-xl border-2 border-slate-300 dark:border-slate-700 font-extrabold text-xs text-slate-900 dark:text-white hover:bg-slate-200 dark:hover:bg-slate-800 transition-all disabled:opacity-50">
+            Back
+          </button>
+          <button type="button" data-testid="pay-with-paystack" onClick={() => handleStartPayment()} disabled={isStartingPayment}
+            className="bk-next bg-[#008ac9] hover:bg-[#0072b1] disabled:opacity-60 text-white px-7 py-3.5 text-sm font-black rounded-2xl flex items-center gap-2 shadow-lg transition-all">
+            {isStartingPayment ? <><RefreshCw className="h-4 w-4 animate-spin" /> Opening Paystack…</> : <><Lock className="h-4 w-4" /> Pay {formatNaira(summary.fee)} with Paystack</>}
+          </button>
+        </>
+      );
+      notice = (
+        <p className="text-xs font-semibold text-slate-600 dark:text-slate-400 leading-relaxed">
+          Your slot is held for {holdMinutes} minutes while you pay. You'll get your ticket as soon as Paystack confirms the payment.
+          Paystack accepts cards, bank transfer and USSD.
+        </p>
+      );
+    } else if (ret.state === "verifying") {
+      notice = (
+        <div className="flex items-center gap-3 text-sm font-bold text-[#008ac9]" role="status">
+          <RefreshCw className="h-5 w-5 animate-spin" /> Confirming your payment with Paystack…
+        </div>
+      );
+    } else if (ret.state === "pending" || ret.state === "error") {
+      notice = (
+        <div role="status" className="p-4 rounded-2xl border-2 border-amber-300 bg-amber-50 dark:bg-amber-950/50 dark:border-amber-900 text-amber-900 dark:text-amber-200 text-xs font-semibold leading-relaxed">
+          <strong className="block font-black mb-1">We haven't received confirmation of your payment yet.</strong>
+          {ret.message || "If you completed the payment, check again in a moment. If you didn't, you can pay now."}
+          {holdUntil && <> Your slot is held until {holdUntil}.</>}
+        </div>
+      );
+      actions = (
+        <>
+          <button type="button" onClick={() => ret.reference && confirmReturnedPayment(ret.reference)}
+            className="px-5 py-3 rounded-xl border-2 border-slate-300 dark:border-slate-700 font-extrabold text-xs text-slate-900 dark:text-white hover:bg-slate-200 dark:hover:bg-slate-800">
+            Check again
+          </button>
+          {ret.refCode && (
+            <button type="button" onClick={retry} disabled={isStartingPayment}
+              className="bg-[#008ac9] hover:bg-[#0072b1] disabled:opacity-60 text-white px-6 py-3 text-sm font-black rounded-2xl flex items-center gap-2 shadow-lg">
+              <Lock className="h-4 w-4" /> Pay now
+            </button>
+          )}
+        </>
+      );
+    } else if (ret.state === "failed" || ret.state === "cancelled") {
+      notice = (
+        <div role="alert" className="p-4 rounded-2xl border-2 border-rose-300 bg-rose-50 dark:bg-rose-950/50 dark:border-rose-900 text-rose-900 dark:text-rose-200 text-xs font-semibold leading-relaxed">
+          <strong className="block font-black mb-1">{ret.state === "cancelled" ? "You cancelled the payment." : "The payment didn't go through."}</strong>
+          {ret.state === "failed" ? "Paystack couldn't complete the payment. " : ""}
+          Your appointment isn't confirmed yet. You can try again while your slot is held{holdUntil ? ` (until ${holdUntil})` : ""}, or start a new booking.
+        </div>
+      );
+      actions = (
+        <>
+          <button type="button" onClick={startOver}
+            className="px-5 py-3 rounded-xl border-2 border-slate-300 dark:border-slate-700 font-extrabold text-xs text-slate-900 dark:text-white hover:bg-slate-200 dark:hover:bg-slate-800">
+            Start a new booking
+          </button>
+          {ret.refCode && (
+            <button type="button" onClick={retry} disabled={isStartingPayment}
+              className="bg-[#008ac9] hover:bg-[#0072b1] disabled:opacity-60 text-white px-6 py-3 text-sm font-black rounded-2xl flex items-center gap-2 shadow-lg">
+              {isStartingPayment ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />} Try paying again
+            </button>
+          )}
+        </>
+      );
+    } else if (ret.state === "refund_due") {
+      notice = (
+        <div role="alert" className="p-4 rounded-2xl border-2 border-amber-300 bg-amber-50 dark:bg-amber-950/50 dark:border-amber-900 text-amber-900 dark:text-amber-200 text-xs font-semibold leading-relaxed">
+          <strong className="block font-black mb-1">We received your payment, but this slot is no longer free.</strong>
+          The payment came through after your {holdMinutes}-minute hold ended, and the clinic filled up in the meantime.
+          The hospital will contact you to refund {formatNaira(Number(b?.amountPaid || summary.fee))} or book you another date.
+          Keep this reference: <span className="font-black break-all">{ret.reference}</span>.
+        </div>
+      );
+      actions = (
+        <button type="button" onClick={startOver}
+          className="px-5 py-3 rounded-xl border-2 border-slate-300 dark:border-slate-700 font-extrabold text-xs text-slate-900 dark:text-white hover:bg-slate-200 dark:hover:bg-slate-800">
+          Start a new booking
+        </button>
+      );
+    }
+
+    return (
+      <div className="max-w-xl mx-auto space-y-5" data-testid="payment-step">
+        <div className="bk-card bg-white dark:bg-slate-900 border-2 border-slate-300 dark:border-slate-800 rounded-3xl p-6 md:p-8 shadow-md">
+          <div className="flex items-start justify-between gap-4 mb-5">
+            <div>
+              <h2 className="text-lg font-black text-slate-900 dark:text-white">Pay the consultation fee</h2>
+              <p className="text-xs font-semibold text-slate-600 dark:text-slate-400 mt-1">Private self-pay appointments are confirmed once the fee is paid.</p>
+            </div>
+            <CreditCard className="h-7 w-7 text-[#008ac9] shrink-0" />
+          </div>
+          <div className="rounded-2xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 px-4">
+            <Row label="Patient" value={summary.patient} />
+            <Row label="Clinic" value={summary.clinic} />
+            <Row label="Doctor" value={summary.doctor} />
+            <Row label="Date" value={dateLabel} />
+            <Row label="Time" value={summary.time} />
+          </div>
+          <div className="flex items-baseline justify-between gap-4 mt-5 mb-5">
+            <span className="text-sm font-black text-slate-900 dark:text-white">Amount to pay</span>
+            <span data-testid="payment-amount" className="text-3xl font-black text-[#008ac9] dark:text-sky-400 tabular-nums">{formatNaira(summary.fee)}</span>
+          </div>
+          {notice}
+          {actions && <div className="flex flex-wrap items-center justify-between gap-3 mt-6">{actions}</div>}
+        </div>
+        <p className="text-center text-[11px] font-semibold text-slate-500 dark:text-slate-400 flex items-center justify-center gap-1.5">
+          <ShieldCheck className="h-3.5 w-3.5" /> Payments are processed securely by Paystack. The hospital never sees your card details.
+        </p>
+      </div>
+    );
+  };
+
+  // ------------------------------------------------------------------
+  // HMO BOOKING-WINDOW POP-UP
+  // ------------------------------------------------------------------
+  const renderHmoNotice = () => {
+    if (!hmoNoticeOpen || !selectedDoctor) return null;
+    const doctorLabel = getDoctorDisplayAcronym(selectedDoctor);
+    const close = () => { setHmoNoticeOpen(false); setHmoNoticeDate(""); };
+    const fmtDay = (iso: string, long = true) => new Date(`${iso}T00:00:00`).toLocaleDateString("en-GB", long
+      ? { weekday: "long", day: "numeric", month: "long" } : { weekday: "short", day: "numeric", month: "short" });
+    // The clinic day picked (if any), and the next day whose HMO booking opens later.
+    const picked = hmoNoticeDate && doctorAvailabilityMap[hmoNoticeDate]?.hmo_window === "not_yet" ? hmoNoticeDate : "";
+    const nextOpening = Object.values(doctorAvailabilityMap as Record<string, any>)
+      .filter((e: any) => e && e.available && !e.is_full && e.hmo_window === "not_yet")
+      .map((e: any) => e.date).sort()[0] || "";
+    const aboutDate = picked || (earliestHmoDate ? "" : nextOpening);
+    const title = picked
+      ? `HMO booking for ${fmtDay(picked)} opens ${hmoOpensLabel(picked)}`
+      : earliestHmoDate
+        ? `You can book with your HMO for ${fmtDay(earliestHmoDate)}`
+        : aboutDate
+          ? `HMO booking for ${fmtDay(aboutDate)} opens ${hmoOpensLabel(aboutDate)}`
+          : "No HMO clinic is open for booking right now";
+    // Rendered into <body> (a portal) so the booking page's glass styles and
+    // stacking can't make it see-through or tuck it under other pop-ups.
+    return createPortal(
+      <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4 bg-slate-950/70" onMouseDown={close}>
+        <div role="dialog" aria-modal="true" aria-labelledby="hmo-notice-title" data-testid="hmo-notice"
+          className="hmo-notice-dialog w-full max-w-md max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain rounded-[24px] border-2 border-amber-300 dark:border-amber-700 shadow-2xl p-6 text-left"
+          style={{ backgroundColor: document.documentElement.classList.contains("dark") ? "#0f172a" : "#ffffff" }}
+          onMouseDown={(e) => e.stopPropagation()}
+          onKeyDown={(e) => { if (e.key === "Escape") close(); }}>
+          <div className="flex items-start gap-3">
+            <div className="p-2.5 rounded-2xl bg-amber-100 dark:bg-amber-900/60 shrink-0"><Clock className="h-6 w-6 text-amber-700 dark:text-amber-300" /></div>
+            <div>
+              <h2 id="hmo-notice-title" className="text-lg font-black text-slate-900 dark:text-white leading-snug">{title}</h2>
+              <p className="mt-2 text-sm font-semibold text-slate-700 dark:text-slate-300 leading-relaxed">
+                HMO patients can book a clinic from <strong className="text-slate-900 dark:text-white">{hmoNoticeHours} hours before it starts</strong> until {hmoCloseMinutes} minutes before it starts, if space is still available. This gives us time to get approval from your HMO.
+                {earliestHmoDate
+                  ? <> The next {selectedDoctor.specialty} clinic you can book now with {doctorLabel} is <strong className="text-slate-900 dark:text-white">{earliestHmoLabel}</strong>.</>
+                  : aboutDate
+                    ? <> {doctorLabel} has no clinic open for HMO booking right now. Come back from <strong className="text-slate-900 dark:text-white">{hmoOpensLabel(aboutDate)}</strong> to book {fmtDay(aboutDate)}.</>
+                    : <> {doctorLabel} has no clinic with space in the coming weeks. Please choose another doctor.</>}
+              </p>
+              <p className="mt-3 text-sm font-semibold text-amber-900 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-900 rounded-xl p-3 leading-relaxed">
+                Can't wait? Book as a Private Self-Pay patient{clinicFee > 0 ? ` and pay ${formatNaira(clinicFee)} online` : ""} to secure a date now.
+                Private patients can book any open space at any time, so spaces may be taken before HMO booking opens.
+              </p>
+            </div>
+          </div>
+          <div className="mt-6 flex flex-col gap-2">
+            {earliestHmoDate && (
+              <button type="button" data-testid="hmo-notice-book" autoFocus
+                onClick={() => { setSelectedDate(earliestHmoDate); setSelectedTime(getDutyTimeWindow(selectedDoctor, earliestHmoDate)); close(); }}
+                className="w-full bg-[#008ac9] hover:bg-[#0072b1] text-white py-3 px-4 text-sm font-black rounded-2xl shadow-md">
+                Book {fmtDay(earliestHmoDate, false)} with my HMO
+              </button>
+            )}
+            {doctorAcceptsPrivate && (
+              <button type="button" data-testid="hmo-notice-private"
+                onClick={() => { setPatientType("Private Self-Pay"); close(); }}
+                className="w-full py-3 px-4 text-sm font-black rounded-2xl border-2 border-[#008ac9] text-[#008ac9] dark:text-sky-300 hover:bg-sky-50 dark:hover:bg-slate-800">
+                Switch to Private Self-Pay
+              </button>
+            )}
+            <button type="button" onClick={close} className="w-full py-2.5 text-xs font-bold text-slate-500 hover:text-slate-800 dark:hover:text-white">
+              Close
+            </button>
+          </div>
+        </div>
+      </div>,
+      document.body
+    );
+  };
+
+  // While the HMO notice is open: stop the page scrolling behind it, and let Esc close it.
+  useEffect(() => {
+    if (!hmoNoticeOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { setHmoNoticeOpen(false); setHmoNoticeDate(""); } };
+    window.addEventListener("keydown", onKey);
+    return () => { document.body.style.overflow = prev; window.removeEventListener("keydown", onKey); };
+  }, [hmoNoticeOpen]);
+
   // Computed here, after every helper it relies on is defined.
   const clinicWeek = getClinicWeeklyAnalytics();
   // Every booking the server knows for this clinic's doctors (next 90 days).
@@ -1818,6 +2292,7 @@ export function BookAppointmentPage() {
       <div ref={formTopRef} className="scroll-mt-24" />
       {/* GLOBAL API ERROR MODAL */}
       <ApiErrorModal error={apiError} onClose={() => setApiError(null)} />
+      {renderHmoNotice()}
 
       <div className="container mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
         {/* Page Title */}
@@ -1835,12 +2310,20 @@ export function BookAppointmentPage() {
 
         {/* Progress Steps */}
         <div className="bk-stepper mb-10 flex items-center justify-center gap-2 sm:gap-4">
-          {[
-            { num: 1, label: "Patient Details & Category" },
-            { num: 2, label: "Select Specialist Doctor" },
-            { num: 3, label: "Date & Time Schedule" },
-            { num: 4, label: "Official Ticket" },
-          ].map((s) => (
+          {(paymentFlow
+            ? [
+              { num: 1, label: "Patient Details & Category" },
+              { num: 2, label: "Select Specialist Doctor" },
+              { num: 3, label: "Date & Time Schedule" },
+              { num: 4, label: "Payment" },
+              { num: 5, label: "Official Ticket" },
+            ]
+            : [
+              { num: 1, label: "Patient Details & Category" },
+              { num: 2, label: "Select Specialist Doctor" },
+              { num: 3, label: "Date & Time Schedule" },
+              { num: 4, label: "Official Ticket" },
+            ]).map((s, i, all) => (
             <div key={s.num} className="flex items-center gap-2">
               <div
                 className={`bk-step-dot h-10 w-10 rounded-2xl flex items-center justify-center text-sm font-black transition-all ${step === s.num
@@ -1855,7 +2338,7 @@ export function BookAppointmentPage() {
               <span className={`bk-step-label text-xs font-black hidden sm:inline ${step === s.num ? "text-[#008ac9] dark:text-sky-400 font-black" : "text-slate-700 dark:text-slate-300"}`}>
                 {s.label}
               </span>
-              {s.num < 4 && <div className={`bk-step-line h-1 w-6 sm:w-10 bg-slate-300 dark:bg-slate-800 rounded-full ${step > s.num ? "is-done" : ""}`} />}
+              {i < all.length - 1 && <div className={`bk-step-line h-1 w-6 sm:w-10 bg-slate-300 dark:bg-slate-800 rounded-full ${step > s.num ? "is-done" : ""}`} />}
             </div>
           ))}
         </div>
@@ -2335,6 +2818,15 @@ export function BookAppointmentPage() {
                         <span>HMO Insurance Enrollee</span>
                       </button>
                     </div>
+                    <p data-testid="payment-category-note" className="mt-2 text-[11px] font-semibold text-slate-600 dark:text-slate-400 leading-relaxed">
+                      {patientType === "HMO Insurance"
+                        ? `HMO patients can book a clinic from ${paymentConfig?.hmo_min_notice_hours ?? 48} hours before it starts until ${(paymentConfig as any)?.hmo_close_minutes ?? 10} minutes before, if space is still available.`
+                        : paymentConfig && !paymentConfig.online_payments_enabled && paymentMandatory
+                          ? "Online booking for private patients is unavailable right now because online payment isn't set up. Please call the hospital to book."
+                          : paymentMandatory || paymentConfig?.online_payments_enabled
+                            ? "You'll pay the clinic's consultation fee online with Paystack before your ticket is issued. Add your email address to get the payment receipt."
+                            : "You'll pay at the hospital cashdesk on the day of your visit."}
+                    </p>
                   </div>
 
                   {/* Conditional HMO Fields */}
@@ -2676,7 +3168,7 @@ export function BookAppointmentPage() {
                 </button>
                 <button
                   type="button"
-                  disabled={!selectedDoctorId || Boolean(duplicateBooking)}
+                  disabled={!selectedDoctorId}
                   onClick={() => setStep(3)}
                   className="bk-next bg-[#008ac9] hover:bg-[#0072b1] disabled:opacity-50 text-white px-8 py-3 text-sm font-black rounded-2xl flex items-center gap-2 shadow-lg border-2 border-sky-300/40 transition-all"
                 >
@@ -2728,22 +3220,29 @@ export function BookAppointmentPage() {
                       const isSelected = selectedDate === d.dateStr;
                       const isNext = d.isNextAvailable;
                       const isFullyBooked = d.isFullyBooked;
-                      const isClickable = d.isAvailable && !isFullyBooked;
+                      const isHmoLocked = Boolean((d as any).isHmoLocked);
+                      const isClickable = d.isAvailable && !isFullyBooked && !isHmoLocked;
 
                       return (
                         <button
                           type="button"
                           key={d.dateStr}
-                          disabled={!isClickable}
+                          disabled={!isClickable && !isHmoLocked}
                           aria-disabled={!isClickable}
+                          data-hmo-locked={isHmoLocked ? "true" : undefined}
                           aria-label={
                             isFullyBooked
                               ? `${d.dayShort} ${d.monthShort}: Fully booked`
-                              : !d.isAvailable
-                                ? `${d.dayShort} ${d.monthShort}: Not available`
-                                : `${d.dayShort} ${d.monthShort}: Available`
+                              : isHmoLocked
+                                ? (hmoOpensShort(d.dateStr)
+                                  ? `${d.dayShort} ${d.monthShort}: Private patients only (HMO booking opens ${hmoOpensLabel(d.dateStr)})`
+                                  : `${d.dayShort} ${d.monthShort}: Booking closed (clinic starts in under ${hmoCloseMinutes} minutes or has started)`)
+                                : !d.isAvailable
+                                  ? `${d.dayShort} ${d.monthShort}: Not available`
+                                  : `${d.dayShort} ${d.monthShort}: Available`
                           }
                           onClick={() => {
+                            if (isHmoLocked) { setHmoNoticeDate(d.dateStr); setHmoNoticeOpen(true); return; }
                             if (!isClickable) return;
 
                             setSelectedDate(d.dateStr);
@@ -2758,6 +3257,8 @@ export function BookAppointmentPage() {
                           }}
                           className={`relative py-2.5 px-1 rounded-xl border text-center transition-all flex flex-col items-center justify-center select-none ${isFullyBooked
                             ? "bg-rose-600 text-white border-rose-700 shadow-md cursor-not-allowed font-black"
+                            : isHmoLocked
+                              ? "bg-amber-50 dark:bg-amber-950/40 border-dashed border-amber-400 dark:border-amber-700 text-amber-900 dark:text-amber-200 font-semibold cursor-help"
                             : !d.isAvailable
                               ? "opacity-60 bg-slate-50 dark:bg-slate-900/60 border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 font-semibold cursor-not-allowed"
                               : isSelected
@@ -2783,13 +3284,15 @@ export function BookAppointmentPage() {
                           <span className={`text-[11px] font-black leading-tight my-0.5 ${!d.isAvailable && !isFullyBooked ? "text-slate-700 dark:text-slate-200" : ""}`}>{d.monthShort}</span>
                           <span className={`text-[7.5px] font-black px-1.5 py-0.5 rounded-md ${isFullyBooked
                             ? "bg-white text-rose-600 shadow-sm uppercase tracking-wider font-black"
+                            : isHmoLocked
+                              ? "bg-amber-200 dark:bg-amber-900 text-amber-900 dark:text-amber-100"
                             : !d.isAvailable
                               ? "bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold"
                               : isSelected
                                 ? "bg-white/20 text-white"
                                 : "text-[#008ac9]"
                             }`}>
-                            {isFullyBooked ? "FULL" : d.isAvailable ? (isNext ? "★ Next Avail" : "✓ Available")
+                            {isFullyBooked ? "FULL" : isHmoLocked ? (hmoOpensShort(d.dateStr) ? `HMO from ${hmoOpensShort(d.dateStr)}` : "Closed") : d.isAvailable ? (isNext ? "★ Next Avail" : "✓ Available")
                               : /cancel/i.test((d as any).serverNote || "") ? "Cancelled"
                                 : /moved/i.test((d as any).serverNote || "") ? "Moved" : "Off Duty"}
                           </span>
@@ -2994,6 +3497,13 @@ export function BookAppointmentPage() {
               </div>
             </div>
 
+            {privateBookingProblem && (
+              <div role="alert" data-testid="private-booking-problem" className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/50 border-2 border-rose-300 dark:border-rose-900 text-rose-900 dark:text-rose-200 text-xs sm:text-sm font-semibold leading-relaxed">
+                <strong className="block font-black mb-1">Private online booking isn't available for this clinic yet.</strong>
+                {privateBookingProblem}
+              </div>
+            )}
+
             {isSubmittingBooking && (
               <div className="p-4 rounded-2xl bg-sky-50 dark:bg-slate-900 border-2 border-[#008ac9] text-[#008ac9] dark:text-sky-300 text-xs sm:text-sm font-bold flex items-center justify-center gap-3 animate-pulse shadow-md my-4">
                 <RefreshCw className="h-5 w-5 animate-spin text-[#008ac9]" />
@@ -3013,6 +3523,20 @@ export function BookAppointmentPage() {
               {(() => {
                 const slotStats = selectedDate ? getDoctorSlotStatsForDate(selectedDoctor.id, selectedDate) : { remaining: 1 };
                 const isFull = slotStats.remaining <= 0;
+
+                if (needsOnlinePayment) {
+                  return (
+                    <button
+                      type="button"
+                      data-testid="continue-to-payment"
+                      disabled={Boolean(privateBookingProblem) || !selectedAvailabilityLoaded || !selectedDate || !selectedTime || isFull || isSameDayBookingWithin30MinCutoff(selectedDate, selectedTime)}
+                      onClick={goToPayment}
+                      className="bk-next bg-[#008ac9] hover:bg-[#0072b1] disabled:opacity-50 disabled:cursor-not-allowed text-white px-8 py-3.5 text-sm font-black rounded-2xl flex items-center gap-2 shadow-lg border-2 border-sky-300/40 transition-all"
+                    >
+                      {isFull ? <>Schedule Full (Capacity Reached)</> : privateBookingProblem ? <>Online booking unavailable</> : clinicFee > 0 ? <>Continue to Payment ({formatNaira(clinicFee)})</> : <>Continue to Payment</>}
+                    </button>
+                  );
+                }
 
                 return (
                   <button
@@ -3039,7 +3563,10 @@ export function BookAppointmentPage() {
         )}
 
         {/* STEP 4: Official Appointment Ticket Receipt */}
-        {step === 4 && bookingConfirmed && (
+        {/* STEP 4: Payment (private self-pay, online) */}
+        {step === 4 && paymentFlow && !bookingConfirmed && renderPaymentStep()}
+
+        {step === ticketStep && bookingConfirmed && (
           <div className="max-w-xl mx-auto space-y-6">
             <div className="bk-ticket bg-white dark:bg-slate-900 border-2 border-[#008ac9] rounded-3xl overflow-hidden shadow-2xl">
               <div className="bk-ticket-head bg-[#008ac9] text-white p-7 text-center relative overflow-hidden">
@@ -3104,6 +3631,13 @@ export function BookAppointmentPage() {
                     <div>
                       <span className="text-xs text-slate-500 block font-bold">HMO & Enrollee ID</span>
                       <span className="font-black text-[#008ac9] dark:text-sky-400 text-sm">{bookingConfirmed.hmoName} ({bookingConfirmed.hmoPolicyCode})</span>
+                    </div>
+                  )}
+                  {Number(bookingConfirmed.amountPaid || 0) > 0 && (
+                    <div data-testid="ticket-paid">
+                      <span className="text-xs text-slate-500 block font-bold">Consultation Fee</span>
+                      <span className="font-black text-emerald-700 dark:text-emerald-400 text-sm">Paid online, {formatNaira(Number(bookingConfirmed.amountPaid))}</span>
+                      <span className="block text-[10px] font-bold text-slate-500 break-all">Paystack ref {bookingConfirmed.paymentReference}</span>
                     </div>
                   )}
                   {bookingConfirmed.referralDocName && (

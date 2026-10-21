@@ -189,7 +189,7 @@ const DESK_LABELS: Record<string, string> = {
   all_patients: "All Patients", checked_in_patients: "Checked-in Queue", hmo_enrollees: "HMO Enrollees",
   private_patients: "Private Self-Pay", create_specialist_schedule: "Specialist Roster",
   clinic: "Clinics & Departments", disabled_bookings: "Archive & Trash",
-  hmo_declined: "Declined HMO Approvals",
+  hmo_declined: "Declined HMO Approvals", booking_payments: "Booking Payments",
 };
 
 /** Waiting-room screens are public: show "Ada O." rather than a full name. */
@@ -348,8 +348,10 @@ import {
   Sun,
   Moon,
   X,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Landmark
 } from "lucide-react";
+import BookingPaymentsDesk from "../components/dashboard/desks/BookingPaymentsDesk";
 import {
   getBookingsAPI,
   getBookingSummaryAPI,
@@ -1503,7 +1505,8 @@ export function HospitalDashboardPage() {
     | "create_specialist_schedule"
     | "clinic"
     | "disabled_bookings"
-    | "hmo_declined";
+    | "hmo_declined"
+    | "booking_payments";
 
   const validDesks: DeskType[] = [
     "helpdesk",
@@ -1520,6 +1523,7 @@ export function HospitalDashboardPage() {
     "clinic",
     "disabled_bookings",
     "hmo_declined",
+    "booking_payments",
   ];
 
   // HMO Provider Modal States
@@ -1754,7 +1758,10 @@ export function HospitalDashboardPage() {
   // which has its own list. Everything on the dashboard reads this filtered list.
   const bookings = useMemo(
     () => bookingRecords.filter((b: any) =>
-      !(b?.isActive === false || b?.is_active === false || b?.disabled === true || String(b?.status ?? "").trim().toLowerCase() === "disabled")),
+      !(b?.isActive === false || b?.is_active === false || b?.disabled === true || String(b?.status ?? "").trim().toLowerCase() === "disabled") &&
+      // Unpaid online bookings whose hold ran out are released slots, not patients
+      // (kept visible only when a late payment needs a refund).
+      !(String(b?.status ?? "").trim().toLowerCase() === "payment expired" && String(b?.paymentStatus ?? b?.payment_status ?? "") !== "Refund Due")),
     [bookingRecords]
   );
 
@@ -2862,6 +2869,7 @@ ADMINISTRATIVE VERIFICATION:
         doctorCount: d.doctor_count ?? d.doctorCount ?? 0,
         status: d.status,
         location: d.location || "Main Hospital Complex - Suite Wing",
+        consultationFee: Number(d.consultationFee ?? d.consultation_fee ?? 0),
       }));
       if (mapped.length > 0) {
         try { localStorage.setItem("isalu_cached_clinics", JSON.stringify(mapped)); } catch { }
@@ -2951,6 +2959,7 @@ ADMINISTRATIVE VERIFICATION:
   const [newClinicIcon, setNewClinicIcon] = useState("Building2");
   const [newClinicLocation, setNewClinicLocation] = useState("Main Hospital Complex - Suite Wing");
   const [newClinicStatus, setNewClinicStatus] = useState("Active");
+  const [newClinicFee, setNewClinicFee] = useState("");
   const [clinicFormError, setClinicFormError] = useState("");
 
   const [clinicSearchQuery, setClinicSearchQuery] = useState("");
@@ -2980,6 +2989,7 @@ ADMINISTRATIVE VERIFICATION:
   const [editClinicIcon, setEditClinicIcon] = useState("Building2");
   const [editClinicLocation, setEditClinicLocation] = useState("");
   const [editClinicStatus, setEditClinicStatus] = useState("Active");
+  const [editClinicFee, setEditClinicFee] = useState("");
   const [editClinicFormError, setEditClinicFormError] = useState("");
 
   const filteredClinics = clinics.filter((c) => {
@@ -3261,7 +3271,9 @@ ADMINISTRATIVE VERIFICATION:
     const status = String(b.status ?? "").trim().toLowerCase();
     const isPrivate = paymentType.includes("private") || paymentType.includes("self") || paymentType.includes("cash") || paymentType.includes("pos") || paymentType.includes("transfer");
     const isCleared = ["paid", "cleared", "completed", "settled"].includes(String(b.paymentStatus ?? b.payment_status ?? "").trim().toLowerCase()) || ["paid", "completed", "cleared", "settled"].includes(status);
-    return isPrivate && !isHmoBooking(b) && !isBookingDisabled(b) && !isCleared;
+    // Online (Paystack) bookings still being paid aren't cashdesk work.
+    const isOnlineHold = status === "awaiting payment" || status === "payment expired";
+    return isPrivate && !isHmoBooking(b) && !isBookingDisabled(b) && !isCleared && !isOnlineHold;
   };
   const hmoDeskQueue = bookings.filter(isPendingHmoBooking);
 
@@ -3570,9 +3582,15 @@ ADMINISTRATIVE VERIFICATION:
       setClinicFormError("Please enter a valid clinic department name.");
       return;
     }
+    const newFee = newClinicFee.trim() === "" ? 0 : Number(newClinicFee.replace(/,/g, ""));
+    if (!Number.isFinite(newFee) || newFee < 0) {
+      setClinicFormError("Enter the consultation fee as a number in Naira, for example 15000.");
+      return;
+    }
     setIsSubmittingClinic(true);
     try {
       ensureOk(await createDepartmentAPI({
+        consultation_fee: newFee,
         name: newClinicName.trim(),
         dept_id: newClinicId.trim() || undefined,
         description: newClinicDescription.trim() || "Specialized clinical consultation services.",
@@ -3584,6 +3602,7 @@ ADMINISTRATIVE VERIFICATION:
       setNewClinicName("");
       setNewClinicId("");
       setNewClinicDescription("");
+      setNewClinicFee("");
       setClinicFormError("");
       setShowCreateClinicModal(false);
       setToastAlert({ title: "Department Registered ✓", description: `Clinic unit ${newClinicName.trim()} created.`, type: "success" });
@@ -3601,9 +3620,15 @@ ADMINISTRATIVE VERIFICATION:
       setEditClinicFormError("Department name cannot be empty.");
       return;
     }
+    const editFee = editClinicFee.trim() === "" ? 0 : Number(editClinicFee.replace(/,/g, ""));
+    if (!Number.isFinite(editFee) || editFee < 0) {
+      setEditClinicFormError("Enter the consultation fee as a number in Naira, for example 15000.");
+      return;
+    }
     setIsSubmittingClinic(true);
     try {
       ensureOk(await updateDepartmentAPI(editingClinic.id || editingClinic.dept_id, {
+        consultation_fee: editFee,
         name: editClinicName.trim(),
         description: editClinicDescription.trim(),
         location: editClinicLocation.trim(),
@@ -4143,7 +4168,7 @@ ADMINISTRATIVE VERIFICATION:
     const completedCount = bookings.filter((b) => b.status === "Completed").length;
     const pendingHmoCount = bookings.filter((b) => b.paymentType === "HMO Insurance" && b.hmoStatus !== "Approved" && b.hmoStatus !== "Declined").length;
     const hmoApprovedCount = bookings.filter((b) => b.paymentType === "HMO Insurance" && b.hmoStatus === "Approved").length;
-    const pendingCashCount = bookings.filter((b) => b.paymentType === "Private Self-Pay" && b.paymentStatus !== "Cleared").length;
+    const pendingCashCount = bookings.filter((b) => b.paymentType === "Private Self-Pay" && b.paymentStatus !== "Cleared" && !["awaiting payment", "payment expired"].includes(String(b.status ?? "").toLowerCase())).length;
     const clearedPaymentCount = bookings.filter((b) => b.paymentStatus === "Cleared").length;
     const paidOrApprovedCount = bookings.filter((b) => (b.hmoStatus === "Approved" || b.hmo_status === "Approved" || b.paymentStatus === "Cleared" || b.payment_status === "Cleared") && b.status !== "Completed" && b.status !== "Cancelled").length;
 
@@ -4701,12 +4726,13 @@ ADMINISTRATIVE VERIFICATION:
       title: "Medical Clinics & Departments Directory Report",
       subtitle: "Hospital Departmental Units, Locations & Specialist Count Index",
       filename: "Isalu_Medical_Clinics_Directory.pdf",
-      headers: ["Clinic ID", "Department Name", "Location", "Doctors Count", "Status"],
+      headers: ["Clinic ID", "Department Name", "Location", "Doctors Count", "Consultation Fee (NGN)", "Status"],
       data: clinics.map((c) => [
         c.id || c.dept_id || "-",
         c.name || "-",
         c.location || "Main Building",
         c.doctor_count || c.doctorCount || 0,
+        c.consultationFee ? Number(c.consultationFee).toLocaleString("en-NG") : "0",
         c.status || "Active",
       ]),
     });
@@ -5099,6 +5125,7 @@ ADMINISTRATIVE VERIFICATION:
         { id: "hmo", label: "HMO Insurance Desk", icon: ShieldCheck, badge: null },
         { id: "hmo_declined", label: "Declined HMO Approvals", icon: ShieldX, badge: bookings.filter(isDeclinedHmoBooking).length || null },
         { id: "cashdesk", label: "Cashdesk & Billing", icon: DollarSign, badge: null },
+        { id: "booking_payments", label: "Booking Payments", icon: Landmark, badge: null },
       ],
     },
     {
@@ -6325,6 +6352,10 @@ ADMINISTRATIVE VERIFICATION:
                 </div>
               )}
             </div>
+          )}
+
+          {activeDesk === "booking_payments" && isDeskAllowed("booking_payments") && (
+            <BookingPaymentsDesk isDarkMode={isDarkMode} />
           )}
 
           {activeDesk === "hmo_declined" && (() => {
@@ -8241,6 +8272,12 @@ ADMINISTRATIVE VERIFICATION:
                             <span>📍 {cLoc}</span>
                             <span className="font-bold text-sky-400">{cCount} Doctors</span>
                           </div>
+                          <div className="text-[11px] font-medium flex items-center justify-between" data-testid="clinic-fee">
+                            <span className="text-slate-500">Private consultation fee</span>
+                            {clinic.consultationFee > 0
+                              ? <span className="font-bold text-emerald-500">₦{Number(clinic.consultationFee).toLocaleString("en-NG")} (paid online)</span>
+                              : <span className="font-bold text-amber-500">Not set: private online booking off</span>}
+                          </div>
                         </div>
 
                         {isSuperAdminUser(currentUser) && (
@@ -8253,6 +8290,7 @@ ADMINISTRATIVE VERIFICATION:
                                 setEditClinicLocation(clinic.location || "");
                                 setEditClinicDescription(clinic.description || "");
                                 setEditClinicStatus(clinic.status === "Maintenance" ? "Maintenance" : "Active");
+                                setEditClinicFee(clinic.consultationFee ? String(clinic.consultationFee) : "");
                                 setEditClinicFormError("");
                               }}
                               className="px-3 py-1 rounded-lg text-xs font-bold border border-sky-500/20 bg-sky-500/10 hover:bg-sky-500/20 text-sky-400"
@@ -9327,7 +9365,7 @@ ADMINISTRATIVE VERIFICATION:
 
       {/* CREATE ROLE MODAL */}
       {showCreateRoleModal && (
-        <div className="fixed inset-0 z-[125] flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4"><div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 shadow-2xl"><div className="flex justify-between items-center mb-5"><h3 className="text-xl font-black text-slate-900 dark:text-white">Create Custom Role</h3><button type="button" onClick={() => setShowCreateRoleModal(false)} className="p-2 text-slate-400"><X /></button></div>{roleFormError && <div className="mb-4 p-3 rounded-xl bg-red-500/10 text-red-500 text-xs font-bold">{roleFormError}</div>}<form onSubmit={handleCreateRole} className="space-y-4"><input value={newRoleName} onChange={e => setNewRoleName(e.target.value)} placeholder="Role name" className="w-full px-4 py-3 rounded-xl border bg-transparent text-xs" required /><textarea value={newRoleDescription} onChange={e => setNewRoleDescription(e.target.value)} placeholder="Role description" className="w-full px-4 py-3 rounded-xl border bg-transparent text-xs" rows={3} /><select value={newRolePrimaryDesk} onChange={e => setNewRolePrimaryDesk(e.target.value)} className="w-full px-4 py-3 rounded-xl border bg-transparent text-xs"><option value="helpdesk">Helpdesk</option><option value="hmo">HMO Approval</option><option value="cashdesk">Cashdesk</option><option value="monitor">Monitor Room</option><option value="analytics">Analytics</option><option value="users">Users</option></select><div><p className="text-xs font-bold text-slate-400 mb-2">Allowed Desks</p><div className="flex flex-wrap gap-2">{["helpdesk", "hmo", "cashdesk", "monitor", "analytics", "users", "all_patients"].map(d => <button type="button" key={d} onClick={() => setNewRoleAllowedDesks(p => p.includes(d) ? p.filter(x => x !== d) : [...p, d])} className={`px-2.5 py-1.5 rounded-lg border text-[10px] font-bold ${newRoleAllowedDesks.includes(d) ? "bg-sky-600 text-white border-sky-600" : "border-slate-200 dark:border-slate-800 text-slate-500"}`}>{d}</button>)}</div></div><div className="flex justify-end gap-3"><button type="button" onClick={() => setShowCreateRoleModal(false)} className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-bold">Cancel</button><button type="submit" className="px-5 py-2 rounded-xl bg-sky-600 text-white text-xs font-black">Create Role</button></div></form></div></div>
+        <div className="fixed inset-0 z-[125] flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4"><div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 shadow-2xl"><div className="flex justify-between items-center mb-5"><h3 className="text-xl font-black text-slate-900 dark:text-white">Create Custom Role</h3><button type="button" onClick={() => setShowCreateRoleModal(false)} className="p-2 text-slate-400"><X /></button></div>{roleFormError && <div className="mb-4 p-3 rounded-xl bg-red-500/10 text-red-500 text-xs font-bold">{roleFormError}</div>}<form onSubmit={handleCreateRole} className="space-y-4"><input value={newRoleName} onChange={e => setNewRoleName(e.target.value)} placeholder="Role name" className="w-full px-4 py-3 rounded-xl border bg-transparent text-xs" required /><textarea value={newRoleDescription} onChange={e => setNewRoleDescription(e.target.value)} placeholder="Role description" className="w-full px-4 py-3 rounded-xl border bg-transparent text-xs" rows={3} /><select value={newRolePrimaryDesk} onChange={e => setNewRolePrimaryDesk(e.target.value)} className="w-full px-4 py-3 rounded-xl border bg-transparent text-xs"><option value="helpdesk">Helpdesk</option><option value="hmo">HMO Approval</option><option value="cashdesk">Cashdesk</option><option value="monitor">Monitor Room</option><option value="analytics">Analytics</option><option value="users">Users</option></select><div><p className="text-xs font-bold text-slate-400 mb-2">Allowed Desks</p><div className="flex flex-wrap gap-2">{["helpdesk", "hmo", "cashdesk", "monitor", "analytics", "users", "all_patients", "booking_payments"].map(d => <button type="button" key={d} onClick={() => setNewRoleAllowedDesks(p => p.includes(d) ? p.filter(x => x !== d) : [...p, d])} className={`px-2.5 py-1.5 rounded-lg border text-[10px] font-bold ${newRoleAllowedDesks.includes(d) ? "bg-sky-600 text-white border-sky-600" : "border-slate-200 dark:border-slate-800 text-slate-500"}`}>{d}</button>)}</div></div><div className="flex justify-end gap-3"><button type="button" onClick={() => setShowCreateRoleModal(false)} className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-bold">Cancel</button><button type="submit" className="px-5 py-2 rounded-xl bg-sky-600 text-white text-xs font-black">Create Role</button></div></form></div></div>
       )}
 
       {/* DECLINE HMO PRE-AUTHORIZATION */}
@@ -9380,7 +9418,7 @@ ADMINISTRATIVE VERIFICATION:
 
       {/* EDIT ROLE MODAL */}
       {editingRole && (
-        <div className="fixed inset-0 z-[130] flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4"><div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 shadow-2xl"><div className="flex justify-between items-center mb-5"><h3 className="text-xl font-black text-slate-900 dark:text-white">Edit Role</h3><button type="button" onClick={() => setEditingRole(null)} className="p-2 text-slate-400"><X /></button></div>{editRoleError && <div className="mb-4 p-3 rounded-xl bg-red-500/10 text-red-500 text-xs font-bold">{editRoleError}</div>}<form onSubmit={handleSaveEditRole} className="space-y-4"><input value={editRoleName} onChange={e => setEditRoleName(e.target.value)} className="w-full px-4 py-3 rounded-xl border bg-transparent text-xs" required /><textarea value={editRoleDescription} onChange={e => setEditRoleDescription(e.target.value)} className="w-full px-4 py-3 rounded-xl border bg-transparent text-xs" rows={3} /><select value={editRolePrimaryDesk} onChange={e => setEditRolePrimaryDesk(e.target.value)} className="w-full px-4 py-3 rounded-xl border bg-transparent text-xs"><option value="helpdesk">Helpdesk</option><option value="hmo">HMO Approval</option><option value="cashdesk">Cashdesk</option><option value="monitor">Monitor Room</option><option value="analytics">Analytics</option></select><div className="flex flex-wrap gap-2">{["helpdesk", "hmo", "cashdesk", "monitor", "analytics", "users", "all_patients"].map(d => <button type="button" key={d} onClick={() => setEditRoleAllowedDesks(p => p.includes(d) ? p.filter(x => x !== d) : [...p, d])} className={`px-2.5 py-1.5 rounded-lg border text-[10px] font-bold ${editRoleAllowedDesks.includes(d) ? "bg-sky-600 text-white border-sky-600" : "border-slate-200 dark:border-slate-800 text-slate-500"}`}>{d}</button>)}</div><div className="flex justify-end gap-3"><button type="button" onClick={() => setEditingRole(null)} className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-bold">Cancel</button><button type="submit" className="px-5 py-2 rounded-xl bg-sky-600 text-white text-xs font-black">Save Role</button></div></form></div></div>
+        <div className="fixed inset-0 z-[130] flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4"><div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 shadow-2xl"><div className="flex justify-between items-center mb-5"><h3 className="text-xl font-black text-slate-900 dark:text-white">Edit Role</h3><button type="button" onClick={() => setEditingRole(null)} className="p-2 text-slate-400"><X /></button></div>{editRoleError && <div className="mb-4 p-3 rounded-xl bg-red-500/10 text-red-500 text-xs font-bold">{editRoleError}</div>}<form onSubmit={handleSaveEditRole} className="space-y-4"><input value={editRoleName} onChange={e => setEditRoleName(e.target.value)} className="w-full px-4 py-3 rounded-xl border bg-transparent text-xs" required /><textarea value={editRoleDescription} onChange={e => setEditRoleDescription(e.target.value)} className="w-full px-4 py-3 rounded-xl border bg-transparent text-xs" rows={3} /><select value={editRolePrimaryDesk} onChange={e => setEditRolePrimaryDesk(e.target.value)} className="w-full px-4 py-3 rounded-xl border bg-transparent text-xs"><option value="helpdesk">Helpdesk</option><option value="hmo">HMO Approval</option><option value="cashdesk">Cashdesk</option><option value="monitor">Monitor Room</option><option value="analytics">Analytics</option></select><div className="flex flex-wrap gap-2">{["helpdesk", "hmo", "cashdesk", "monitor", "analytics", "users", "all_patients", "booking_payments"].map(d => <button type="button" key={d} onClick={() => setEditRoleAllowedDesks(p => p.includes(d) ? p.filter(x => x !== d) : [...p, d])} className={`px-2.5 py-1.5 rounded-lg border text-[10px] font-bold ${editRoleAllowedDesks.includes(d) ? "bg-sky-600 text-white border-sky-600" : "border-slate-200 dark:border-slate-800 text-slate-500"}`}>{d}</button>)}</div><div className="flex justify-end gap-3"><button type="button" onClick={() => setEditingRole(null)} className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-bold">Cancel</button><button type="submit" className="px-5 py-2 rounded-xl bg-sky-600 text-white text-xs font-black">Save Role</button></div></form></div></div>
       )}
 
       {/* EDIT SCHEDULE MODAL */}
@@ -9601,6 +9639,22 @@ ADMINISTRATIVE VERIFICATION:
               </div>
 
               <div className="space-y-1">
+                <label htmlFor="new-clinic-fee" className="text-xs font-black text-slate-700 dark:text-slate-300">
+                  Private Consultation Fee (₦)
+                </label>
+                <input
+                  id="new-clinic-fee"
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="e.g. 15000"
+                  value={newClinicFee}
+                  onChange={(e) => setNewClinicFee(e.target.value)}
+                  className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold focus:outline-none focus:border-[#008ac9]"
+                />
+                <p className="text-[11px] text-slate-500">Private self-pay patients pay this online with Paystack before they get a ticket. Without a fee, private patients can't book this clinic online.</p>
+              </div>
+
+              <div className="space-y-1">
                 <label className="text-xs font-black text-slate-700 dark:text-slate-300">
                   Description & Medical Scope
                 </label>
@@ -9685,6 +9739,22 @@ ADMINISTRATIVE VERIFICATION:
                     onChange={(e) => setEditClinicLocation(e.target.value)}
                     className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold focus:outline-none focus:border-[#008ac9]"
                   />
+                </div>
+
+                <div className="space-y-1 sm:col-span-2">
+                  <label htmlFor="edit-clinic-fee" className="text-xs font-black text-slate-700 dark:text-slate-300">
+                    Private Consultation Fee (₦)
+                  </label>
+                  <input
+                    id="edit-clinic-fee"
+                    type="text"
+                    inputMode="decimal"
+                    placeholder="e.g. 15000"
+                    value={editClinicFee}
+                    onChange={(e) => setEditClinicFee(e.target.value)}
+                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold focus:outline-none focus:border-[#008ac9]"
+                  />
+                  <p className="text-[11px] text-slate-500">Changes apply to new bookings. Patients who already paid keep their original amount.</p>
                 </div>
 
                 <div className="space-y-1">
