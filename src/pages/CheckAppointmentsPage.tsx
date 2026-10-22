@@ -298,11 +298,17 @@ export function CheckAppointmentsPage() {
     return { capacity, booked, remaining, isFull: !!onDuty && capacity > 0 && remaining <= 0 };
   };
 
+  const RESCHEDULE_WINDOW_DAYS = 30;
+
   // Helper 4: Get upcoming valid duty dates for doctor
   // `ownBookingDate` = date of the patient's current booking when this calendar
   // belongs to that same doctor (that seat is theirs, so it is not counted).
   // `hmo` = the booking is HMO: days inside the HMO notice window are shown but can't be picked.
+  // Private patients may pick any open clinic day in the next RESCHEDULE_WINDOW_DAYS days;
+  // HMO / Company patients keep the earlier rule (only the next available day, inside the HMO window).
   const getUpcomingAvailableDutyDatesForDoctor = (dutyDays: string[], maxCount = 25, serverMap?: Record<string, any>, ownBookingDate?: string, hmo = false) => {
+    const privateWindow = !hmo;
+    if (privateWindow) maxCount = RESCHEDULE_WINDOW_DAYS + 1;
     const dates: { dateStr: string; displayLabel: string; dayName: string; dayShort: string; isNextAvailable?: boolean; isAvailable?: boolean; isPast24HoursNotice?: boolean; isFull?: boolean; isHmoLocked?: boolean; hmoOpensDay?: string; serverStats?: { capacity: number; booked: number; remaining: number; isFull: boolean } | null }[] = [];
     const now = new Date();
     const minAllowedTime = new Date(now.getTime() + 24 * 60 * 60 * 1000);
@@ -310,7 +316,7 @@ export function CheckAppointmentsPage() {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    for (let i = 0; i < 60; i++) {
+    for (let i = 0; i < (privateWindow ? RESCHEDULE_WINDOW_DAYS + 1 : 60); i++) {
       const d = new Date(today);
       d.setDate(today.getDate() + i);
 
@@ -352,7 +358,8 @@ export function CheckAppointmentsPage() {
         foundNext = true;
       } else {
         item.isNextAvailable = false;
-        item.isAvailable = false;
+        // Private patients keep every open day in the window; HMO/Company only the next one.
+        if (!privateWindow) item.isAvailable = false;
       }
     }
 
@@ -1166,6 +1173,13 @@ export function CheckAppointmentsPage() {
       showToast("Rescheduling requires at least 24 hours advance notice.", "error");
       return;
     }
+    if (!isHmoBooking(selectedBooking)) {
+      const lastDay = new Date(); lastDay.setHours(23, 59, 59, 999); lastDay.setDate(lastDay.getDate() + RESCHEDULE_WINDOW_DAYS);
+      if (targetDateObj.getTime() > lastDay.getTime()) {
+        showToast(`You can reschedule to a day within the next ${RESCHEDULE_WINDOW_DAYS} days.`, "error");
+        return;
+      }
+    }
 
     // Never submit a day the chosen doctor is fully booked on.
     if (rescheduleAvailability) {
@@ -1514,7 +1528,12 @@ export function CheckAppointmentsPage() {
                   <label className="text-xs font-bold text-slate-600 uppercase tracking-wider block">
                     Available Scheduled Dates
                   </label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto p-1 border border-slate-200 rounded-2xl">
+                  {!isHmoBooking(selectedBooking) && (
+                    <p data-testid="reschedule-window-note" className="text-[11px] text-slate-500 font-semibold">
+                      The doctor's clinic days in the next {RESCHEDULE_WINDOW_DAYS} days. Pick any day with free slots (at least 24 hours from now).
+                    </p>
+                  )}
+                  <div data-testid="reschedule-days" className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-72 overflow-y-auto p-1 border border-slate-200 rounded-2xl">
                     {rescheduleAvailability === null && (
                       <p data-testid="reschedule-loading" className="text-xs text-slate-500 p-3 sm:col-span-2">Checking the doctor's calendar…</p>
                     )}
@@ -1537,12 +1556,12 @@ export function CheckAppointmentsPage() {
                         <>
                           {isHmoBooking(selectedBooking) && (
                             <p data-testid="reschedule-hmo-note" className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-xl p-3 sm:col-span-2">
-                              {isCompanyBooking(selectedBooking) ? "Company" : "HMO"} appointments can be booked from {hmoNoticeHours} hours before the clinic starts until {hmoCloseMinutes} minutes before, if space is still available. Later days open for {isCompanyBooking(selectedBooking) ? "company" : "HMO"} booking {hmoNoticeHours} hours before their clinic.
+                              {isCompanyBooking(selectedBooking) ? "Company" : "HMO"} appointments can be booked from {hmoNoticeHours} hours before the clinic starts, if space is still available. Later days open for {isCompanyBooking(selectedBooking) ? "company" : "HMO"} booking {hmoNoticeHours} hours before their clinic.
                             </p>
                           )}
                           {noOpenDay && (
                             <p data-testid="reschedule-all-full" className="text-xs text-rose-600 font-semibold p-3 sm:col-span-2">
-                              This doctor has no open day in the coming weeks. Please choose another doctor in this clinic.
+                              {isHmoBooking(selectedBooking) ? "This doctor has no open day in the coming weeks." : `This doctor has no open day in the next ${RESCHEDULE_WINDOW_DAYS} days.`} Please choose another doctor in this clinic.
                             </p>
                           )}
                           {days.map((dItem, idx) => {

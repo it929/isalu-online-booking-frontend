@@ -189,7 +189,7 @@ const DESK_LABELS: Record<string, string> = {
   all_patients: "All Patients", checked_in_patients: "Checked-in Queue", hmo_enrollees: "HMO Enrollees",
   private_patients: "Private Self-Pay", create_specialist_schedule: "Specialist Roster",
   clinic: "Clinics & Departments", disabled_bookings: "Archive & Trash",
-  hmo_declined: "Declined HMO Approvals", booking_payments: "Booking Payments", companies: "Companies",
+  hmo_declined: "Declined HMO Approvals", booking_payments: "Booking Payments", companies: "Companies", cleared_patients: "Cleared Patients",
 };
 
 /** Waiting-room screens are public: show "Ada O." rather than a full name. */
@@ -366,6 +366,8 @@ import {
 } from "lucide-react";
 import BookingPaymentsDesk from "../components/dashboard/desks/BookingPaymentsDesk";
 import CompaniesDesk from "../components/dashboard/desks/CompaniesDesk";
+import ClearedPatientsDesk from "../components/dashboard/desks/ClearedPatientsDesk";
+import { clearanceOf } from "../data/clearance";
 import {
   getBookingsAPI,
   getBookingSummaryAPI,
@@ -1521,7 +1523,8 @@ export function HospitalDashboardPage() {
     | "disabled_bookings"
     | "hmo_declined"
     | "booking_payments"
-    | "companies";
+    | "companies"
+    | "cleared_patients";
 
   const validDesks: DeskType[] = [
     "helpdesk",
@@ -1540,6 +1543,7 @@ export function HospitalDashboardPage() {
     "hmo_declined",
     "booking_payments",
     "companies",
+    "cleared_patients",
   ];
 
   // HMO Provider Modal States
@@ -1921,6 +1925,11 @@ export function HospitalDashboardPage() {
   const monitorUndoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [monitorNow, setMonitorNow] = useState(() => new Date());
   const monitorRef = useRef<HTMLDivElement | null>(null);
+  // Waiting room shows patients cleared to be seen (paid online / at the cashdesk,
+  // or approved by the HMO desk) by default; staff can switch to everyone booked.
+  const [monitorScope, setMonitorScope] = useState<"cleared" | "all">("cleared");
+  // The clinic day on screen ("" = today).
+  const [monitorDate, setMonitorDate] = useState("");
   // Helpdesk category filter: "all" | "private" | "hmo" | "hmo:<provider name>"
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [eligibleOnlyFilter, setEligibleOnlyFilter] = useState(false);
@@ -5144,6 +5153,7 @@ ADMINISTRATIVE VERIFICATION:
         { id: "hmo", label: "HMO Insurance Desk", icon: ShieldCheck, badge: null },
         { id: "hmo_declined", label: "Declined HMO Approvals", icon: ShieldX, badge: bookings.filter(isDeclinedHmoBooking).length || null },
         { id: "cashdesk", label: "Cashdesk & Billing", icon: DollarSign, badge: null },
+        { id: "cleared_patients", label: "Cleared Patients", icon: CheckCircle2, badge: bookings.filter((b: any) => b.date === toLocalISODate(new Date()) && clearanceOf(b)).length || null },
         { id: "booking_payments", label: "Booking Payments", icon: Landmark, badge: null },
       ],
     },
@@ -6375,6 +6385,10 @@ ADMINISTRATIVE VERIFICATION:
                 </div>
               )}
             </div>
+          )}
+
+          {activeDesk === "cleared_patients" && isDeskAllowed("cleared_patients") && (
+            <ClearedPatientsDesk isDarkMode={isDarkMode} bookings={bookings} />
           )}
 
           {activeDesk === "companies" && isDeskAllowed("companies") && (
@@ -8562,7 +8576,13 @@ ADMINISTRATIVE VERIFICATION:
             const isLive = (b: any) => (b.isActive !== false && b.is_active !== false) &&
               !["disabled", "cancelled", "canceled", "completed"].includes(String(b.status || "").toLowerCase());
             const clinicOf = (b: any) => String(b.doctorSpecialty || b.doctor_specialty || "General Outpatient");
-            const todays = bookings.filter((b: any) => b.date === todayDateStr && isLive(b));
+            const monitorDay = monitorDate || todayDateStr;
+            const isTodayOnScreen = monitorDay === todayDateStr;
+            const dayLabel = isTodayOnScreen ? "Today" : new Date(`${monitorDay}T00:00:00`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+            const dayBookings = bookings.filter((b: any) => b.date === monitorDay && isLive(b));
+            const clearedCount = dayBookings.filter((b: any) => clearanceOf(b)).length;
+            // Cleared patients only (default), or everyone booked for the day.
+            const todays = monitorScope === "cleared" ? dayBookings.filter((b: any) => clearanceOf(b)) : dayBookings;
             const clinics = Array.from(new Set(todays.map(clinicOf))).sort();
             const inClinic = todays.filter((b: any) => monitorClinic === "all" || clinicOf(b) === monitorClinic);
             const byTime = (a: any, b: any) => timeToMinutes(a.time) - timeToMinutes(b.time);
@@ -8581,6 +8601,22 @@ ADMINISTRATIVE VERIFICATION:
             const waiting = shown.filter((b: any) => String(b.status).toLowerCase() !== "checked in").sort(byTime);
             const consultingLimit = mq ? consulting.length : 6;
             const waitingLimit = mq ? waiting.length : 8;
+            // Long queues page through automatically (every clock tick, 15 s) so every patient gets on screen.
+            const waitingPages = Math.max(1, Math.ceil(waiting.length / waitingLimit));
+            const waitingPage = mq ? 0 : Math.floor(monitorNow.getTime() / 15000) % waitingPages;
+            const waitingStart = waitingPage * waitingLimit;
+            const clearBadge = (b: any) => {
+              const c = clearanceOf(b);
+              const tone = !c ? "bg-amber-500/15 text-amber-300 border-amber-500/40"
+                : c.kind === "online" ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/40"
+                  : c.kind === "cashdesk" ? "bg-teal-500/15 text-teal-300 border-teal-500/40"
+                    : "bg-sky-500/15 text-sky-300 border-sky-500/40";
+              return (
+                <span data-testid="monitor-cleared" className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[10px] font-black uppercase tracking-wide ${tone}`}>
+                  {c ? `✓ ${c.label}` : "Not cleared yet"}
+                </span>
+              );
+            };
             const showName = (b: any) => monitorShowNames ? (b.patientName || b.patient_name || "Patient") : maskPatientName(b.patientName || b.patient_name);
             const ticket = (b: any) => String(b.refCode || b.ref_code || "").slice(-4);
             const fullRef = (b: any) => String(b.refCode || b.ref_code || "");
@@ -8614,7 +8650,10 @@ ADMINISTRATIVE VERIFICATION:
                     <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-sky-600 to-cyan-400 flex items-center justify-center shadow-xl shadow-sky-500/30"><Tv className="w-7 h-7" /></div>
                     <div>
                       <h2 className="text-2xl font-black tracking-tight">Isalu Hospitals · Waiting Room</h2>
-                      <p className="text-sm text-sky-300 font-semibold">{monitorClinic === "all" ? "All clinics" : monitorClinic} · {monitorNow.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}</p>
+                      <p className="text-sm text-sky-300 font-semibold">{monitorClinic === "all" ? "All clinics" : monitorClinic} · {(isTodayOnScreen ? monitorNow : new Date(`${monitorDay}T00:00:00`)).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}</p>
+                      <p data-testid="monitor-scope-label" className="text-xs font-bold mt-1 text-emerald-300">
+                        {monitorScope === "cleared" ? `Showing patients cleared to be seen (${clearedCount} of ${dayBookings.length})` : `Showing everyone booked (${clearedCount} cleared)`}
+                      </p>
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
@@ -8623,6 +8662,22 @@ ADMINISTRATIVE VERIFICATION:
                       <option value="all">All clinics</option>
                       {clinics.map((c) => <option key={c} value={c}>{c}</option>)}
                     </select>
+                    {monitorStaffControls && (
+                      <>
+                        <div className="inline-flex rounded-xl bg-slate-900 border border-slate-700 p-0.5" role="group" aria-label="Patients shown">
+                          {([["cleared", "Cleared"], ["all", "Everyone"]] as const).map(([key, label]) => (
+                            <button key={key} type="button" data-testid={`monitor-scope-${key}`} aria-pressed={monitorScope === key} onClick={() => setMonitorScope(key)}
+                              className={`px-3 py-1.5 rounded-lg text-xs font-black ${monitorScope === key ? "bg-emerald-600 text-white" : "text-slate-300"}`}>{label}</button>
+                          ))}
+                        </div>
+                        <input type="date" aria-label="Clinic day shown" data-testid="monitor-date" value={monitorDay}
+                          onChange={(e) => { setMonitorDate(e.target.value === todayDateStr ? "" : e.target.value); setMonitorClinic("all"); }}
+                          className="px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs font-bold text-white [color-scheme:dark]" />
+                        {!isTodayOnScreen && (
+                          <button type="button" onClick={() => { setMonitorDate(""); setMonitorClinic("all"); }} className="px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs font-bold">Back to today</button>
+                        )}
+                      </>
+                    )}
                     <button type="button" onClick={() => setMonitorStaffControls((v) => !v)} className="px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs font-bold" title="Hide the buttons on a public TV screen">
                       {monitorStaffControls ? "Hide staff controls" : "Show staff controls"}
                     </button>
@@ -8644,7 +8699,7 @@ ADMINISTRATIVE VERIFICATION:
                         data-testid="monitor-search"
                         value={monitorSearch}
                         onChange={(e) => setMonitorSearch(e.target.value)}
-                        placeholder="Search today's patients: name, phone, ticket, doctor, clinic, HMO or enrollee ID…"
+                        placeholder={`Search ${isTodayOnScreen ? "today's" : dayLabel} patients: name, phone, ticket, doctor, clinic, HMO, company or enrollee ID…`}
                         className="w-full pl-10 pr-4 py-3 rounded-xl bg-slate-900 border border-slate-700 text-sm text-white placeholder:text-slate-500 outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-500/30"
                       />
                     </div>
@@ -8660,7 +8715,7 @@ ADMINISTRATIVE VERIFICATION:
                 <div className="grid grid-cols-3 gap-3 mb-6 text-center">
                   <div className="rounded-2xl bg-slate-900 border border-slate-800 p-3"><div className="text-3xl font-black text-emerald-400">{consulting.length}</div><div className="text-xs uppercase tracking-wider text-slate-400 font-bold">Now being seen</div></div>
                   <div className="rounded-2xl bg-slate-900 border border-slate-800 p-3"><div className="text-3xl font-black text-amber-400">{waiting.length}</div><div className="text-xs uppercase tracking-wider text-slate-400 font-bold">Waiting</div></div>
-                  <div className="rounded-2xl bg-slate-900 border border-slate-800 p-3"><div className="text-3xl font-black text-sky-400">{shown.length}</div><div className="text-xs uppercase tracking-wider text-slate-400 font-bold">Today</div></div>
+                  <div className="rounded-2xl bg-slate-900 border border-slate-800 p-3"><div className="text-3xl font-black text-sky-400">{shown.length}</div><div className="text-xs uppercase tracking-wider text-slate-400 font-bold">{monitorScope === "cleared" ? `Cleared · ${dayLabel}` : dayLabel}</div></div>
                 </div>
 
                 {monitorUndo && monitorStaffControls && (
@@ -8674,7 +8729,7 @@ ADMINISTRATIVE VERIFICATION:
                   <div className="lg:col-span-3 space-y-3">
                     <h3 className="text-sm font-black uppercase tracking-wider text-emerald-400">Please proceed to your consultation</h3>
                     {consulting.length === 0 ? (
-                      <div className="p-8 rounded-2xl bg-slate-900 border border-slate-800 text-center text-slate-400">{mq ? "No patient being seen matches your search." : "No patient has been called yet."}</div>
+                      <div className="p-8 rounded-2xl bg-slate-900 border border-slate-800 text-center text-slate-400">{mq ? "No patient being seen matches your search." : monitorScope === "cleared" && clearedCount === 0 && dayBookings.length > 0 ? `No patient is cleared yet for ${isTodayOnScreen ? "today" : dayLabel} (${dayBookings.length} booked). Switch to "Everyone" to see all bookings.` : "No patient has been called yet."}</div>
                     ) : consulting.slice(0, consultingLimit).map((b: any) => (
                       <div key={b.refCode || b.ref_code} data-testid="monitor-consulting" className="p-5 rounded-2xl bg-gradient-to-r from-emerald-950 to-slate-900 border border-emerald-500/40 flex flex-col gap-4">
                         <div className="flex items-start gap-4 min-w-0 flex-1">
@@ -8682,6 +8737,7 @@ ADMINISTRATIVE VERIFICATION:
                           <div className="min-w-0 flex-1">
                             <div data-testid="monitor-name" className="text-2xl font-black leading-tight break-words">{showName(b)}</div>
                             <div className="text-sm text-emerald-200 font-semibold break-words mt-0.5">{clinicOf(b)} · {getDoctorRealName(b)}</div>
+                            <div className="mt-1.5">{clearBadge(b)}</div>
                             <div data-testid="monitor-details" className="mt-3 grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-x-5 gap-y-2.5">
                               {detail("Ticket", <span className="font-mono">{fullRef(b)}</span>)}
                               {detail("Time", b.time || "—")}
@@ -8713,8 +8769,8 @@ ADMINISTRATIVE VERIFICATION:
                   <div className="lg:col-span-2 space-y-3">
                     <h3 className="text-sm font-black uppercase tracking-wider text-amber-400">Up next</h3>
                     {waiting.length === 0 ? (
-                      <div className="p-6 rounded-2xl bg-slate-900 border border-slate-800 text-center text-slate-400 text-sm">{mq ? "No waiting patient matches your search." : "No one else is waiting."}</div>
-                    ) : waiting.slice(0, waitingLimit).map((b: any, idx: number) => (
+                      <div className="p-6 rounded-2xl bg-slate-900 border border-slate-800 text-center text-slate-400 text-sm">{mq ? "No waiting patient matches your search." : monitorScope === "cleared" && dayBookings.length > 0 ? "No other cleared patient is waiting. Patients appear here once they've paid or been approved by the HMO desk." : "No one else is waiting."}</div>
+                    ) : waiting.slice(waitingStart, waitingStart + waitingLimit).map((b: any, i: number) => { const idx = waitingStart + i; return (
                       <div key={b.refCode || b.ref_code} data-testid="monitor-waiting" className="p-4 rounded-xl bg-slate-900 border border-slate-800">
                         <div className="flex items-start justify-between gap-3">
                           <div className="flex items-start gap-3 min-w-0 flex-1">
@@ -8725,6 +8781,7 @@ ADMINISTRATIVE VERIFICATION:
                                 <span data-testid="monitor-name" className="text-base font-black break-words">{showName(b)}</span>
                               </div>
                               <div className="text-xs text-slate-300 font-semibold break-words mt-0.5">{clinicOf(b)} · {getDoctorRealName(b)}</div>
+                              <div className="mt-1">{clearBadge(b)}</div>
                               <div className="text-[11px] text-slate-400 font-semibold mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
                                 <span className="font-mono">{fullRef(b)}</span>
                                 {monitorShowNames && phoneOf(b) && <span>{phoneOf(b)}</span>}
@@ -8737,8 +8794,12 @@ ADMINISTRATIVE VERIFICATION:
                           <span className="text-xs text-sky-300 font-semibold whitespace-nowrap flex-shrink-0">{startTime(b)}</span>
                         </div>
                       </div>
-                    ))}
-                    {waiting.length > waitingLimit && <p className="text-xs text-slate-500 text-center">+ {waiting.length - waitingLimit} more today · search to find anyone</p>}
+                    ); })}
+                    {waiting.length > waitingLimit && (
+                      <p data-testid="monitor-waiting-page" className="text-xs text-slate-500 text-center">
+                        Showing {waitingStart + 1}–{Math.min(waitingStart + waitingLimit, waiting.length)} of {waiting.length} · the list moves on every 15 seconds · search to find anyone
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -9396,7 +9457,7 @@ ADMINISTRATIVE VERIFICATION:
 
       {/* CREATE ROLE MODAL */}
       {showCreateRoleModal && (
-        <div className="fixed inset-0 z-[125] flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4"><div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 shadow-2xl"><div className="flex justify-between items-center mb-5"><h3 className="text-xl font-black text-slate-900 dark:text-white">Create Custom Role</h3><button type="button" onClick={() => setShowCreateRoleModal(false)} className="p-2 text-slate-400"><X /></button></div>{roleFormError && <div className="mb-4 p-3 rounded-xl bg-red-500/10 text-red-500 text-xs font-bold">{roleFormError}</div>}<form onSubmit={handleCreateRole} className="space-y-4"><input value={newRoleName} onChange={e => setNewRoleName(e.target.value)} placeholder="Role name" className="w-full px-4 py-3 rounded-xl border bg-transparent text-xs" required /><textarea value={newRoleDescription} onChange={e => setNewRoleDescription(e.target.value)} placeholder="Role description" className="w-full px-4 py-3 rounded-xl border bg-transparent text-xs" rows={3} /><select value={newRolePrimaryDesk} onChange={e => setNewRolePrimaryDesk(e.target.value)} className="w-full px-4 py-3 rounded-xl border bg-transparent text-xs"><option value="helpdesk">Helpdesk</option><option value="hmo">HMO Approval</option><option value="cashdesk">Cashdesk</option><option value="monitor">Monitor Room</option><option value="analytics">Analytics</option><option value="users">Users</option></select><div><p className="text-xs font-bold text-slate-400 mb-2">Allowed Desks</p><div className="flex flex-wrap gap-2">{["helpdesk", "hmo", "cashdesk", "monitor", "analytics", "users", "all_patients", "booking_payments", "companies"].map(d => <button type="button" key={d} onClick={() => setNewRoleAllowedDesks(p => p.includes(d) ? p.filter(x => x !== d) : [...p, d])} className={`px-2.5 py-1.5 rounded-lg border text-[10px] font-bold ${newRoleAllowedDesks.includes(d) ? "bg-sky-600 text-white border-sky-600" : "border-slate-200 dark:border-slate-800 text-slate-500"}`}>{d}</button>)}</div></div><div className="flex justify-end gap-3"><button type="button" onClick={() => setShowCreateRoleModal(false)} className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-bold">Cancel</button><button type="submit" className="px-5 py-2 rounded-xl bg-sky-600 text-white text-xs font-black">Create Role</button></div></form></div></div>
+        <div className="fixed inset-0 z-[125] flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4"><div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 shadow-2xl"><div className="flex justify-between items-center mb-5"><h3 className="text-xl font-black text-slate-900 dark:text-white">Create Custom Role</h3><button type="button" onClick={() => setShowCreateRoleModal(false)} className="p-2 text-slate-400"><X /></button></div>{roleFormError && <div className="mb-4 p-3 rounded-xl bg-red-500/10 text-red-500 text-xs font-bold">{roleFormError}</div>}<form onSubmit={handleCreateRole} className="space-y-4"><input value={newRoleName} onChange={e => setNewRoleName(e.target.value)} placeholder="Role name" className="w-full px-4 py-3 rounded-xl border bg-transparent text-xs" required /><textarea value={newRoleDescription} onChange={e => setNewRoleDescription(e.target.value)} placeholder="Role description" className="w-full px-4 py-3 rounded-xl border bg-transparent text-xs" rows={3} /><select value={newRolePrimaryDesk} onChange={e => setNewRolePrimaryDesk(e.target.value)} className="w-full px-4 py-3 rounded-xl border bg-transparent text-xs"><option value="helpdesk">Helpdesk</option><option value="hmo">HMO Approval</option><option value="cashdesk">Cashdesk</option><option value="monitor">Monitor Room</option><option value="analytics">Analytics</option><option value="users">Users</option></select><div><p className="text-xs font-bold text-slate-400 mb-2">Allowed Desks</p><div className="flex flex-wrap gap-2">{["helpdesk", "hmo", "cashdesk", "monitor", "analytics", "users", "all_patients", "booking_payments", "companies", "cleared_patients"].map(d => <button type="button" key={d} onClick={() => setNewRoleAllowedDesks(p => p.includes(d) ? p.filter(x => x !== d) : [...p, d])} className={`px-2.5 py-1.5 rounded-lg border text-[10px] font-bold ${newRoleAllowedDesks.includes(d) ? "bg-sky-600 text-white border-sky-600" : "border-slate-200 dark:border-slate-800 text-slate-500"}`}>{d}</button>)}</div></div><div className="flex justify-end gap-3"><button type="button" onClick={() => setShowCreateRoleModal(false)} className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-bold">Cancel</button><button type="submit" className="px-5 py-2 rounded-xl bg-sky-600 text-white text-xs font-black">Create Role</button></div></form></div></div>
       )}
 
       {/* DECLINE HMO PRE-AUTHORIZATION */}
@@ -9449,7 +9510,7 @@ ADMINISTRATIVE VERIFICATION:
 
       {/* EDIT ROLE MODAL */}
       {editingRole && (
-        <div className="fixed inset-0 z-[130] flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4"><div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 shadow-2xl"><div className="flex justify-between items-center mb-5"><h3 className="text-xl font-black text-slate-900 dark:text-white">Edit Role</h3><button type="button" onClick={() => setEditingRole(null)} className="p-2 text-slate-400"><X /></button></div>{editRoleError && <div className="mb-4 p-3 rounded-xl bg-red-500/10 text-red-500 text-xs font-bold">{editRoleError}</div>}<form onSubmit={handleSaveEditRole} className="space-y-4"><input value={editRoleName} onChange={e => setEditRoleName(e.target.value)} className="w-full px-4 py-3 rounded-xl border bg-transparent text-xs" required /><textarea value={editRoleDescription} onChange={e => setEditRoleDescription(e.target.value)} className="w-full px-4 py-3 rounded-xl border bg-transparent text-xs" rows={3} /><select value={editRolePrimaryDesk} onChange={e => setEditRolePrimaryDesk(e.target.value)} className="w-full px-4 py-3 rounded-xl border bg-transparent text-xs"><option value="helpdesk">Helpdesk</option><option value="hmo">HMO Approval</option><option value="cashdesk">Cashdesk</option><option value="monitor">Monitor Room</option><option value="analytics">Analytics</option></select><div className="flex flex-wrap gap-2">{["helpdesk", "hmo", "cashdesk", "monitor", "analytics", "users", "all_patients", "booking_payments", "companies"].map(d => <button type="button" key={d} onClick={() => setEditRoleAllowedDesks(p => p.includes(d) ? p.filter(x => x !== d) : [...p, d])} className={`px-2.5 py-1.5 rounded-lg border text-[10px] font-bold ${editRoleAllowedDesks.includes(d) ? "bg-sky-600 text-white border-sky-600" : "border-slate-200 dark:border-slate-800 text-slate-500"}`}>{d}</button>)}</div><div className="flex justify-end gap-3"><button type="button" onClick={() => setEditingRole(null)} className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-bold">Cancel</button><button type="submit" className="px-5 py-2 rounded-xl bg-sky-600 text-white text-xs font-black">Save Role</button></div></form></div></div>
+        <div className="fixed inset-0 z-[130] flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4"><div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 shadow-2xl"><div className="flex justify-between items-center mb-5"><h3 className="text-xl font-black text-slate-900 dark:text-white">Edit Role</h3><button type="button" onClick={() => setEditingRole(null)} className="p-2 text-slate-400"><X /></button></div>{editRoleError && <div className="mb-4 p-3 rounded-xl bg-red-500/10 text-red-500 text-xs font-bold">{editRoleError}</div>}<form onSubmit={handleSaveEditRole} className="space-y-4"><input value={editRoleName} onChange={e => setEditRoleName(e.target.value)} className="w-full px-4 py-3 rounded-xl border bg-transparent text-xs" required /><textarea value={editRoleDescription} onChange={e => setEditRoleDescription(e.target.value)} className="w-full px-4 py-3 rounded-xl border bg-transparent text-xs" rows={3} /><select value={editRolePrimaryDesk} onChange={e => setEditRolePrimaryDesk(e.target.value)} className="w-full px-4 py-3 rounded-xl border bg-transparent text-xs"><option value="helpdesk">Helpdesk</option><option value="hmo">HMO Approval</option><option value="cashdesk">Cashdesk</option><option value="monitor">Monitor Room</option><option value="analytics">Analytics</option></select><div className="flex flex-wrap gap-2">{["helpdesk", "hmo", "cashdesk", "monitor", "analytics", "users", "all_patients", "booking_payments", "companies", "cleared_patients"].map(d => <button type="button" key={d} onClick={() => setEditRoleAllowedDesks(p => p.includes(d) ? p.filter(x => x !== d) : [...p, d])} className={`px-2.5 py-1.5 rounded-lg border text-[10px] font-bold ${editRoleAllowedDesks.includes(d) ? "bg-sky-600 text-white border-sky-600" : "border-slate-200 dark:border-slate-800 text-slate-500"}`}>{d}</button>)}</div><div className="flex justify-end gap-3"><button type="button" onClick={() => setEditingRole(null)} className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-bold">Cancel</button><button type="submit" className="px-5 py-2 rounded-xl bg-sky-600 text-white text-xs font-black">Save Role</button></div></form></div></div>
       )}
 
       {/* EDIT SCHEDULE MODAL */}

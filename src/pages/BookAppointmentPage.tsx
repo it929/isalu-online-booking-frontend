@@ -56,6 +56,7 @@ import {
   Users,
 } from "lucide-react";
 import { SpecialistAvatar } from "../components/SpecialistAvatar";
+import { ngPhoneProblem, toLocalNgMobile, formatNgMobile, NG_PHONE_HINT } from "../data/phone";
 import { IsaluLogo } from "../components/IsaluLogo";
 import { getDoctorsAPI, getDepartmentsAPI, createBookingAPI, getSchedulesAPI, getDoctorAvailableDatesAPI, checkDuplicateBookingAPI, getPaymentConfigAPI, startPaymentAPI, verifyPaymentAPI, lookupBookingAPI, getCompaniesAPI, type PaymentConfig } from "../api/client";
 
@@ -183,6 +184,11 @@ export function BookAppointmentPage() {
 
   const [patientName, setPatientName] = useState<string>("");
   const [patientPhone, setPatientPhone] = useState<string>("");
+  // Nigerian mobile numbers only (any common format). The message shows once the
+  // patient leaves the field or tries to continue, not while they're still typing.
+  const [phoneTouched, setPhoneTouched] = useState(false);
+  const phoneProblem = ngPhoneProblem(patientPhone);
+  const phoneValid = phoneProblem === "";
   const [patientEmail, setPatientEmail] = useState<string>("");
   const [reason, setReason] = useState<string>("");
   const [copiedShare, setCopiedShare] = useState<boolean>(false);
@@ -1893,6 +1899,10 @@ export function BookAppointmentPage() {
         setApiError("Please complete all required fields before paying.");
         return;
       }
+      if (!phoneValid) {
+        setApiError(phoneProblem);
+        return;
+      }
       if (patientEmail.trim() && !/^\S+@\S+\.\S+$/.test(patientEmail.trim())) {
         setApiError("The email address in step 1 doesn't look right. Correct it, or clear it to pay without an emailed receipt.");
         return;
@@ -1918,6 +1928,10 @@ export function BookAppointmentPage() {
       setApiError("Please complete all required fields before continuing.");
       return;
     }
+    if (!phoneValid) {
+      setApiError(phoneProblem);
+      return;
+    }
     if (duplicateBooking) {
       setApiError(duplicateBooking.message || "You already have an appointment in this clinic on this day. Please pick another date.");
       return;
@@ -1941,6 +1955,10 @@ export function BookAppointmentPage() {
     e.preventDefault();
     if (!selectedDoctor || !selectedDate || !selectedTime || !patientName || !patientPhone) {
       setApiError("Please complete all required fields before confirming your appointment.");
+      return;
+    }
+    if (!phoneValid) {
+      setApiError(phoneProblem);
       return;
     }
 
@@ -2153,7 +2171,7 @@ export function BookAppointmentPage() {
         <div role="alert" className="p-4 rounded-2xl border-2 border-amber-300 bg-amber-50 dark:bg-amber-950/50 dark:border-amber-900 text-amber-900 dark:text-amber-200 text-xs font-semibold leading-relaxed">
           <strong className="block font-black mb-1">We received your payment, but this slot is no longer free.</strong>
           The payment came through after your {holdMinutes}-minute hold ended, and the clinic filled up in the meantime.
-          The hospital will contact you to refund {formatNaira(Number(b?.amountPaid || summary.fee))} or book you another date.
+          The hospital will contact you to refund {formatNaira(Number(b?.feeAmount || b?.amountPaid || summary.fee))} or book you another date.
           Keep this reference: <span className="font-black break-all">{ret.reference}</span>.
         </div>
       );
@@ -2232,7 +2250,7 @@ export function BookAppointmentPage() {
             <div>
               <h2 id="hmo-notice-title" className="text-lg font-black text-slate-900 dark:text-white leading-snug">{title}</h2>
               <p className="mt-2 text-sm font-semibold text-slate-700 dark:text-slate-300 leading-relaxed">
-                {sponsorWord} patients can book a clinic from <strong className="text-slate-900 dark:text-white">{hmoNoticeHours} hours before it starts</strong> until {hmoCloseMinutes} minutes before it starts, if space is still available. This gives us time to get approval from {yourSponsor}.
+                {sponsorWord} patients can book a clinic from <strong className="text-slate-900 dark:text-white">{hmoNoticeHours} hours before it starts</strong>, if space is still available. This gives us time to get approval from {yourSponsor}.
                 {earliestHmoDate
                   ? <> The next {selectedDoctor.specialty} clinic you can book now with {doctorLabel} is <strong className="text-slate-900 dark:text-white">{earliestHmoLabel}</strong>.</>
                   : aboutDate
@@ -2862,9 +2880,9 @@ export function BookAppointmentPage() {
                     </div>
                     <p data-testid="payment-category-note" className="mt-2 text-[11px] font-semibold text-slate-600 dark:text-slate-400 leading-relaxed">
                       {isCompanyPatient
-                        ? `Your company covers this visit; no enrollee ID is needed. Company patients can book a clinic from ${paymentConfig?.hmo_min_notice_hours ?? 48} hours before it starts until ${(paymentConfig as any)?.hmo_close_minutes ?? 10} minutes before, if space is still available.`
+                        ? `Your company covers this visit; no enrollee ID is needed. Company patients can book a clinic from ${paymentConfig?.hmo_min_notice_hours ?? 48} hours before it starts, if space is still available.`
                         : patientType === "HMO Insurance"
-                        ? `HMO patients can book a clinic from ${paymentConfig?.hmo_min_notice_hours ?? 48} hours before it starts until ${(paymentConfig as any)?.hmo_close_minutes ?? 10} minutes before, if space is still available.`
+                        ? `HMO patients can book a clinic from ${paymentConfig?.hmo_min_notice_hours ?? 48} hours before it starts, if space is still available.`
                         : paymentConfig && !paymentConfig.online_payments_enabled && paymentMandatory
                           ? "Online booking for private patients is unavailable right now because online payment isn't set up. Please call the hospital to book."
                           : paymentMandatory || paymentConfig?.online_payments_enabled
@@ -3039,17 +3057,29 @@ export function BookAppointmentPage() {
                   </div>
 
                   <div>
-                    <label className="text-xs font-extrabold text-slate-900 dark:text-white mb-1.5 block">
+                    <label htmlFor="patient-phone" className="text-xs font-extrabold text-slate-900 dark:text-white mb-1.5 block">
                       Contact Phone Number <span className="text-red-500 font-black ml-0.5">*</span>
                     </label>
                     <input
+                      id="patient-phone"
                       type="tel"
+                      inputMode="tel"
+                      autoComplete="tel"
                       required
-                      placeholder="e.g. +234 801 234 5678"
+                      maxLength={20}
+                      data-testid="patient-phone"
+                      placeholder="e.g. 0803 123 4567"
                       value={patientPhone}
                       onChange={(e) => setPatientPhone(e.target.value)}
-                      className="w-full p-4 rounded-2xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-bold text-sm focus:ring-2 focus:ring-[#008ac9] transition-all"
+                      onBlur={() => { setPhoneTouched(true); const local = toLocalNgMobile(patientPhone); if (local) setPatientPhone(formatNgMobile(local)); }}
+                      aria-invalid={phoneTouched && !phoneValid}
+                      aria-describedby="patient-phone-help"
+                      className={`w-full p-4 rounded-2xl border-2 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-bold text-sm focus:ring-2 focus:ring-[#008ac9] transition-all ${phoneTouched && !phoneValid ? "border-rose-500" : phoneValid ? "border-emerald-500" : "border-slate-300 dark:border-slate-700"}`}
                     />
+                    <p id="patient-phone-help" data-testid="patient-phone-help" role={phoneTouched && !phoneValid ? "alert" : undefined}
+                      className={`mt-1.5 text-[11px] font-semibold ${phoneTouched && !phoneValid ? "text-rose-600 dark:text-rose-400" : phoneValid ? "text-emerald-700 dark:text-emerald-400" : "text-slate-500 dark:text-slate-400"}`}>
+                      {phoneTouched && !phoneValid ? phoneProblem : phoneValid ? "✓ Valid Nigerian mobile number. Appointment reminders are sent here by SMS." : NG_PHONE_HINT}
+                    </p>
                     {duplicateBanner}
                     {isCheckingDuplicate && !duplicateBooking && (
                       <p className="mt-2 text-[11px] text-slate-400">Checking for existing appointments…</p>
@@ -3134,7 +3164,7 @@ export function BookAppointmentPage() {
                   <button
                     type="button"
                     disabled={!patientName.trim() || !patientPhone.trim() || (patientType === "HMO Insurance" && !hmoPolicyCode.trim()) || (isCompanyPatient && !companyName)}
-                    onClick={() => setStep(2)}
+                    onClick={() => { if (!phoneValid) { setPhoneTouched(true); document.getElementById("patient-phone")?.focus(); return; } setStep(2); }}
                     className="bk-next bg-[#008ac9] hover:bg-[#0072b1] disabled:opacity-50 text-white px-8 py-3.5 text-sm font-black rounded-2xl flex items-center gap-2 shadow-lg border-2 border-sky-300/40 transition-all transform hover:-translate-y-0.5"
                   >
                     Continue to Doctor Selection <ArrowRight className="h-5 w-5" />
@@ -3755,7 +3785,7 @@ export function BookAppointmentPage() {
                   {Number(bookingConfirmed.amountPaid || 0) > 0 && (
                     <div data-testid="ticket-paid">
                       <span className="text-xs text-slate-500 block font-bold">Consultation Fee</span>
-                      <span className="font-black text-emerald-700 dark:text-emerald-400 text-sm">Paid online, {formatNaira(Number(bookingConfirmed.amountPaid))}</span>
+                      <span className="font-black text-emerald-700 dark:text-emerald-400 text-sm">Paid online, {formatNaira(Number(bookingConfirmed.feeAmount || bookingConfirmed.amountPaid))}</span>
                       <span className="block text-[10px] font-bold text-slate-500 break-all">Paystack ref {bookingConfirmed.paymentReference}</span>
                     </div>
                   )}
