@@ -311,6 +311,8 @@ export function BookAppointmentPage() {
               doctorCount: d.doctor_count || d.doctorCount || 0,
               status: d.status !== undefined ? d.status : true,
               consultationFee: Number(d.consultationFee ?? d.consultation_fee ?? 0),
+              // Follow-up fee (0 = same as first visit); needed before a doctor's calendar loads.
+              followUpFee: Number(d.followUpFee ?? d.follow_up_fee ?? 0),
             }));
           setDepartmentsList(mapped);
         }
