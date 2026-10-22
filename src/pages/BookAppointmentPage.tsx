@@ -57,7 +57,7 @@ import {
 } from "lucide-react";
 import { SpecialistAvatar } from "../components/SpecialistAvatar";
 import { IsaluLogo } from "../components/IsaluLogo";
-import { getDoctorsAPI, getDepartmentsAPI, createBookingAPI, getSchedulesAPI, getDoctorAvailableDatesAPI, checkDuplicateBookingAPI, getPaymentConfigAPI, startPaymentAPI, verifyPaymentAPI, lookupBookingAPI, type PaymentConfig } from "../api/client";
+import { getDoctorsAPI, getDepartmentsAPI, createBookingAPI, getSchedulesAPI, getDoctorAvailableDatesAPI, checkDuplicateBookingAPI, getPaymentConfigAPI, startPaymentAPI, verifyPaymentAPI, lookupBookingAPI, getCompaniesAPI, type PaymentConfig } from "../api/client";
 
 /**
  * Booking notice. Shows the hospital server's own explanation (for example
@@ -187,7 +187,25 @@ export function BookAppointmentPage() {
   const [reason, setReason] = useState<string>("");
   const [copiedShare, setCopiedShare] = useState<boolean>(false);
 
-  const [patientType, setPatientType] = useState<"Private Self-Pay" | "HMO Insurance">("Private Self-Pay");
+  const [patientType, setPatientType] = useState<"Private Self-Pay" | "HMO Insurance" | "Company">("Private Self-Pay");
+  // Company patients: covered by their company and approved at the HMO desk, like
+  // HMO patients, but no enrollee ID is needed. The company comes from the list
+  // the hospital uploads in the dashboard's Companies module.
+  const [companyName, setCompanyName] = useState<string>("");
+  const [companySearch, setCompanySearch] = useState<string>("");
+  const [showCompanySuggestions, setShowCompanySuggestions] = useState(false);
+  const [companies, setCompanies] = useState<any[]>([]);
+  const [companiesLoaded, setCompaniesLoaded] = useState(false);
+  useEffect(() => {
+    getCompaniesAPI().then((list: any) => { if (Array.isArray(list)) setCompanies(list); }).catch(() => { }).finally(() => setCompaniesLoaded(true));
+  }, []);
+  const isCompanyPatient = patientType === "Company";
+  // HMO and Company patients share the HMO rules (approval, 48-hour booking window, no online payment).
+  const isSponsoredPatient = patientType === "HMO Insurance" || patientType === "Company";
+  // Doctors who accept HMO patients also see Company patients.
+  const doctorAcceptanceType = isCompanyPatient ? "HMO Insurance" : patientType;
+  const sponsorWord = isCompanyPatient ? "Company" : "HMO";
+  const yourSponsor = isCompanyPatient ? "your company" : "your HMO";
   const [hmoName, setHmoName] = useState<string>("Hygeia HMO");
   const [hmoSearchQuery, setHmoSearchQuery] = useState<string>("Hygeia HMO");
   const [showHmoSuggestions, setShowHmoSuggestions] = useState<boolean>(false);
@@ -1063,7 +1081,7 @@ export function BookAppointmentPage() {
 
     const rawTypes = (doc as any).acceptedPatientTypes || (doc as any).accepted_patient_types;
     const acceptedTypes = (rawTypes && Array.isArray(rawTypes) && rawTypes.length > 0) ? rawTypes : ["Private Self-Pay", "HMO Insurance"];
-    return acceptedTypes.includes(patientType);
+    return acceptedTypes.includes(doctorAcceptanceType);
   });
 
   const isDoctorOnDutyOnDate = (doctor: Doctor | undefined, candidateDate: Date): boolean => {
@@ -1158,7 +1176,7 @@ export function BookAppointmentPage() {
 
   // True when an HMO patient can't book this (otherwise open) clinic day yet.
   const isHmoLockedDate = (docObj: Doctor | undefined, dateStr: string, isOpen = true) => {
-    if (patientType !== "HMO Insurance" || !docObj || !isOpen) return false;
+    if (!isSponsoredPatient || !docObj || !isOpen) return false;
     const key = String((docObj as any).doc_id || docObj.id || "");
     if (key !== selectedDoctorKey) return false;
     const entry = doctorAvailabilityMap[dateStr];
@@ -1496,7 +1514,7 @@ export function BookAppointmentPage() {
     drawRow("PATIENT NAME", booking.patientName || "N/A", "CONTACT PHONE", booking.patientPhone || "N/A");
     drawRow("SPECIALIST DOCTOR", getDoctorDisplayAcronym(booking) || "Specialist", "DEPARTMENT / SPECIALTY", booking.doctorSpecialty || "Specialist Clinic");
     drawRow("APPOINTMENT DATE", formatDateToOrdinal(booking.date) || "N/A", "TIME SLOT", booking.time || "N/A");
-    drawRow("PATIENT TYPE", booking.paymentType || "Private Self-Pay", "HMO / ENROLLEE CODE", booking.paymentType === "HMO Insurance" ? `${booking.hmoName || "HMO"} (${booking.hmoPolicyCode || "N/A"})` : "N/A (Self-Pay)");
+    drawRow("PATIENT TYPE", booking.paymentType || "Private Self-Pay", "HMO / ENROLLEE CODE", booking.paymentType === "HMO Insurance" ? `${booking.hmoName || "HMO"} (${booking.hmoPolicyCode || "N/A"})` : String(booking.paymentType || "").toLowerCase().includes("company") ? `Company: ${booking.companyName || booking.hmoName || "Company"}` : "N/A (Self-Pay)");
 
     if (booking.referralDocName) {
       ctx.fillStyle = "#64748B";
@@ -1660,7 +1678,7 @@ export function BookAppointmentPage() {
     addDetailRow("Patient Name", booking.patientName || "N/A", "Contact Phone", booking.patientPhone || "N/A");
     addDetailRow("Specialist Doctor", getDoctorDisplayAcronym(booking) || "Specialist", "Department / Specialty", booking.doctorSpecialty || "Specialist Clinic");
     addDetailRow("Appointment Date", formatDateToOrdinal(booking.date) || "N/A", "Time Slot", booking.time || "N/A");
-    addDetailRow("Patient Type", booking.paymentType || "Private Self-Pay", "HMO / Enrollee ID", booking.paymentType === "HMO Insurance" ? `${booking.hmoName || "HMO"} (${booking.hmoPolicyCode || "N/A"})` : "N/A (Self-Pay)");
+    addDetailRow("Patient Type", booking.paymentType || "Private Self-Pay", "HMO / Enrollee ID", booking.paymentType === "HMO Insurance" ? `${booking.hmoName || "HMO"} (${booking.hmoPolicyCode || "N/A"})` : String(booking.paymentType || "").toLowerCase().includes("company") ? `Company: ${booking.companyName || booking.hmoName || "Company"}` : "N/A (Self-Pay)");
 
     if (booking.referralDocName) {
       doc.setTextColor(100, 116, 139);
@@ -1913,8 +1931,8 @@ export function BookAppointmentPage() {
 
   // HMO patients see the minimum-notice pop-up when they reach the schedule step.
   useEffect(() => {
-    if (step === 3 && patientType === "HMO Insurance" && selectedDoctorKey && selectedMeta && hmoNoticeShownFor !== selectedDoctorKey) {
-      setHmoNoticeShownFor(selectedDoctorKey);
+    if (step === 3 && isSponsoredPatient && selectedDoctorKey && selectedMeta && hmoNoticeShownFor !== `${patientType}:${selectedDoctorKey}`) {
+      setHmoNoticeShownFor(`${patientType}:${selectedDoctorKey}`);
       setHmoNoticeOpen(true);
     }
   }, [step, patientType, selectedDoctorKey, selectedMeta, hmoNoticeShownFor]);
@@ -1933,6 +1951,11 @@ export function BookAppointmentPage() {
 
     if (patientType === "HMO Insurance" && !hmoPolicyCode) {
       setApiError("Please enter your HMO Enrollee No / Policy ID to verify insurance coverage.");
+      return;
+    }
+
+    if (isCompanyPatient && !companyName) {
+      setApiError("Please choose your company from the list.");
       return;
     }
 
@@ -1970,8 +1993,8 @@ export function BookAppointmentPage() {
       reason,
       paymentType: patientType,
       payment_type: patientType,
-      hmoName: patientType === "HMO Insurance" ? hmoName : "N/A",
-      hmo_name: patientType === "HMO Insurance" ? hmoName : "N/A",
+      hmoName: patientType === "HMO Insurance" ? hmoName : isCompanyPatient ? companyName : "N/A",
+      hmo_name: patientType === "HMO Insurance" ? hmoName : isCompanyPatient ? companyName : "N/A",
       hmoPolicyCode: patientType === "HMO Insurance" ? hmoPolicyCode : "",
       hmo_policy_code: patientType === "HMO Insurance" ? hmoPolicyCode : "",
       referralDocName: referralDocName || "",
@@ -1980,10 +2003,10 @@ export function BookAppointmentPage() {
       referral_doc_data: referralDocData || "",
       referralDocText: referralDocText || "",
       referral_doc_text: referralDocText || "",
-      hmoStatus: patientType === "HMO Insurance" ? "Pending Pre-Auth" : "N/A",
-      hmo_status: patientType === "HMO Insurance" ? "Pending Pre-Auth" : "N/A",
-      paymentStatus: patientType === "HMO Insurance" ? "HMO Cover" : "Pending",
-      payment_status: patientType === "HMO Insurance" ? "HMO Cover" : "Pending",
+      hmoStatus: isSponsoredPatient ? "Pending Pre-Auth" : "N/A",
+      hmo_status: isSponsoredPatient ? "Pending Pre-Auth" : "N/A",
+      paymentStatus: patientType === "HMO Insurance" ? "HMO Cover" : isCompanyPatient ? "Company Cover" : "Pending",
+      payment_status: patientType === "HMO Insurance" ? "HMO Cover" : isCompanyPatient ? "Company Cover" : "Pending",
     };
 
     let savedRecord = newBooking;
@@ -2189,12 +2212,12 @@ export function BookAppointmentPage() {
       .map((e: any) => e.date).sort()[0] || "";
     const aboutDate = picked || (earliestHmoDate ? "" : nextOpening);
     const title = picked
-      ? `HMO booking for ${fmtDay(picked)} opens ${hmoOpensLabel(picked)}`
+      ? `${sponsorWord} booking for ${fmtDay(picked)} opens ${hmoOpensLabel(picked)}`
       : earliestHmoDate
-        ? `You can book with your HMO for ${fmtDay(earliestHmoDate)}`
+        ? `You can book with ${yourSponsor} for ${fmtDay(earliestHmoDate)}`
         : aboutDate
-          ? `HMO booking for ${fmtDay(aboutDate)} opens ${hmoOpensLabel(aboutDate)}`
-          : "No HMO clinic is open for booking right now";
+          ? `${sponsorWord} booking for ${fmtDay(aboutDate)} opens ${hmoOpensLabel(aboutDate)}`
+          : `No clinic is open for ${sponsorWord} booking right now`;
     // Rendered into <body> (a portal) so the booking page's glass styles and
     // stacking can't make it see-through or tuck it under other pop-ups.
     return createPortal(
@@ -2209,16 +2232,16 @@ export function BookAppointmentPage() {
             <div>
               <h2 id="hmo-notice-title" className="text-lg font-black text-slate-900 dark:text-white leading-snug">{title}</h2>
               <p className="mt-2 text-sm font-semibold text-slate-700 dark:text-slate-300 leading-relaxed">
-                HMO patients can book a clinic from <strong className="text-slate-900 dark:text-white">{hmoNoticeHours} hours before it starts</strong> until {hmoCloseMinutes} minutes before it starts, if space is still available. This gives us time to get approval from your HMO.
+                {sponsorWord} patients can book a clinic from <strong className="text-slate-900 dark:text-white">{hmoNoticeHours} hours before it starts</strong> until {hmoCloseMinutes} minutes before it starts, if space is still available. This gives us time to get approval from {yourSponsor}.
                 {earliestHmoDate
                   ? <> The next {selectedDoctor.specialty} clinic you can book now with {doctorLabel} is <strong className="text-slate-900 dark:text-white">{earliestHmoLabel}</strong>.</>
                   : aboutDate
-                    ? <> {doctorLabel} has no clinic open for HMO booking right now. Come back from <strong className="text-slate-900 dark:text-white">{hmoOpensLabel(aboutDate)}</strong> to book {fmtDay(aboutDate)}.</>
+                    ? <> {doctorLabel} has no clinic open for {sponsorWord} booking right now. Come back from <strong className="text-slate-900 dark:text-white">{hmoOpensLabel(aboutDate)}</strong> to book {fmtDay(aboutDate)}.</>
                     : <> {doctorLabel} has no clinic with space in the coming weeks. Please choose another doctor.</>}
               </p>
               <p className="mt-3 text-sm font-semibold text-amber-900 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-900 rounded-xl p-3 leading-relaxed">
                 Can't wait? Book as a Private Self-Pay patient{clinicFee > 0 ? ` and pay ${formatNaira(clinicFee)} online` : ""} to secure a date now.
-                Private patients can book any open space at any time, so spaces may be taken before HMO booking opens.
+                Private patients can book any open space at any time, so spaces may be taken before {sponsorWord} booking opens.
               </p>
             </div>
           </div>
@@ -2227,7 +2250,7 @@ export function BookAppointmentPage() {
               <button type="button" data-testid="hmo-notice-book" autoFocus
                 onClick={() => { setSelectedDate(earliestHmoDate); setSelectedTime(getDutyTimeWindow(selectedDoctor, earliestHmoDate)); close(); }}
                 className="w-full bg-[#008ac9] hover:bg-[#0072b1] text-white py-3 px-4 text-sm font-black rounded-2xl shadow-md">
-                Book {fmtDay(earliestHmoDate, false)} with my HMO
+                Book {fmtDay(earliestHmoDate, false)} with {isCompanyPatient ? "my company" : "my HMO"}
               </button>
             )}
             {doctorAcceptsPrivate && (
@@ -2304,7 +2327,7 @@ export function BookAppointmentPage() {
             Book Doctor Consultation
           </h1>
           <p className="bk-subtitle text-slate-800 dark:text-slate-200 text-sm font-semibold leading-relaxed">
-            Enter patient details first, select your payment category (Private vs HMO), and pick an eligible specialist doctor.
+            Enter patient details first, select your payment category (Private, HMO or Company), and pick an eligible specialist doctor.
           </p>
         </div>
 
@@ -2781,7 +2804,7 @@ export function BookAppointmentPage() {
                       <span className="bk-hint text-[10px] font-bold text-[#008ac9] uppercase">Determines Doctor Availability</span>
                     </label>
 
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-3 gap-2 sm:gap-3">
                       <button
                         type="button"
                         onClick={() => {
@@ -2817,9 +2840,30 @@ export function BookAppointmentPage() {
                         <span className="text-lg">🛡️</span>
                         <span>HMO Insurance Enrollee</span>
                       </button>
+
+                      <button
+                        type="button"
+                        data-testid="patient-type-company"
+                        onClick={() => {
+                          setPatientType("Company");
+                          if (selectedDoctor) {
+                            const accepted = (selectedDoctor as any).acceptedPatientTypes || (selectedDoctor as any).accepted_patient_types || ["Private Self-Pay", "HMO Insurance"];
+                            if (!accepted.includes("HMO Insurance")) setSelectedDoctorId("");
+                          }
+                        }}
+                        className={`bk-choice p-4 rounded-2xl border-2 text-xs font-black transition-all flex flex-col items-center justify-center gap-1.5 ${patientType === "Company"
+                          ? "bg-[#008ac9] text-white border-[#008ac9] shadow-lg ring-2 ring-[#008ac9]/30 scale-[1.02]"
+                          : "bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white hover:border-[#008ac9]"
+                          }`}
+                      >
+                        <span className="text-lg">🏢</span>
+                        <span>Company Patient</span>
+                      </button>
                     </div>
                     <p data-testid="payment-category-note" className="mt-2 text-[11px] font-semibold text-slate-600 dark:text-slate-400 leading-relaxed">
-                      {patientType === "HMO Insurance"
+                      {isCompanyPatient
+                        ? `Your company covers this visit; no enrollee ID is needed. Company patients can book a clinic from ${paymentConfig?.hmo_min_notice_hours ?? 48} hours before it starts until ${(paymentConfig as any)?.hmo_close_minutes ?? 10} minutes before, if space is still available.`
+                        : patientType === "HMO Insurance"
                         ? `HMO patients can book a clinic from ${paymentConfig?.hmo_min_notice_hours ?? 48} hours before it starts until ${(paymentConfig as any)?.hmo_close_minutes ?? 10} minutes before, if space is still available.`
                         : paymentConfig && !paymentConfig.online_payments_enabled && paymentMandatory
                           ? "Online booking for private patients is unavailable right now because online payment isn't set up. Please call the hospital to book."
@@ -2905,6 +2949,74 @@ export function BookAppointmentPage() {
                           onChange={(e) => setHmoPolicyCode(e.target.value)}
                           className="w-full p-3.5 rounded-xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-bold text-xs focus:ring-2 focus:ring-[#008ac9]"
                         />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Company patients: pick the company from the hospital's list (no enrollee ID). */}
+                  {isCompanyPatient && (
+                    <div className="pt-3 border-t border-[#008ac9]/20 animate-fadeIn" data-testid="company-fields">
+                      <div className="relative">
+                        <label htmlFor="company-search" className="text-xs font-extrabold text-slate-900 dark:text-white mb-1.5 block">
+                          Search Your Company <span className="text-red-500 font-black ml-0.5">*</span>
+                        </label>
+                        <div className="relative">
+                          <input
+                            id="company-search"
+                            type="text"
+                            autoComplete="off"
+                            required
+                            data-testid="company-search"
+                            placeholder="Type 2+ letters of your company's name..."
+                            value={companySearch}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setCompanySearch(val);
+                              // Only a company from the list counts; an exact name match selects it.
+                              const exact = companies.find((c: any) => String(c.name || "").trim().toLowerCase() === val.trim().toLowerCase());
+                              setCompanyName(exact ? exact.name : "");
+                              setShowCompanySuggestions(val.trim().length >= 2);
+                            }}
+                            onFocus={() => { if (companySearch.trim().length >= 2) setShowCompanySuggestions(true); }}
+                            onBlur={() => window.setTimeout(() => setShowCompanySuggestions(false), 150)}
+                            className={`w-full p-3.5 pr-9 rounded-xl border-2 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-bold text-xs focus:ring-2 focus:ring-[#008ac9] ${companyName ? "border-emerald-500" : "border-slate-300 dark:border-slate-700"}`}
+                          />
+                          <Search className="absolute right-3 top-3.5 h-4 w-4 text-slate-400 pointer-events-none" />
+                        </div>
+                        {showCompanySuggestions && companySearch.trim().length >= 2 && (
+                          <div className="absolute z-30 left-0 right-0 mt-1 bg-white dark:bg-slate-900 border-2 border-[#008ac9] rounded-2xl shadow-xl max-h-52 overflow-y-auto p-1.5 animate-fadeIn" data-testid="company-suggestions">
+                            {(() => {
+                              const q = companySearch.trim().toLowerCase();
+                              const matches = companies.filter((c: any) => String(c.name || "").toLowerCase().includes(q)).slice(0, 30);
+                              if (matches.length === 0) {
+                                return (
+                                  <div className="p-3 text-center text-xs font-bold text-slate-500">
+                                    No company matches "{companySearch.trim()}". If your company isn't listed, book as Private Self-Pay or contact the hospital.
+                                  </div>
+                                );
+                              }
+                              return matches.map((c: any) => (
+                                <button
+                                  type="button"
+                                  key={c.id || c.company_id || c.name}
+                                  onMouseDown={(e) => e.preventDefault()}
+                                  onClick={() => { setCompanyName(c.name); setCompanySearch(c.name); setShowCompanySuggestions(false); }}
+                                  className="w-full text-left px-3.5 py-2 rounded-xl text-xs font-black text-slate-800 dark:text-slate-200 hover:bg-[#008ac9] hover:text-white flex items-center justify-between transition-all"
+                                >
+                                  <span>🏢 {c.name}</span>
+                                  <span className="text-[10px] font-bold text-[#008ac9] uppercase">Select</span>
+                                </button>
+                              ));
+                            })()}
+                          </div>
+                        )}
+                        <p className="mt-1.5 text-[11px] font-semibold text-slate-500 dark:text-slate-400" data-testid="company-status">
+                          {companyName
+                            ? <span className="text-emerald-700 dark:text-emerald-400">✓ {companyName} selected. No enrollee ID needed.</span>
+                            : companiesLoaded && companies.length === 0
+                              ? "No companies are set up for online booking yet. Please contact the hospital, or book as Private Self-Pay."
+                              : "Choose your company from the list."}
+                        </p>
                       </div>
                     </div>
                   )}
@@ -3021,7 +3133,7 @@ export function BookAppointmentPage() {
                 <div className="flex justify-end pt-4 border-t border-slate-200 dark:border-slate-800">
                   <button
                     type="button"
-                    disabled={!patientName.trim() || !patientPhone.trim() || (patientType === "HMO Insurance" && !hmoPolicyCode.trim())}
+                    disabled={!patientName.trim() || !patientPhone.trim() || (patientType === "HMO Insurance" && !hmoPolicyCode.trim()) || (isCompanyPatient && !companyName)}
                     onClick={() => setStep(2)}
                     className="bk-next bg-[#008ac9] hover:bg-[#0072b1] disabled:opacity-50 text-white px-8 py-3.5 text-sm font-black rounded-2xl flex items-center gap-2 shadow-lg border-2 border-sky-300/40 transition-all transform hover:-translate-y-0.5"
                   >
@@ -3039,11 +3151,12 @@ export function BookAppointmentPage() {
           <div className="space-y-6">
             <div className="bg-[#008ac9]/10 border-2 border-[#008ac9]/30 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-slate-900 dark:text-white">
               <div className="flex items-center gap-3">
-                <span className="text-2xl">{patientType === "HMO Insurance" ? "🛡️" : "💳"}</span>
+                <span className="text-2xl">{patientType === "HMO Insurance" ? "🛡️" : isCompanyPatient ? "🏢" : "💳"}</span>
                 <div>
                   <span className="text-xs font-black block">
                     Patient Category: <strong className="text-[#008ac9] dark:text-sky-400 font-black">{patientType}</strong>
                     {patientType === "HMO Insurance" && ` (${hmoName})`}
+                    {isCompanyPatient && companyName && ` (${companyName})`}
                   </span>
                   <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-400 block mt-0.5">
                     Showing only Specialist Doctors registered to accept {patientType} consultations.
@@ -3235,7 +3348,7 @@ export function BookAppointmentPage() {
                               ? `${d.dayShort} ${d.monthShort}: Fully booked`
                               : isHmoLocked
                                 ? (hmoOpensShort(d.dateStr)
-                                  ? `${d.dayShort} ${d.monthShort}: Private patients only (HMO booking opens ${hmoOpensLabel(d.dateStr)})`
+                                  ? `${d.dayShort} ${d.monthShort}: Private patients only (${sponsorWord} booking opens ${hmoOpensLabel(d.dateStr)})`
                                   : `${d.dayShort} ${d.monthShort}: Booking closed (clinic starts in under ${hmoCloseMinutes} minutes or has started)`)
                                 : !d.isAvailable
                                   ? `${d.dayShort} ${d.monthShort}: Not available`
@@ -3292,7 +3405,7 @@ export function BookAppointmentPage() {
                                 ? "bg-white/20 text-white"
                                 : "text-[#008ac9]"
                             }`}>
-                            {isFullyBooked ? "FULL" : isHmoLocked ? (hmoOpensShort(d.dateStr) ? `HMO from ${hmoOpensShort(d.dateStr)}` : "Closed") : d.isAvailable ? (isNext ? "★ Next Avail" : "✓ Available")
+                            {isFullyBooked ? "FULL" : isHmoLocked ? (hmoOpensShort(d.dateStr) ? `${isCompanyPatient ? "Co." : "HMO"} from ${hmoOpensShort(d.dateStr)}` : "Closed") : d.isAvailable ? (isNext ? "★ Next Avail" : "✓ Available")
                               : /cancel/i.test((d as any).serverNote || "") ? "Cancelled"
                                 : /moved/i.test((d as any).serverNote || "") ? "Moved" : "Off Duty"}
                           </span>
@@ -3627,6 +3740,12 @@ export function BookAppointmentPage() {
                     <span className="text-xs text-slate-500 block font-bold">Patient Type</span>
                     <span className="font-black text-slate-900 dark:text-white text-sm">{bookingConfirmed.paymentType || "Private Self-Pay"}</span>
                   </div>
+                  {String(bookingConfirmed.paymentType || "").toLowerCase().includes("company") && (
+                    <div data-testid="ticket-company">
+                      <span className="text-xs text-slate-500 block font-bold">Company</span>
+                      <span className="font-black text-[#008ac9] dark:text-sky-400 text-sm">{bookingConfirmed.companyName || bookingConfirmed.hmoName}</span>
+                    </div>
+                  )}
                   {bookingConfirmed.paymentType === "HMO Insurance" && (
                     <div>
                       <span className="text-xs text-slate-500 block font-bold">HMO & Enrollee ID</span>

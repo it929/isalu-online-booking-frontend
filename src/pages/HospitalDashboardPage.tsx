@@ -189,7 +189,7 @@ const DESK_LABELS: Record<string, string> = {
   all_patients: "All Patients", checked_in_patients: "Checked-in Queue", hmo_enrollees: "HMO Enrollees",
   private_patients: "Private Self-Pay", create_specialist_schedule: "Specialist Roster",
   clinic: "Clinics & Departments", disabled_bookings: "Archive & Trash",
-  hmo_declined: "Declined HMO Approvals", booking_payments: "Booking Payments",
+  hmo_declined: "Declined HMO Approvals", booking_payments: "Booking Payments", companies: "Companies",
 };
 
 /** Waiting-room screens are public: show "Ada O." rather than a full name. */
@@ -277,14 +277,27 @@ const isHmoRecord = (b: any): boolean => {
   const pay = String(b?.paymentType ?? b?.payment_type ?? "").toLowerCase();
   return pay.includes("hmo") || pay.includes("insurance");
 };
+/** Company patients: covered by their company, approved at the HMO desk, no enrollee ID. */
+const isCompanyRecord = (b: any): boolean =>
+  String(b?.paymentType ?? b?.payment_type ?? "").toLowerCase().includes("company");
+const companyNameOf = (b: any): string => String(b?.companyName || b?.hmoName || b?.hmo_name || "").trim();
 /** Small "Enrollee ID: …" line shown on every HMO patient record. */
 /** Payment label for exports, e.g. "HMO Insurance · Hygeia HMO · Enrollee ID HYG-123". */
 const paymentWithEnrollee = (b: any): string => {
   const pay = String(b?.paymentType || b?.payment_type || "Private Self-Pay");
+  if (isCompanyRecord(b)) return `Company · ${companyNameOf(b) || "Company"}`;
   if (!isHmoRecord(b)) return pay;
   return `${pay} · ${b?.hmoName || b?.hmo_name || "HMO"} · Enrollee ID ${enrolleeIdOf(b) || "not provided"}`;
 };
 const EnrolleeId = ({ booking, className = "" }: { booking: any; className?: string }) => {
+  if (isCompanyRecord(booking)) {
+    return (
+      <span data-testid="company-no-enrollee" className={`inline-flex flex-wrap items-baseline gap-x-1 text-[10.5px] font-semibold text-slate-500 dark:text-slate-400 ${className}`}>
+        <span className="px-1.5 rounded bg-indigo-500/15 text-indigo-600 dark:text-indigo-300 font-black">Company</span>
+        <span>No enrollee ID needed</span>
+      </span>
+    );
+  }
   const id = enrolleeIdOf(booking);
   return (
     <span data-testid="enrollee-id" className={`inline-flex flex-wrap items-baseline gap-x-1 text-[10.5px] font-semibold text-slate-500 dark:text-slate-400 ${className}`}>
@@ -352,6 +365,7 @@ import {
   Landmark
 } from "lucide-react";
 import BookingPaymentsDesk from "../components/dashboard/desks/BookingPaymentsDesk";
+import CompaniesDesk from "../components/dashboard/desks/CompaniesDesk";
 import {
   getBookingsAPI,
   getBookingSummaryAPI,
@@ -1506,7 +1520,8 @@ export function HospitalDashboardPage() {
     | "clinic"
     | "disabled_bookings"
     | "hmo_declined"
-    | "booking_payments";
+    | "booking_payments"
+    | "companies";
 
   const validDesks: DeskType[] = [
     "helpdesk",
@@ -1524,6 +1539,7 @@ export function HospitalDashboardPage() {
     "disabled_bookings",
     "hmo_declined",
     "booking_payments",
+    "companies",
   ];
 
   // HMO Provider Modal States
@@ -1868,12 +1884,12 @@ export function HospitalDashboardPage() {
   const pendingHmoCount = activeBookings.filter((b) => {
     const paymentType = String(b?.paymentType ?? b?.payment_type ?? "").toLowerCase();
     const hmoStatus = String(b?.hmoStatus ?? b?.hmo_status ?? "").toLowerCase();
-    return paymentType.includes("hmo") && !["approved", "cleared", "declined"].includes(hmoStatus);
+    return (paymentType.includes("hmo") || paymentType.includes("company")) && !["approved", "cleared", "declined"].includes(hmoStatus);
   }).length;
   const hmoApprovedCount = activeBookings.filter((b) => {
     const paymentType = String(b?.paymentType ?? b?.payment_type ?? "").toLowerCase();
     const hmoStatus = String(b?.hmoStatus ?? b?.hmo_status ?? "").toLowerCase();
-    return paymentType.includes("hmo") && hmoStatus === "approved";
+    return (paymentType.includes("hmo") || paymentType.includes("company")) && hmoStatus === "approved";
   }).length;
   const pendingCashCount = activeBookings.filter((b) => {
     const paymentType = String(b?.paymentType ?? b?.payment_type ?? "").toLowerCase();
@@ -2311,6 +2327,9 @@ ADMINISTRATIVE VERIFICATION:
       const hmo = String(
         b.hmoName || b.hmo_name || ""
       ).toLowerCase().trim();
+
+      // Company patients have their own list in the Companies module.
+      if (payment.includes("company")) return false;
 
       return (
         payment.includes("hmo") ||
@@ -5134,6 +5153,7 @@ ADMINISTRATIVE VERIFICATION:
         { id: "all_patients", label: "All Patients Directory", icon: Users, badge: null },
         // { id: "checked_in_patients", label: "Checked-in Queue", icon: CheckCircle2, badge: null },
         { id: "hmo_enrollees", label: "HMO Enrollees Registry", icon: CreditCard, badge: null },
+        { id: "companies", label: "Companies", icon: Building2, badge: null },
         { id: "private_patients", label: "Private Self-Pay List", icon: Ticket, badge: null },
       ],
     },
@@ -5748,7 +5768,7 @@ ADMINISTRATIVE VERIFICATION:
                                 {isHmo ? (
                                   <div className="flex flex-col gap-1">
                                     <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-purple-500/15 text-purple-600 dark:text-purple-300 border border-purple-500/30 w-fit">
-                                      HMO Insurance
+                                      {isCompanyRecord(b) ? "Company" : "HMO Insurance"}
                                     </span>
                                     <span className={`text-xs font-semibold ${isDarkMode ? 'text-slate-200' : 'text-slate-800'} truncate max-w-[180px]`}>
                                       {hasValidHmo ? hmoProviderName : "HMO Partner Not Specified"}
@@ -6024,6 +6044,9 @@ ADMINISTRATIVE VERIFICATION:
                                     </td>
 
                                     <td className="py-4 px-4">
+                                      {isCompanyRecord(b) && (
+                                        <span data-testid="hmo-desk-company-tag" className="block w-fit mb-1 px-1.5 py-0.5 rounded text-[9px] font-black uppercase bg-indigo-500/15 text-indigo-600 dark:text-indigo-300 border border-indigo-500/30">Company</span>
+                                      )}
                                       <span className="font-semibold text-purple-400">
                                         {hmoName}
                                       </span>
@@ -6031,7 +6054,7 @@ ADMINISTRATIVE VERIFICATION:
 
                                     <td className="py-4 px-4">
                                       <span className={`font-mono text-xs font-bold ${isDarkMode ? "text-slate-300" : "text-slate-700"}`}>
-                                        {enrolleeNum}
+                                        {isCompanyRecord(b) ? "Not needed (company)" : enrolleeNum}
                                       </span>
                                     </td>
 
@@ -6354,6 +6377,10 @@ ADMINISTRATIVE VERIFICATION:
             </div>
           )}
 
+          {activeDesk === "companies" && isDeskAllowed("companies") && (
+            <CompaniesDesk isDarkMode={isDarkMode} isAdmin={isSuperAdminUser(currentUser)} bookings={bookings} />
+          )}
+
           {activeDesk === "booking_payments" && isDeskAllowed("booking_payments") && (
             <BookingPaymentsDesk isDarkMode={isDarkMode} />
           )}
@@ -6655,6 +6682,9 @@ ADMINISTRATIVE VERIFICATION:
                                   {b.hmoName || b.hmo_name || "HMO"}
                                   <EnrolleeId booking={b} className="block mt-0.5" />
                                 </span>
+                              )}
+                              {isCompanyRecord(b) && (
+                                <span className="block mt-1 text-[11px] font-semibold text-slate-500">{companyNameOf(b)}</span>
                               )}
                             </td>
                             <td className="py-4 px-3 text-slate-700 dark:text-slate-300 font-bold">
@@ -8557,10 +8587,11 @@ ADMINISTRATIVE VERIFICATION:
             const startTime = (b: any) => String(b.time || "").split(/[–-]/)[0].trim();
             const phoneOf = (b: any) => String(b.patientPhone || b.patient_phone || "").trim();
             const payOf = (b: any) => {
+              if (isCompanyRecord(b)) return `Company · ${companyNameOf(b) || "Company"}`;
               if (isHmoRecord(b)) return `HMO · ${b.hmoName || b.hmo_name || "HMO"}`;
               return "Private Self-Pay";
             };
-            const payStatusOf = (b: any) => isHmoRecord(b)
+            const payStatusOf = (b: any) => (isHmoRecord(b) || isCompanyRecord(b))
               ? (String(b.hmoStatus || b.hmo_status || "Pending Pre-Auth"))
               : (String(b.paymentStatus || b.payment_status || "Pending"));
             const statusLabel = (b: any) => {
@@ -9365,7 +9396,7 @@ ADMINISTRATIVE VERIFICATION:
 
       {/* CREATE ROLE MODAL */}
       {showCreateRoleModal && (
-        <div className="fixed inset-0 z-[125] flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4"><div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 shadow-2xl"><div className="flex justify-between items-center mb-5"><h3 className="text-xl font-black text-slate-900 dark:text-white">Create Custom Role</h3><button type="button" onClick={() => setShowCreateRoleModal(false)} className="p-2 text-slate-400"><X /></button></div>{roleFormError && <div className="mb-4 p-3 rounded-xl bg-red-500/10 text-red-500 text-xs font-bold">{roleFormError}</div>}<form onSubmit={handleCreateRole} className="space-y-4"><input value={newRoleName} onChange={e => setNewRoleName(e.target.value)} placeholder="Role name" className="w-full px-4 py-3 rounded-xl border bg-transparent text-xs" required /><textarea value={newRoleDescription} onChange={e => setNewRoleDescription(e.target.value)} placeholder="Role description" className="w-full px-4 py-3 rounded-xl border bg-transparent text-xs" rows={3} /><select value={newRolePrimaryDesk} onChange={e => setNewRolePrimaryDesk(e.target.value)} className="w-full px-4 py-3 rounded-xl border bg-transparent text-xs"><option value="helpdesk">Helpdesk</option><option value="hmo">HMO Approval</option><option value="cashdesk">Cashdesk</option><option value="monitor">Monitor Room</option><option value="analytics">Analytics</option><option value="users">Users</option></select><div><p className="text-xs font-bold text-slate-400 mb-2">Allowed Desks</p><div className="flex flex-wrap gap-2">{["helpdesk", "hmo", "cashdesk", "monitor", "analytics", "users", "all_patients", "booking_payments"].map(d => <button type="button" key={d} onClick={() => setNewRoleAllowedDesks(p => p.includes(d) ? p.filter(x => x !== d) : [...p, d])} className={`px-2.5 py-1.5 rounded-lg border text-[10px] font-bold ${newRoleAllowedDesks.includes(d) ? "bg-sky-600 text-white border-sky-600" : "border-slate-200 dark:border-slate-800 text-slate-500"}`}>{d}</button>)}</div></div><div className="flex justify-end gap-3"><button type="button" onClick={() => setShowCreateRoleModal(false)} className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-bold">Cancel</button><button type="submit" className="px-5 py-2 rounded-xl bg-sky-600 text-white text-xs font-black">Create Role</button></div></form></div></div>
+        <div className="fixed inset-0 z-[125] flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4"><div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 shadow-2xl"><div className="flex justify-between items-center mb-5"><h3 className="text-xl font-black text-slate-900 dark:text-white">Create Custom Role</h3><button type="button" onClick={() => setShowCreateRoleModal(false)} className="p-2 text-slate-400"><X /></button></div>{roleFormError && <div className="mb-4 p-3 rounded-xl bg-red-500/10 text-red-500 text-xs font-bold">{roleFormError}</div>}<form onSubmit={handleCreateRole} className="space-y-4"><input value={newRoleName} onChange={e => setNewRoleName(e.target.value)} placeholder="Role name" className="w-full px-4 py-3 rounded-xl border bg-transparent text-xs" required /><textarea value={newRoleDescription} onChange={e => setNewRoleDescription(e.target.value)} placeholder="Role description" className="w-full px-4 py-3 rounded-xl border bg-transparent text-xs" rows={3} /><select value={newRolePrimaryDesk} onChange={e => setNewRolePrimaryDesk(e.target.value)} className="w-full px-4 py-3 rounded-xl border bg-transparent text-xs"><option value="helpdesk">Helpdesk</option><option value="hmo">HMO Approval</option><option value="cashdesk">Cashdesk</option><option value="monitor">Monitor Room</option><option value="analytics">Analytics</option><option value="users">Users</option></select><div><p className="text-xs font-bold text-slate-400 mb-2">Allowed Desks</p><div className="flex flex-wrap gap-2">{["helpdesk", "hmo", "cashdesk", "monitor", "analytics", "users", "all_patients", "booking_payments", "companies"].map(d => <button type="button" key={d} onClick={() => setNewRoleAllowedDesks(p => p.includes(d) ? p.filter(x => x !== d) : [...p, d])} className={`px-2.5 py-1.5 rounded-lg border text-[10px] font-bold ${newRoleAllowedDesks.includes(d) ? "bg-sky-600 text-white border-sky-600" : "border-slate-200 dark:border-slate-800 text-slate-500"}`}>{d}</button>)}</div></div><div className="flex justify-end gap-3"><button type="button" onClick={() => setShowCreateRoleModal(false)} className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-bold">Cancel</button><button type="submit" className="px-5 py-2 rounded-xl bg-sky-600 text-white text-xs font-black">Create Role</button></div></form></div></div>
       )}
 
       {/* DECLINE HMO PRE-AUTHORIZATION */}
@@ -9418,7 +9449,7 @@ ADMINISTRATIVE VERIFICATION:
 
       {/* EDIT ROLE MODAL */}
       {editingRole && (
-        <div className="fixed inset-0 z-[130] flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4"><div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 shadow-2xl"><div className="flex justify-between items-center mb-5"><h3 className="text-xl font-black text-slate-900 dark:text-white">Edit Role</h3><button type="button" onClick={() => setEditingRole(null)} className="p-2 text-slate-400"><X /></button></div>{editRoleError && <div className="mb-4 p-3 rounded-xl bg-red-500/10 text-red-500 text-xs font-bold">{editRoleError}</div>}<form onSubmit={handleSaveEditRole} className="space-y-4"><input value={editRoleName} onChange={e => setEditRoleName(e.target.value)} className="w-full px-4 py-3 rounded-xl border bg-transparent text-xs" required /><textarea value={editRoleDescription} onChange={e => setEditRoleDescription(e.target.value)} className="w-full px-4 py-3 rounded-xl border bg-transparent text-xs" rows={3} /><select value={editRolePrimaryDesk} onChange={e => setEditRolePrimaryDesk(e.target.value)} className="w-full px-4 py-3 rounded-xl border bg-transparent text-xs"><option value="helpdesk">Helpdesk</option><option value="hmo">HMO Approval</option><option value="cashdesk">Cashdesk</option><option value="monitor">Monitor Room</option><option value="analytics">Analytics</option></select><div className="flex flex-wrap gap-2">{["helpdesk", "hmo", "cashdesk", "monitor", "analytics", "users", "all_patients", "booking_payments"].map(d => <button type="button" key={d} onClick={() => setEditRoleAllowedDesks(p => p.includes(d) ? p.filter(x => x !== d) : [...p, d])} className={`px-2.5 py-1.5 rounded-lg border text-[10px] font-bold ${editRoleAllowedDesks.includes(d) ? "bg-sky-600 text-white border-sky-600" : "border-slate-200 dark:border-slate-800 text-slate-500"}`}>{d}</button>)}</div><div className="flex justify-end gap-3"><button type="button" onClick={() => setEditingRole(null)} className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-bold">Cancel</button><button type="submit" className="px-5 py-2 rounded-xl bg-sky-600 text-white text-xs font-black">Save Role</button></div></form></div></div>
+        <div className="fixed inset-0 z-[130] flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4"><div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 shadow-2xl"><div className="flex justify-between items-center mb-5"><h3 className="text-xl font-black text-slate-900 dark:text-white">Edit Role</h3><button type="button" onClick={() => setEditingRole(null)} className="p-2 text-slate-400"><X /></button></div>{editRoleError && <div className="mb-4 p-3 rounded-xl bg-red-500/10 text-red-500 text-xs font-bold">{editRoleError}</div>}<form onSubmit={handleSaveEditRole} className="space-y-4"><input value={editRoleName} onChange={e => setEditRoleName(e.target.value)} className="w-full px-4 py-3 rounded-xl border bg-transparent text-xs" required /><textarea value={editRoleDescription} onChange={e => setEditRoleDescription(e.target.value)} className="w-full px-4 py-3 rounded-xl border bg-transparent text-xs" rows={3} /><select value={editRolePrimaryDesk} onChange={e => setEditRolePrimaryDesk(e.target.value)} className="w-full px-4 py-3 rounded-xl border bg-transparent text-xs"><option value="helpdesk">Helpdesk</option><option value="hmo">HMO Approval</option><option value="cashdesk">Cashdesk</option><option value="monitor">Monitor Room</option><option value="analytics">Analytics</option></select><div className="flex flex-wrap gap-2">{["helpdesk", "hmo", "cashdesk", "monitor", "analytics", "users", "all_patients", "booking_payments", "companies"].map(d => <button type="button" key={d} onClick={() => setEditRoleAllowedDesks(p => p.includes(d) ? p.filter(x => x !== d) : [...p, d])} className={`px-2.5 py-1.5 rounded-lg border text-[10px] font-bold ${editRoleAllowedDesks.includes(d) ? "bg-sky-600 text-white border-sky-600" : "border-slate-200 dark:border-slate-800 text-slate-500"}`}>{d}</button>)}</div><div className="flex justify-end gap-3"><button type="button" onClick={() => setEditingRole(null)} className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-bold">Cancel</button><button type="submit" className="px-5 py-2 rounded-xl bg-sky-600 text-white text-xs font-black">Save Role</button></div></form></div></div>
       )}
 
       {/* EDIT SCHEDULE MODAL */}

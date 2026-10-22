@@ -626,6 +626,7 @@ async function apiRequest<T>(
    */
   if (
     fetchOptions.body &&
+    !(typeof FormData !== "undefined" && fetchOptions.body instanceof FormData) &&
     !headers.has("Content-Type")
   ) {
     headers.set(
@@ -1596,6 +1597,35 @@ export async function deleteHmoCompanyAPI(
     response !== null &&
     !isApiError(response)
   );
+}
+
+/* =========================================================
+   COMPANIES (Company patients: like HMO, no enrollee ID)
+========================================================= */
+
+/** Active companies (public: names only; staff with the Companies module: full details). */
+export async function getCompaniesAPI(search = ""): Promise<any[] | null> {
+  const q = search.trim() ? `?search=${encodeURIComponent(search.trim())}` : "";
+  return apiRequest<any[]>(`/companies/${q}`);
+}
+
+export async function createCompanyAPI(data: Record<string, unknown>): Promise<any | null> {
+  return apiRequest<any>("/companies/", { method: "POST", body: JSON.stringify(data) });
+}
+
+export async function updateCompanyAPI(companyId: string, data: Record<string, unknown>): Promise<any | null> {
+  return apiRequest<any>(`/companies/${encodeURIComponent(companyId)}/`, { method: "PATCH", body: JSON.stringify(data) });
+}
+
+export async function deleteCompanyAPI(companyId: string): Promise<any | null> {
+  return apiRequest<any>(`/companies/${encodeURIComponent(companyId)}/`, { method: "DELETE" });
+}
+
+/** Upload a CSV or Excel (.xlsx) file of companies. */
+export async function uploadCompaniesAPI(file: File): Promise<any | null> {
+  const form = new FormData();
+  form.append("file", file);
+  return apiRequest<any>("/companies/bulk-upload/", { method: "POST", body: form, timeoutMs: 120_000 });
 }
 
 /* =========================================================

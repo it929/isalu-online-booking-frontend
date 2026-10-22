@@ -644,7 +644,9 @@ export function CheckAppointmentsPage() {
     drawRow("APPOINTMENT DATE", booking.date || "N/A", "TIME SLOT", cleanTimeSlotString(booking.time, booking.date));
     drawRow(
       "PATIENT TYPE",
-      String(booking.paymentType || booking.payment_type || "").toLowerCase().includes("hmo")
+      String(booking.paymentType || booking.payment_type || "").toLowerCase().includes("company")
+        ? `Company · ${booking.companyName || booking.hmoName || booking.hmo_name || "Company"}`
+        : String(booking.paymentType || booking.payment_type || "").toLowerCase().includes("hmo")
         ? `HMO · ${booking.hmoName || booking.hmo_name || "HMO"} · ID ${booking.hmoEnrolleeIdMasked || booking.hmoPolicyCode || "N/A"}`
         : (booking.paymentType || booking.payment_type || "Private Self-Pay"),
       "BOOKING STATUS",
@@ -816,7 +818,9 @@ export function CheckAppointmentsPage() {
     addDetailRow("Patient Name", booking.patientName || booking.patient_name || "N/A", "Contact Phone", booking.patientPhone || booking.patient_phone || "N/A");
     addDetailRow("Specialist Doctor", getDoctorDisplayAcronym(booking) || "Specialist", "Department / Specialty", booking.doctorSpecialty || booking.doctor_specialty || "Specialist Clinic");
     addDetailRow("Appointment Date", booking.date || "N/A", "Time Slot", cleanTimeSlotString(booking.time, booking.date));
-    addDetailRow("Patient Type", String(booking.paymentType || booking.payment_type || "").toLowerCase().includes("hmo")
+    addDetailRow("Patient Type", String(booking.paymentType || booking.payment_type || "").toLowerCase().includes("company")
+      ? `Company · ${booking.companyName || booking.hmoName || booking.hmo_name || "Company"}`
+      : String(booking.paymentType || booking.payment_type || "").toLowerCase().includes("hmo")
       ? `HMO · ${booking.hmoName || booking.hmo_name || "HMO"} · Enrollee ID ${booking.hmoEnrolleeIdMasked || booking.hmoPolicyCode || "N/A"}`
       : (booking.paymentType || booking.payment_type || "Private Self-Pay"), "Booking Status", booking.status || "Confirmed");
 
@@ -1017,7 +1021,9 @@ export function CheckAppointmentsPage() {
     return { disabled: false, reason: "" };
   };
 
-  const isHmoBooking = (booking: any) => String(booking?.paymentType || booking?.payment_type || "").toLowerCase().includes("hmo");
+  // HMO and Company bookings share the HMO rules (booking window, HMO-accepting doctors).
+  const isHmoBooking = (booking: any) => /hmo|company/.test(String(booking?.paymentType || booking?.payment_type || "").toLowerCase());
+  const isCompanyBooking = (booking: any) => String(booking?.paymentType || booking?.payment_type || "").toLowerCase().includes("company");
   const [hmoNoticeHours, setHmoNoticeHours] = useState(48);
   const [hmoCloseMinutes, setHmoCloseMinutes] = useState(10);
   useEffect(() => {
@@ -1043,7 +1049,8 @@ export function CheckAppointmentsPage() {
     const currentClinic = currentDoc
       ? getDoctorClinicName(currentDoc)
       : String(booking.doctorSpecialty || booking.doctor_specialty || "").toLowerCase().trim();
-    const isHmo = String(booking.paymentType || booking.payment_type || "").toLowerCase().includes("hmo");
+    // Company patients see the same doctors as HMO patients.
+    const isHmo = /hmo|company/.test(String(booking.paymentType || booking.payment_type || "").toLowerCase());
     const patientType = isHmo ? "HMO Insurance" : "Private Self-Pay";
 
     const others = doctorsList.filter((d) => {
@@ -1530,7 +1537,7 @@ export function CheckAppointmentsPage() {
                         <>
                           {isHmoBooking(selectedBooking) && (
                             <p data-testid="reschedule-hmo-note" className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-xl p-3 sm:col-span-2">
-                              HMO appointments can be booked from {hmoNoticeHours} hours before the clinic starts until {hmoCloseMinutes} minutes before, if space is still available. Later days open for HMO booking {hmoNoticeHours} hours before their clinic.
+                              {isCompanyBooking(selectedBooking) ? "Company" : "HMO"} appointments can be booked from {hmoNoticeHours} hours before the clinic starts until {hmoCloseMinutes} minutes before, if space is still available. Later days open for {isCompanyBooking(selectedBooking) ? "company" : "HMO"} booking {hmoNoticeHours} hours before their clinic.
                             </p>
                           )}
                           {noOpenDay && (
@@ -1572,7 +1579,7 @@ export function CheckAppointmentsPage() {
                                     </span>
                                   ) : dItem.isHmoLocked ? (
                                     <span className="bg-amber-100 text-amber-800 text-[10px] font-extrabold px-1.5 py-0.5 rounded">
-                                      {dItem.hmoOpensDay ? `HMO from ${dItem.hmoOpensDay}` : "Closed"}
+                                      {dItem.hmoOpensDay ? `${isCompanyBooking(selectedBooking) ? "Co." : "HMO"} from ${dItem.hmoOpensDay}` : "Closed"}
                                     </span>
                                   ) : dItem.isNextAvailable && (
                                     <span className="bg-emerald-100 text-emerald-800 text-[10px] font-extrabold px-1.5 py-0.5 rounded">
@@ -1714,6 +1721,12 @@ export function CheckAppointmentsPage() {
                     <span className="text-slate-400 text-xs font-semibold">Payment Type:</span>
                     <span className="font-bold">{selectedBooking.paymentType || selectedBooking.payment_type || "Private Self-Pay"}</span>
                   </div>
+                  {isCompanyBooking(selectedBooking) && (
+                    <div className="flex justify-between" data-testid="check-company">
+                      <span className="text-slate-400 text-xs font-semibold">Company:</span>
+                      <span className="font-bold">{selectedBooking.companyName || selectedBooking.hmoName || selectedBooking.hmo_name}</span>
+                    </div>
+                  )}
                   {String(selectedBooking.paymentType || selectedBooking.payment_type || "").toLowerCase().includes("hmo") && (
                     <div className="flex justify-between" data-testid="check-enrollee-id">
                       <span className="text-slate-400 text-xs font-semibold">HMO / Enrollee ID:</span>
