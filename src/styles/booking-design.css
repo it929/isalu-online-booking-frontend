@@ -622,3 +622,12 @@ html.dark .isalu-book .bk-ticket-actions>.bk-btn-soft {
     }
 
 }
+/* Compact card (e.g. Visit Type on the doctor step): keep the card look, less padding. */
+.isalu-book .bk-card.bk-card-compact {
+    padding: 0.875rem 1rem !important;
+}
+@media (min-width: 768px) {
+    .isalu-book .bk-card.bk-card-compact {
+        padding: 1rem 1.25rem !important;
+    }
+}

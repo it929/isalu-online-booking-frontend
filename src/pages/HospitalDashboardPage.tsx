@@ -277,6 +277,17 @@ const isHmoRecord = (b: any): boolean => {
   const pay = String(b?.paymentType ?? b?.payment_type ?? "").toLowerCase();
   return pay.includes("hmo") || pay.includes("insurance");
 };
+/** "Follow-up" tag (with the balance owed if it turns out to be a first visit), shown to desk staff. */
+const FollowUpTag = ({ booking }: { booking: any }) => {
+  if ((booking?.visitType || booking?.visit_type) !== "Follow-up") return null;
+  const balance = Number(booking?.followUpBalance ?? 0);
+  return (
+    <span data-testid="follow-up-tag" title={balance > 0 ? `If this isn't a follow-up visit, collect the balance of ₦${balance.toLocaleString("en-NG")} (patient agreed when booking).` : "Booked as a follow-up visit."}
+      className="inline-block mt-1 px-1.5 py-0.5 rounded text-[9.5px] font-black uppercase bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30">
+      Follow-up{balance > 0 ? ` · balance ₦${balance.toLocaleString("en-NG")} if not` : ""}
+    </span>
+  );
+};
 /** Company patients: covered by their company, approved at the HMO desk, no enrollee ID. */
 const isCompanyRecord = (b: any): boolean =>
   String(b?.paymentType ?? b?.payment_type ?? "").toLowerCase().includes("company");
@@ -2898,6 +2909,7 @@ ADMINISTRATIVE VERIFICATION:
         status: d.status,
         location: d.location || "Main Hospital Complex - Suite Wing",
         consultationFee: Number(d.consultationFee ?? d.consultation_fee ?? 0),
+        followUpFee: Number(d.followUpFee ?? d.follow_up_fee ?? 0),
       }));
       if (mapped.length > 0) {
         try { localStorage.setItem("isalu_cached_clinics", JSON.stringify(mapped)); } catch { }
@@ -2988,6 +3000,7 @@ ADMINISTRATIVE VERIFICATION:
   const [newClinicLocation, setNewClinicLocation] = useState("Main Hospital Complex - Suite Wing");
   const [newClinicStatus, setNewClinicStatus] = useState("Active");
   const [newClinicFee, setNewClinicFee] = useState("");
+  const [newClinicFollowUpFee, setNewClinicFollowUpFee] = useState("");
   const [clinicFormError, setClinicFormError] = useState("");
 
   const [clinicSearchQuery, setClinicSearchQuery] = useState("");
@@ -3018,6 +3031,7 @@ ADMINISTRATIVE VERIFICATION:
   const [editClinicLocation, setEditClinicLocation] = useState("");
   const [editClinicStatus, setEditClinicStatus] = useState("Active");
   const [editClinicFee, setEditClinicFee] = useState("");
+  const [editClinicFollowUpFee, setEditClinicFollowUpFee] = useState("");
   const [editClinicFormError, setEditClinicFormError] = useState("");
 
   const filteredClinics = clinics.filter((c) => {
@@ -3615,10 +3629,20 @@ ADMINISTRATIVE VERIFICATION:
       setClinicFormError("Enter the consultation fee as a number in Naira, for example 15000.");
       return;
     }
+    const newFollowUp = newClinicFollowUpFee.trim() === "" ? 0 : Number(newClinicFollowUpFee.replace(/,/g, ""));
+    if (!Number.isFinite(newFollowUp) || newFollowUp < 0) {
+      setClinicFormError("Enter the follow-up fee as a number in Naira, for example 10000.");
+      return;
+    }
+    if (newFollowUp > newFee && newFee > 0) {
+      setClinicFormError("The follow-up fee can't be more than the first-visit fee.");
+      return;
+    }
     setIsSubmittingClinic(true);
     try {
       ensureOk(await createDepartmentAPI({
         consultation_fee: newFee,
+        follow_up_fee: newFollowUp,
         name: newClinicName.trim(),
         dept_id: newClinicId.trim() || undefined,
         description: newClinicDescription.trim() || "Specialized clinical consultation services.",
@@ -3631,6 +3655,7 @@ ADMINISTRATIVE VERIFICATION:
       setNewClinicId("");
       setNewClinicDescription("");
       setNewClinicFee("");
+      setNewClinicFollowUpFee("");
       setClinicFormError("");
       setShowCreateClinicModal(false);
       setToastAlert({ title: "Department Registered ✓", description: `Clinic unit ${newClinicName.trim()} created.`, type: "success" });
@@ -3653,10 +3678,20 @@ ADMINISTRATIVE VERIFICATION:
       setEditClinicFormError("Enter the consultation fee as a number in Naira, for example 15000.");
       return;
     }
+    const editFollowUp = editClinicFollowUpFee.trim() === "" ? 0 : Number(editClinicFollowUpFee.replace(/,/g, ""));
+    if (!Number.isFinite(editFollowUp) || editFollowUp < 0) {
+      setEditClinicFormError("Enter the follow-up fee as a number in Naira, for example 10000.");
+      return;
+    }
+    if (editFollowUp > editFee && editFee > 0) {
+      setEditClinicFormError("The follow-up fee can't be more than the first-visit fee.");
+      return;
+    }
     setIsSubmittingClinic(true);
     try {
       ensureOk(await updateDepartmentAPI(editingClinic.id || editingClinic.dept_id, {
         consultation_fee: editFee,
+        follow_up_fee: editFollowUp,
         name: editClinicName.trim(),
         description: editClinicDescription.trim(),
         location: editClinicLocation.trim(),
@@ -4754,13 +4789,14 @@ ADMINISTRATIVE VERIFICATION:
       title: "Medical Clinics & Departments Directory Report",
       subtitle: "Hospital Departmental Units, Locations & Specialist Count Index",
       filename: "Isalu_Medical_Clinics_Directory.pdf",
-      headers: ["Clinic ID", "Department Name", "Location", "Doctors Count", "Consultation Fee (NGN)", "Status"],
+      headers: ["Clinic ID", "Department Name", "Location", "Doctors Count", "First Visit Fee (NGN)", "Follow-up Fee (NGN)", "Status"],
       data: clinics.map((c) => [
         c.id || c.dept_id || "-",
         c.name || "-",
         c.location || "Main Building",
         c.doctor_count || c.doctorCount || 0,
         c.consultationFee ? Number(c.consultationFee).toLocaleString("en-NG") : "0",
+        c.followUpFee ? Number(c.followUpFee).toLocaleString("en-NG") : "Same as first visit",
         c.status || "Active",
       ]),
     });
@@ -5748,6 +5784,7 @@ ADMINISTRATIVE VERIFICATION:
                                 <div className="text-[11px] text-slate-500 dark:text-slate-400">
                                   {b.patientPhone || b.patient_phone || "N/A"}
                                 </div>
+                                <FollowUpTag booking={b} />
                               </td>
 
                               <td className="py-4 px-4">
@@ -6563,7 +6600,7 @@ ADMINISTRATIVE VERIFICATION:
                           const patientPhone = b.patientPhone || b.patient_phone || "N/A";
                           return <tr key={refCode} className={`${isDarkMode ? 'hover:bg-slate-800/30' : 'hover:bg-cyan-500/5'} transition-colors`}>
                             <td className="py-4 px-4"><div className="font-mono font-bold text-cyan-400">{refCode}</div><div className="text-[10px] text-slate-400 mt-1">{b.date || "Date unavailable"}</div></td>
-                            <td className="py-4 px-4"><div className={`font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{patientName}</div><div className="text-[11px] text-slate-400 mt-1">{patientPhone}</div></td>
+                            <td className="py-4 px-4"><div className={`font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{patientName}</div><div className="text-[11px] text-slate-400 mt-1">{patientPhone}</div><FollowUpTag booking={b} /></td>
                             <td className="py-4 px-4"><div className={`font-semibold ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>{b.doctorSpecialty || b.doctor_specialty || b.department || "General Outpatient"}</div><div className="text-[10px] text-sky-400">{getDoctorRealName(b)}</div></td>
                             <td className="py-4 px-4"><span className="px-2.5 py-0.5 rounded-md text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">Private</span></td>
                             <td className="py-4 px-4"><span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30 inline-flex items-center gap-1"><Clock className="w-3 h-3" />Awaiting Payment</span></td>
@@ -8317,10 +8354,16 @@ ADMINISTRATIVE VERIFICATION:
                             <span className="font-bold text-sky-400">{cCount} Doctors</span>
                           </div>
                           <div className="text-[11px] font-medium flex items-center justify-between" data-testid="clinic-fee">
-                            <span className="text-slate-500">Private consultation fee</span>
+                            <span className="text-slate-500">First visit fee</span>
                             {clinic.consultationFee > 0
                               ? <span className="font-bold text-emerald-500">₦{Number(clinic.consultationFee).toLocaleString("en-NG")} (paid online)</span>
                               : <span className="font-bold text-amber-500">Not set: private online booking off</span>}
+                          </div>
+                          <div className="text-[11px] font-medium flex items-center justify-between" data-testid="clinic-follow-up-fee">
+                            <span className="text-slate-500">Follow-up fee</span>
+                            {clinic.followUpFee > 0
+                              ? <span className="font-bold text-emerald-500">₦{Number(clinic.followUpFee).toLocaleString("en-NG")}</span>
+                              : <span className="font-bold text-slate-400">Same as first visit</span>}
                           </div>
                         </div>
 
@@ -8335,6 +8378,7 @@ ADMINISTRATIVE VERIFICATION:
                                 setEditClinicDescription(clinic.description || "");
                                 setEditClinicStatus(clinic.status === "Maintenance" ? "Maintenance" : "Active");
                                 setEditClinicFee(clinic.consultationFee ? String(clinic.consultationFee) : "");
+                                setEditClinicFollowUpFee(clinic.followUpFee ? String(clinic.followUpFee) : "");
                                 setEditClinicFormError("");
                               }}
                               className="px-3 py-1 rounded-lg text-xs font-bold border border-sky-500/20 bg-sky-500/10 hover:bg-sky-500/20 text-sky-400"
@@ -9732,7 +9776,7 @@ ADMINISTRATIVE VERIFICATION:
 
               <div className="space-y-1">
                 <label htmlFor="new-clinic-fee" className="text-xs font-black text-slate-700 dark:text-slate-300">
-                  Private Consultation Fee (₦)
+                  First Visit Consultation Fee (₦)
                 </label>
                 <input
                   id="new-clinic-fee"
@@ -9744,6 +9788,22 @@ ADMINISTRATIVE VERIFICATION:
                   className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold focus:outline-none focus:border-[#008ac9]"
                 />
                 <p className="text-[11px] text-slate-500">Private self-pay patients pay this online with Paystack before they get a ticket. Without a fee, private patients can't book this clinic online.</p>
+              </div>
+
+              <div className="space-y-1">
+                <label htmlFor="new-clinic-follow-up-fee" className="text-xs font-black text-slate-700 dark:text-slate-300">
+                  Follow-up Visit Fee (₦)
+                </label>
+                <input
+                  id="new-clinic-follow-up-fee"
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="e.g. 10000"
+                  value={newClinicFollowUpFee}
+                  onChange={(e) => setNewClinicFollowUpFee(e.target.value)}
+                  className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold focus:outline-none focus:border-[#008ac9]"
+                />
+                <p className="text-[11px] text-slate-500">Private patients who choose Follow-up pay this. Leave empty to charge the first-visit fee for follow-ups too.</p>
               </div>
 
               <div className="space-y-1">
@@ -9779,120 +9839,85 @@ ADMINISTRATIVE VERIFICATION:
         </div>
       )}
       {editingClinic && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm p-4 animate-fadeIn">
-          <div className="bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 rounded-3xl max-w-xl w-full p-6 shadow-2xl space-y-5 animate-scaleUp">
-            <div className="flex items-center justify-between border-b-2 border-slate-100 dark:border-slate-800 pb-4">
-              <div className="flex items-center gap-3">
-                <div className="p-3 rounded-2xl bg-sky-100 dark:bg-slate-800 text-[#008ac9] font-black">
-                  <Pencil className="h-6 w-6" />
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-950/60 backdrop-blur-sm p-0 sm:p-4 animate-fadeIn" data-testid="edit-clinic-modal"
+          onMouseDown={(e) => { if (e.target === e.currentTarget) setEditingClinic(null); }}>
+          <form onSubmit={handleSaveEditClinic} role="dialog" aria-modal="true" aria-labelledby="edit-clinic-title"
+            className="bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 rounded-t-3xl sm:rounded-3xl w-full sm:max-w-xl max-h-[92dvh] sm:max-h-[calc(100dvh-2rem)] flex flex-col shadow-2xl animate-scaleUp">
+            <div className="flex items-start justify-between gap-3 px-5 sm:px-6 pt-5 pb-4 border-b-2 border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="p-2.5 rounded-2xl bg-sky-100 dark:bg-slate-800 text-[#008ac9] shrink-0">
+                  <Pencil className="h-5 w-5" />
                 </div>
-                <div>
-                  <h3 className="text-xl font-black text-slate-900 dark:text-white">Edit Clinic Details</h3>
-                  <p className="text-xs font-semibold text-slate-500">Update module details for {editingClinic.name}.</p>
+                <div className="min-w-0">
+                  <h3 id="edit-clinic-title" className="text-lg sm:text-xl font-black text-slate-900 dark:text-white leading-tight">Edit Clinic Details</h3>
+                  <p className="text-xs font-semibold text-slate-500 truncate">Update details for {editingClinic.name}.</p>
                 </div>
               </div>
-              <button
-                onClick={() => setEditingClinic(null)}
-                className="p-2 rounded-xl text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
-              >
+              <button type="button" aria-label="Close" onClick={() => setEditingClinic(null)}
+                className="p-1.5 rounded-xl text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 shrink-0">
                 <XCircle className="h-6 w-6" />
               </button>
             </div>
 
-            {editClinicFormError && (
-              <div className="p-3.5 bg-rose-50 border border-rose-200 text-rose-700 rounded-2xl text-xs font-black flex items-center gap-2">
-                <AlertCircle className="h-4 w-4 shrink-0" />
-                <span>{editClinicFormError}</span>
-              </div>
-            )}
+            <div className="flex-1 overflow-y-auto overscroll-contain px-5 sm:px-6 py-4 space-y-4">
+              {editClinicFormError && (
+                <div role="alert" className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-2xl text-xs font-black flex items-center gap-2">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  <span>{editClinicFormError}</span>
+                </div>
+              )}
 
-            <form onSubmit={handleSaveEditClinic} className="space-y-4">
-              <div className="space-y-1">
-                <label className="text-xs font-black text-slate-700 dark:text-slate-300">
-                  Clinic / Department Name
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={editClinicName}
-                  onChange={(e) => setEditClinicName(e.target.value)}
-                  className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold focus:outline-none focus:border-[#008ac9]"
-                />
+              <div>
+                <label htmlFor="edit-clinic-name" className="block text-xs font-black text-slate-700 dark:text-slate-300 mb-1">Clinic / Department Name</label>
+                <input id="edit-clinic-name" type="text" required value={editClinicName} onChange={(e) => setEditClinicName(e.target.value)} className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm sm:text-xs font-bold focus:outline-none focus:border-[#008ac9] focus:ring-2 focus:ring-[#008ac9]/20" />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="text-xs font-black text-slate-700 dark:text-slate-300">
-                    Location Wing
-                  </label>
-                  <input
-                    type="text"
-                    value={editClinicLocation}
-                    onChange={(e) => setEditClinicLocation(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold focus:outline-none focus:border-[#008ac9]"
-                  />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+                <div>
+                  <label htmlFor="edit-clinic-location" className="block text-xs font-black text-slate-700 dark:text-slate-300 mb-1">Location Wing</label>
+                  <input id="edit-clinic-location" type="text" value={editClinicLocation} onChange={(e) => setEditClinicLocation(e.target.value)} className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm sm:text-xs font-bold focus:outline-none focus:border-[#008ac9] focus:ring-2 focus:ring-[#008ac9]/20" />
                 </div>
-
-                <div className="space-y-1 sm:col-span-2">
-                  <label htmlFor="edit-clinic-fee" className="text-xs font-black text-slate-700 dark:text-slate-300">
-                    Private Consultation Fee (₦)
-                  </label>
-                  <input
-                    id="edit-clinic-fee"
-                    type="text"
-                    inputMode="decimal"
-                    placeholder="e.g. 15000"
-                    value={editClinicFee}
-                    onChange={(e) => setEditClinicFee(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold focus:outline-none focus:border-[#008ac9]"
-                  />
-                  <p className="text-[11px] text-slate-500">Changes apply to new bookings. Patients who already paid keep their original amount.</p>
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-xs font-black text-slate-700 dark:text-slate-300">
-                    Operational Status
-                  </label>
-                  <select
-                    value={editClinicStatus}
-                    onChange={(e) => setEditClinicStatus(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold focus:outline-none focus:border-[#008ac9]"
-                  >
+                <div>
+                  <label htmlFor="edit-clinic-status" className="block text-xs font-black text-slate-700 dark:text-slate-300 mb-1">Operational Status</label>
+                  <select id="edit-clinic-status" value={editClinicStatus} onChange={(e) => setEditClinicStatus(e.target.value)} className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm sm:text-xs font-bold focus:outline-none focus:border-[#008ac9] focus:ring-2 focus:ring-[#008ac9]/20">
                     <option value="Active">Active ✓</option>
                     <option value="Maintenance">Under Maintenance 🛠️</option>
                   </select>
                 </div>
               </div>
 
-              <div className="space-y-1">
-                <label className="text-xs font-black text-slate-700 dark:text-slate-300">
-                  Description & Medical Scope
-                </label>
-                <textarea
-                  rows={3}
-                  value={editClinicDescription}
-                  onChange={(e) => setEditClinicDescription(e.target.value)}
-                  className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold focus:outline-none focus:border-[#008ac9]"
-                />
-              </div>
+              <fieldset className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-800/40 p-3.5 sm:p-4">
+                <legend className="px-1.5 text-xs font-black text-slate-700 dark:text-slate-300">Consultation fees (₦)</legend>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label htmlFor="edit-clinic-fee" className="block text-[11px] font-bold text-slate-500 mb-1">First visit</label>
+                    <input id="edit-clinic-fee" type="text" inputMode="decimal" placeholder="e.g. 15000" value={editClinicFee} onChange={(e) => setEditClinicFee(e.target.value)} className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm sm:text-xs font-bold focus:outline-none focus:border-[#008ac9] focus:ring-2 focus:ring-[#008ac9]/20 bg-white dark:bg-slate-900" />
+                  </div>
+                  <div>
+                    <label htmlFor="edit-clinic-follow-up-fee" className="block text-[11px] font-bold text-slate-500 mb-1">Follow-up</label>
+                    <input id="edit-clinic-follow-up-fee" type="text" inputMode="decimal" placeholder="Same as first" value={editClinicFollowUpFee} onChange={(e) => setEditClinicFollowUpFee(e.target.value)} className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm sm:text-xs font-bold focus:outline-none focus:border-[#008ac9] focus:ring-2 focus:ring-[#008ac9]/20 bg-white dark:bg-slate-900" />
+                  </div>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-2 leading-snug">Private patients pay online. Leave Follow-up empty to charge the first-visit fee. Changes apply to new bookings only.</p>
+              </fieldset>
 
-              <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={() => setEditingClinic(null)}
-                  className="px-5 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-extrabold hover:bg-slate-200 transition-all"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-6 py-2.5 bg-[#008ac9] hover:bg-[#0072b1] text-white font-black text-xs rounded-xl shadow-lg shadow-[#008ac9]/25 transition-all flex items-center gap-1.5"
-                >
-                  <Pencil className="h-4 w-4" /> Save Changes
-                </button>
+              <div>
+                <label htmlFor="edit-clinic-description" className="block text-xs font-black text-slate-700 dark:text-slate-300 mb-1">Description & Medical Scope</label>
+                <textarea id="edit-clinic-description" rows={3} value={editClinicDescription} onChange={(e) => setEditClinicDescription(e.target.value)} className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm sm:text-xs font-bold focus:outline-none focus:border-[#008ac9] focus:ring-2 focus:ring-[#008ac9]/20 resize-y" />
               </div>
-            </form>
-          </div>
+            </div>
+
+            <div className="px-5 sm:px-6 py-3.5 border-t border-slate-100 dark:border-slate-800 flex items-center gap-3 sm:justify-end pb-[max(0.875rem,env(safe-area-inset-bottom))]">
+              <button type="button" onClick={() => setEditingClinic(null)}
+                className="flex-1 sm:flex-none px-5 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-extrabold hover:bg-slate-200 transition-all">
+                Cancel
+              </button>
+              <button type="submit" disabled={isSubmittingClinic}
+                className="flex-1 sm:flex-none px-6 py-2.5 bg-[#008ac9] hover:bg-[#0072b1] disabled:opacity-60 text-white font-black text-xs rounded-xl shadow-lg shadow-[#008ac9]/25 transition-all flex items-center justify-center gap-1.5">
+                <Pencil className="h-4 w-4" /> Save Changes
+              </button>
+            </div>
+          </form>
         </div>
       )}
 

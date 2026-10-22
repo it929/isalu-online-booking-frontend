@@ -538,6 +538,18 @@ export function CheckAppointmentsPage() {
   };
 
   // Canvas Image Ticket Generator
+  // Ticket lines for the visit type (first visit / follow-up) and the follow-up note.
+  const ticketVisitLabel = (b: any) => ((b?.visitType || b?.visit_type) === "Follow-up" ? "Follow-up visit" : "First visit");
+  const ticketFollowUpNote = (b: any): string => {
+    if ((b?.visitType || b?.visit_type) !== "Follow-up") return "";
+    const balance = Number(b?.followUpBalance ?? 0);
+    const first = Number(b?.firstVisitFee ?? 0);
+    if (balance > 0 && first > 0) {
+      return `FOLLOW-UP NOTE: If, on arrival at the hospital, it is found that this is not a follow-up visit, the patient is liable to pay the balance of N${balance.toLocaleString("en-NG")} to complete the first-visit fee of N${first.toLocaleString("en-NG")}. (Agreed when booking.)`;
+    }
+    return "FOLLOW-UP NOTE: Booked as a follow-up visit. The hospital confirms this on arrival.";
+  };
+
   const downloadTicketAsImage = (booking: any) => {
     if (!booking) return;
 
@@ -649,6 +661,7 @@ export function CheckAppointmentsPage() {
     drawRow("PATIENT NAME", booking.patientName || booking.patient_name || "N/A", "CONTACT PHONE", booking.patientPhone || booking.patient_phone || "N/A");
     drawRow("SPECIALIST DOCTOR", getDoctorDisplayAcronym(booking) || "Specialist", "DEPARTMENT / SPECIALTY", booking.doctorSpecialty || booking.doctor_specialty || "Specialist Clinic");
     drawRow("APPOINTMENT DATE", booking.date || "N/A", "TIME SLOT", cleanTimeSlotString(booking.time, booking.date));
+    drawRow("VISIT TYPE", ticketVisitLabel(booking), "CONSULTATION FEE", Number(booking.amountPaid || 0) > 0 ? `₦${Number(booking.feeAmount ?? booking.amountPaid).toLocaleString("en-NG")} (paid online)` : "—");
     drawRow(
       "PATIENT TYPE",
       String(booking.paymentType || booking.payment_type || "").toLowerCase().includes("company")
@@ -667,6 +680,30 @@ export function CheckAppointmentsPage() {
       ctx.fillStyle = "#059669";
       ctx.font = "900 22px sans-serif";
       ctx.fillText(`📎 ${booking.referralDocName || booking.referral_doc_name}`, 140, y + 35);
+      y += 75;
+    }
+
+    const fuNote = ticketFollowUpNote(booking).replace(/\bN(?=\d)/g, "₦");
+    if (fuNote) {
+      ctx.font = "bold 17px sans-serif";
+      const words = fuNote.split(" ");
+      const lines: string[] = [];
+      let line = "";
+      words.forEach((w) => {
+        const test = line ? `${line} ${w}` : w;
+        if (ctx.measureText(test).width > 690 && line) { lines.push(line); line = w; } else { line = test; }
+      });
+      if (line) lines.push(line);
+      const boxH = lines.length * 24 + 24;
+      ctx.fillStyle = "#FFFBEB";
+      ctx.fillRect(130, y - 22, 720, boxH);
+      ctx.strokeStyle = "#F59E0B";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(130, y - 22, 720, boxH);
+      ctx.fillStyle = "#92400E";
+      ctx.textAlign = "left";
+      lines.forEach((l, k) => ctx.fillText(l, 145, y + 4 + k * 24));
+      y += boxH;
     }
 
     ctx.save();
@@ -825,6 +862,7 @@ export function CheckAppointmentsPage() {
     addDetailRow("Patient Name", booking.patientName || booking.patient_name || "N/A", "Contact Phone", booking.patientPhone || booking.patient_phone || "N/A");
     addDetailRow("Specialist Doctor", getDoctorDisplayAcronym(booking) || "Specialist", "Department / Specialty", booking.doctorSpecialty || booking.doctor_specialty || "Specialist Clinic");
     addDetailRow("Appointment Date", booking.date || "N/A", "Time Slot", cleanTimeSlotString(booking.time, booking.date));
+    addDetailRow("Visit Type", ticketVisitLabel(booking), "Consultation Fee", Number(booking.amountPaid || 0) > 0 ? `N${Number(booking.feeAmount ?? booking.amountPaid).toLocaleString("en-NG")} (paid online)` : "-");
     addDetailRow("Patient Type", String(booking.paymentType || booking.payment_type || "").toLowerCase().includes("company")
       ? `Company · ${booking.companyName || booking.hmoName || booking.hmo_name || "Company"}`
       : String(booking.paymentType || booking.payment_type || "").toLowerCase().includes("hmo")
@@ -841,6 +879,21 @@ export function CheckAppointmentsPage() {
       doc.setFontSize(11);
       doc.text(`[Doc] ${booking.referralDocName || booking.referral_doc_name}`, 20, y + 6);
       y += 20;
+    }
+
+    const pdfNote = ticketFollowUpNote(booking);
+    if (pdfNote) {
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8.5);
+      const lines = doc.splitTextToSize(pdfNote, 118);
+      const boxH = lines.length * 4.2 + 5;
+      doc.setFillColor(255, 251, 235);
+      doc.setDrawColor(245, 158, 11);
+      doc.setLineWidth(0.4);
+      doc.rect(18, y - 4, 124, boxH, "FD");
+      doc.setTextColor(146, 64, 14);
+      doc.text(lines, 21, y + 0.5);
+      y += boxH + 2;
     }
 
     const sX = 168;
@@ -1740,6 +1793,15 @@ export function CheckAppointmentsPage() {
                     <span className="text-slate-400 text-xs font-semibold">Payment Type:</span>
                     <span className="font-bold">{selectedBooking.paymentType || selectedBooking.payment_type || "Private Self-Pay"}</span>
                   </div>
+                  <div className="flex justify-between" data-testid="check-visit-type">
+                    <span className="text-slate-400 text-xs font-semibold">Visit Type:</span>
+                    <span className="font-bold">{ticketVisitLabel(selectedBooking)}</span>
+                  </div>
+                  {ticketFollowUpNote(selectedBooking) && (
+                    <p data-testid="check-follow-up-note" className="text-[11px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2">
+                      {ticketFollowUpNote(selectedBooking).replace(/\bN(?=\d)/g, "₦")}
+                    </p>
+                  )}
                   {isCompanyBooking(selectedBooking) && (
                     <div className="flex justify-between" data-testid="check-company">
                       <span className="text-slate-400 text-xs font-semibold">Company:</span>

@@ -177,13 +177,17 @@ export function BookAppointmentPage() {
   const [availabilityError, setAvailabilityError] = useState<Record<string, boolean>>({});
   // Per doctor: clinic fee, whether private patients pay online, and the first
   // date HMO patients can book (they need HMO_MIN_NOTICE_HOURS' notice).
-  const [availabilityMetaByDoctor, setAvailabilityMetaByDoctor] = useState<Record<string, { fee: number; onlinePaymentRequired: boolean; privateProblem: string; earliestHmoDate: string | null; hmoNoticeHours: number; hmoCloseMinutes: number }>>({});
+  const [availabilityMetaByDoctor, setAvailabilityMetaByDoctor] = useState<Record<string, { fee: number; onlinePaymentRequired: boolean; privateProblem: string; earliestHmoDate: string | null; hmoNoticeHours: number; hmoCloseMinutes: number; firstVisitFee?: number; followUpFee?: number }>>({});
   const [analyticsUpdatedAt, setAnalyticsUpdatedAt] = useState<Date | null>(null);
   const [analyticsDate, setAnalyticsDate] = useState<string>("");
   const [analyticsWeek, setAnalyticsWeek] = useState<number>(0); // 0 = next 7 days, 1 = the 7 after, …
 
   const [patientName, setPatientName] = useState<string>("");
   const [patientPhone, setPatientPhone] = useState<string>("");
+  // First visit or follow-up: decides the fee. A follow-up patient agrees to pay the
+  // balance on arrival if the hospital finds it isn't a follow-up.
+  const [visitType, setVisitType] = useState<"First Visit" | "Follow-up">("First Visit");
+  const [followUpAgreed, setFollowUpAgreed] = useState(false);
   // Nigerian mobile numbers only (any common format). The message shows once the
   // patient leaves the field or tries to continue, not while they're still typing.
   const [phoneTouched, setPhoneTouched] = useState(false);
@@ -380,6 +384,8 @@ export function BookAppointmentPage() {
           earliestHmoDate: data.earliest_hmo_date || null,
           hmoNoticeHours: Number(data.hmo_min_notice_hours || 48),
           hmoCloseMinutes: Number(data.hmo_close_minutes ?? 10),
+          firstVisitFee: data.first_visit_fee != null ? Number(data.first_visit_fee) : undefined,
+          followUpFee: data.follow_up_fee != null ? Number(data.follow_up_fee) : undefined,
         },
       }));
       setAvailabilityError((prev) => ({ ...prev, [docKey]: false }));
@@ -1415,6 +1421,22 @@ export function BookAppointmentPage() {
   };
 
 
+  // Ticket lines for the visit type (first visit / follow-up) and the follow-up note.
+  const ticketVisitLabel = (b: any) => ((b?.visitType || b?.visit_type) === "Follow-up" ? "Follow-up visit" : "First visit");
+  const ticketFollowUpNote = (b: any): string => {
+    if ((b?.visitType || b?.visit_type) !== "Follow-up") return "";
+    const balance = Number(b?.followUpBalance ?? 0);
+    const first = Number(b?.firstVisitFee ?? 0);
+    if (balance > 0 && first > 0) {
+      return `FOLLOW-UP NOTE: If, on arrival at the hospital, it is found that this is not a follow-up visit, the patient is liable to pay the balance of N${balance.toLocaleString("en-NG")} to complete the first-visit fee of N${first.toLocaleString("en-NG")}. (Agreed when booking.)`;
+    }
+    return "FOLLOW-UP NOTE: Booked as a follow-up visit. The hospital confirms this on arrival.";
+  };
+  const ticketAmountLabel = (b: any) => {
+    const fee = Number(b?.feeAmount ?? b?.amountPaid ?? 0);
+    return fee > 0 && Number(b?.amountPaid || 0) > 0 ? `N${fee.toLocaleString("en-NG")} (paid online)` : "—";
+  };
+
   const downloadTicketAsImage = (booking: any) => {
     if (!booking) return;
 
@@ -1520,6 +1542,7 @@ export function BookAppointmentPage() {
     drawRow("PATIENT NAME", booking.patientName || "N/A", "CONTACT PHONE", booking.patientPhone || "N/A");
     drawRow("SPECIALIST DOCTOR", getDoctorDisplayAcronym(booking) || "Specialist", "DEPARTMENT / SPECIALTY", booking.doctorSpecialty || "Specialist Clinic");
     drawRow("APPOINTMENT DATE", formatDateToOrdinal(booking.date) || "N/A", "TIME SLOT", booking.time || "N/A");
+    drawRow("VISIT TYPE", ticketVisitLabel(booking), "CONSULTATION FEE", ticketAmountLabel(booking).replace(/^N/, "₦"));
     drawRow("PATIENT TYPE", booking.paymentType || "Private Self-Pay", "HMO / ENROLLEE CODE", booking.paymentType === "HMO Insurance" ? `${booking.hmoName || "HMO"} (${booking.hmoPolicyCode || "N/A"})` : String(booking.paymentType || "").toLowerCase().includes("company") ? `Company: ${booking.companyName || booking.hmoName || "Company"}` : "N/A (Self-Pay)");
 
     if (booking.referralDocName) {
@@ -1529,6 +1552,30 @@ export function BookAppointmentPage() {
       ctx.fillStyle = "#059669";
       ctx.font = "900 22px sans-serif";
       ctx.fillText(`📎 ${booking.referralDocName}`, 140, y + 35);
+      y += 75;
+    }
+
+    // Follow-up note (wrapped, left of the seal).
+    const fuNote = ticketFollowUpNote(booking).replace(/\bN(?=\d)/g, "₦");
+    if (fuNote) {
+      ctx.font = "bold 17px sans-serif";
+      const words = fuNote.split(" ");
+      const lines: string[] = [];
+      let line = "";
+      words.forEach((w) => {
+        const test = line ? `${line} ${w}` : w;
+        if (ctx.measureText(test).width > 690 && line) { lines.push(line); line = w; } else { line = test; }
+      });
+      if (line) lines.push(line);
+      const boxH = lines.length * 24 + 24;
+      ctx.fillStyle = "#FFFBEB";
+      ctx.fillRect(130, y - 22, 720, boxH);
+      ctx.strokeStyle = "#F59E0B";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(130, y - 22, 720, boxH);
+      ctx.fillStyle = "#92400E";
+      lines.forEach((l, k) => ctx.fillText(l, 145, y + 4 + k * 24));
+      y += boxH;
     }
 
     ctx.save();
@@ -1684,6 +1731,7 @@ export function BookAppointmentPage() {
     addDetailRow("Patient Name", booking.patientName || "N/A", "Contact Phone", booking.patientPhone || "N/A");
     addDetailRow("Specialist Doctor", getDoctorDisplayAcronym(booking) || "Specialist", "Department / Specialty", booking.doctorSpecialty || "Specialist Clinic");
     addDetailRow("Appointment Date", formatDateToOrdinal(booking.date) || "N/A", "Time Slot", booking.time || "N/A");
+    addDetailRow("Visit Type", ticketVisitLabel(booking), "Consultation Fee", ticketAmountLabel(booking));
     addDetailRow("Patient Type", booking.paymentType || "Private Self-Pay", "HMO / Enrollee ID", booking.paymentType === "HMO Insurance" ? `${booking.hmoName || "HMO"} (${booking.hmoPolicyCode || "N/A"})` : String(booking.paymentType || "").toLowerCase().includes("company") ? `Company: ${booking.companyName || booking.hmoName || "Company"}` : "N/A (Self-Pay)");
 
     if (booking.referralDocName) {
@@ -1696,6 +1744,21 @@ export function BookAppointmentPage() {
       doc.setFontSize(11);
       doc.text(`[Doc] ${booking.referralDocName}`, 20, y + 6);
       y += 20;
+    }
+
+    const pdfNote = ticketFollowUpNote(booking);
+    if (pdfNote) {
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8.5);
+      const lines = doc.splitTextToSize(pdfNote, 118);
+      const boxH = lines.length * 4.2 + 5;
+      doc.setFillColor(255, 251, 235);
+      doc.setDrawColor(245, 158, 11);
+      doc.setLineWidth(0.4);
+      doc.rect(18, y - 4, 124, boxH, "FD");
+      doc.setTextColor(146, 64, 14);
+      doc.text(lines, 21, y + 0.5);
+      y += boxH + 2;
     }
 
     const sX = 168;
@@ -1774,9 +1837,22 @@ export function BookAppointmentPage() {
   // ------------------------------------------------------------------
   // ONLINE PAYMENT (private self-pay) AND HMO NOTICE
   // ------------------------------------------------------------------
+  const formatNairaShort = (n: number) => `₦${Number(n || 0).toLocaleString("en-NG", { maximumFractionDigits: 2 })}`;
   const selectedMeta = availabilityMetaByDoctor[selectedDoctorKey];
   const selectedDeptFee = Number(departmentsList.find((d: any) => d.id === selectedDept || d.dept_id === selectedDept)?.consultationFee || 0);
-  const clinicFee = Number(selectedMeta?.fee ?? (selectedDoctor as any)?.consultationFee ?? selectedDeptFee ?? 0);
+  const selectedDeptFollowUpFee = Number(departmentsList.find((d: any) => d.id === selectedDept || d.dept_id === selectedDept)?.followUpFee || 0);
+  // consultationFee = first visit; followUpFee (0 = same as first visit).
+  const firstVisitFee = Number(selectedMeta?.firstVisitFee ?? selectedMeta?.fee ?? (selectedDoctor as any)?.consultationFee ?? selectedDeptFee ?? 0);
+  const followUpRaw = Number(selectedMeta?.followUpFee ?? ((selectedDoctor as any)?.followUpFee || selectedDeptFollowUpFee || 0));
+  const followUpFee = followUpRaw > 0 ? followUpRaw : firstVisitFee;
+  const followUpBalance = Math.max(firstVisitFee - followUpFee, 0);
+  const isFollowUp = visitType === "Follow-up";
+  const clinicFee = isFollowUp ? followUpFee : firstVisitFee;
+  // Private follow-ups that cost less than a first visit need the patient's agreement.
+  const followUpAgreementNeeded = isFollowUp && patientType === "Private Self-Pay" && followUpBalance > 0;
+  const followUpAgreementMissing = followUpAgreementNeeded && !followUpAgreed;
+  const followUpNoteText = (balance: number, first: number) =>
+    `If, on arrival at the hospital, it is found that this is not a follow-up visit, you are liable to pay the balance of ${formatNairaShort(balance)} to complete the first-visit fee of ${formatNairaShort(first)}.`;
   // The server decides (Paystack switched on, clinic has a fee, patient is private).
   // Before a doctor's calendar loads, the clinic's fee gives the same answer.
   const paymentMandatory = paymentConfig?.private_bookings_require_payment !== false;
@@ -1883,6 +1959,8 @@ export function BookAppointmentPage() {
     reason,
     paymentType: "Private Self-Pay",
     payment_type: "Private Self-Pay",
+    visitType,
+    followUpAcknowledged: followUpAgreed && isFollowUp,
     referralDocName: referralDocName || "",
     referral_doc_name: referralDocName || "",
     referralDocData: referralDocData || "",
@@ -1901,6 +1979,11 @@ export function BookAppointmentPage() {
       }
       if (!phoneValid) {
         setApiError(phoneProblem);
+        return;
+      }
+      if (followUpAgreementMissing) {
+        setApiError("Please tick the follow-up note to agree before continuing.");
+        setStep(2);
         return;
       }
       if (patientEmail.trim() && !/^\S+@\S+\.\S+$/.test(patientEmail.trim())) {
@@ -1932,6 +2015,11 @@ export function BookAppointmentPage() {
       setApiError(phoneProblem);
       return;
     }
+    if (followUpAgreementMissing) {
+      setApiError("Please tick the follow-up note to agree before continuing.");
+      setStep(2);
+      return;
+    }
     if (duplicateBooking) {
       setApiError(duplicateBooking.message || "You already have an appointment in this clinic on this day. Please pick another date.");
       return;
@@ -1959,6 +2047,11 @@ export function BookAppointmentPage() {
     }
     if (!phoneValid) {
       setApiError(phoneProblem);
+      return;
+    }
+    if (followUpAgreementMissing) {
+      setApiError("Please tick the follow-up note to agree before continuing.");
+      setStep(2);
       return;
     }
 
@@ -2011,6 +2104,8 @@ export function BookAppointmentPage() {
       reason,
       paymentType: patientType,
       payment_type: patientType,
+      visitType,
+      followUpAcknowledged: followUpAgreed && isFollowUp,
       hmoName: patientType === "HMO Insurance" ? hmoName : isCompanyPatient ? companyName : "N/A",
       hmo_name: patientType === "HMO Insurance" ? hmoName : isCompanyPatient ? companyName : "N/A",
       hmoPolicyCode: patientType === "HMO Insurance" ? hmoPolicyCode : "",
@@ -2199,6 +2294,7 @@ export function BookAppointmentPage() {
             <Row label="Doctor" value={summary.doctor} />
             <Row label="Date" value={dateLabel} />
             <Row label="Time" value={summary.time} />
+            <Row label="Visit type" value={(b?.visitType || visitType) === "Follow-up" ? "Follow-up visit" : "First visit"} />
           </div>
           <div className="flex items-baseline justify-between gap-4 mt-5 mb-5">
             <span className="text-sm font-black text-slate-900 dark:text-white">Amount to pay</span>
@@ -3300,6 +3396,50 @@ export function BookAppointmentPage() {
                 </div>
               )}
 
+              {/* Visit type: first visit or follow-up (decides the fee for private patients). */}
+              <div data-testid="visit-type" className="bk-card bk-card-compact bg-white dark:bg-slate-900 border-2 border-slate-300 dark:border-slate-800 rounded-2xl p-3.5 sm:p-4 shadow-sm space-y-2.5">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+                  <span id="visit-type-label" className="text-xs font-black text-slate-900 dark:text-white whitespace-nowrap">
+                    Visit Type <span className="text-red-500">*</span>
+                  </span>
+                  <div className="grid grid-cols-2 gap-1 p-1 rounded-xl bg-slate-100 dark:bg-slate-800 flex-1 sm:max-w-md" role="radiogroup" aria-labelledby="visit-type-label">
+                    {(["First Visit", "Follow-up"] as const).map((v) => {
+                      const active = visitType === v;
+                      const price = v === "Follow-up" ? followUpFee : firstVisitFee;
+                      const key = v === "Follow-up" ? "follow-up" : "first";
+                      return (
+                        <button key={v} type="button" role="radio" aria-checked={active} data-testid={`visit-type-${key}`}
+                          onClick={() => { setVisitType(v); if (v === "First Visit") setFollowUpAgreed(false); }}
+                          className={`px-2.5 py-2 rounded-lg text-xs font-black transition-all flex items-center justify-center gap-1.5 flex-wrap ${active
+                            ? "bg-[#008ac9] text-white shadow"
+                            : "text-slate-700 dark:text-slate-200 hover:bg-white dark:hover:bg-slate-700"}`}>
+                          <span>{v === "Follow-up" ? "Follow-up" : "First visit"}</span>
+                          {patientType === "Private Self-Pay" && price > 0 && (
+                            <span data-testid={`visit-price-${key}`} className={`font-bold ${active ? "text-sky-100" : "text-[#008ac9] dark:text-sky-400"}`}>{formatNairaShort(price)}</span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                {isFollowUp && (
+                  <div data-testid="follow-up-note" className="rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/40 px-3 py-2.5 space-y-2">
+                    <p className="text-[11px] sm:text-xs font-semibold text-amber-900 dark:text-amber-200 leading-snug">
+                      {followUpAgreementNeeded
+                        ? followUpNoteText(followUpBalance, firstVisitFee)
+                        : "Choose Follow-up only if you have seen a doctor in this clinic before for the same condition. The hospital confirms this when you arrive."}
+                    </p>
+                    {followUpAgreementNeeded && (
+                      <label className="flex items-start gap-2 text-[11px] sm:text-xs font-black text-slate-900 dark:text-white cursor-pointer">
+                        <input type="checkbox" data-testid="follow-up-agree" checked={followUpAgreed} onChange={(e) => setFollowUpAgreed(e.target.checked)}
+                          className="mt-0.5 h-4 w-4 accent-[#008ac9] flex-shrink-0" />
+                        <span>I agree to pay the {formatNairaShort(followUpBalance)} balance at the hospital if this is not a follow-up visit.</span>
+                      </label>
+                    )}
+                  </div>
+                )}
+              </div>
+
               {duplicateBanner}
               <div className="flex justify-between pt-2">
                 <button
@@ -3311,7 +3451,7 @@ export function BookAppointmentPage() {
                 </button>
                 <button
                   type="button"
-                  disabled={!selectedDoctorId}
+                  disabled={!selectedDoctorId || followUpAgreementMissing}
                   onClick={() => setStep(3)}
                   className="bk-next bg-[#008ac9] hover:bg-[#0072b1] disabled:opacity-50 text-white px-8 py-3 text-sm font-black rounded-2xl flex items-center gap-2 shadow-lg border-2 border-sky-300/40 transition-all"
                 >
@@ -3770,6 +3910,10 @@ export function BookAppointmentPage() {
                     <span className="text-xs text-slate-500 block font-bold">Patient Type</span>
                     <span className="font-black text-slate-900 dark:text-white text-sm">{bookingConfirmed.paymentType || "Private Self-Pay"}</span>
                   </div>
+                  <div data-testid="ticket-visit-type">
+                    <span className="text-xs text-slate-500 block font-bold">Visit Type</span>
+                    <span className="font-black text-slate-900 dark:text-white text-sm">{ticketVisitLabel(bookingConfirmed)}</span>
+                  </div>
                   {String(bookingConfirmed.paymentType || "").toLowerCase().includes("company") && (
                     <div data-testid="ticket-company">
                       <span className="text-xs text-slate-500 block font-bold">Company</span>
@@ -3793,6 +3937,11 @@ export function BookAppointmentPage() {
                     <div className="col-span-2 pt-1">
                       <span className="text-xs text-slate-500 block font-bold">Attached Referral Letter</span>
                       <span className="font-bold text-emerald-600 dark:text-emerald-400 text-xs">📎 {bookingConfirmed.referralDocName}</span>
+                    </div>
+                  )}
+                  {ticketFollowUpNote(bookingConfirmed) && (
+                    <div data-testid="ticket-follow-up-note" className="col-span-2 rounded-xl border-2 border-amber-300 bg-amber-50 dark:bg-amber-950/40 dark:border-amber-700 p-3 text-xs font-bold text-amber-900 dark:text-amber-200 leading-relaxed">
+                      {ticketFollowUpNote(bookingConfirmed).replace(/\bN(?=\d)/g, "₦")}
                     </div>
                   )}
                 </div>
